@@ -1,0 +1,13 @@
+{
+  "sip_addr": "192.168.31.112:5060",
+  "http_addr": "0.0.0.0:9000",
+  "public_ip": "192.168.31.112",
+
+  "sip_id":"34020000002000000001",
+  "sip_realm": "192.168.31.112:5060",
+  "password":"123456",
+  "alive_expires": 180,
+  "mobile_position_interval": 10,
+
+  "media_server": "192.168.31.112:8080"
+}
