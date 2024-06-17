@@ -29,17 +29,15 @@ func Send(path string, body interface{}) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func CreateGBSource(id, transport, setup string, ssrc uint32) (string, uint16, error) {
+func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, error) {
 	v := &struct {
-		Source    string `json:"source"`
-		Transport string `json:"transport"`
-		Setup     string `json:"setup"`
-		SSRC      uint32 `json:"ssrc"`
+		Source string `json:"source"`
+		Setup  string `json:"setup"`
+		SSRC   uint32 `json:"ssrc"`
 	}{
-		Source:    id,
-		Transport: transport,
-		Setup:     setup,
-		SSRC:      ssrc,
+		Source: id,
+		Setup:  setup,
+		SSRC:   ssrc,
 	}
 
 	response, err := Send("v1/gb28181/source/create", v)
@@ -62,6 +60,19 @@ func CreateGBSource(id, transport, setup string, ssrc uint32) (string, uint16, e
 	}
 
 	return connectInfo.Data.IP, connectInfo.Data.Port, nil
+}
+
+func ConnectGBSource(id, addr string) error {
+	v := &struct {
+		Source     string `json:"source"` //SourceId
+		RemoteAddr string `json:"remote_addr"`
+	}{
+		Source:     id,
+		RemoteAddr: addr,
+	}
+
+	_, err := Send("v1/gb28181/source/connect", v)
+	return err
 }
 
 func CloseGBSource(id string) error {

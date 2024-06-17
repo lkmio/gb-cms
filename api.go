@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
@@ -121,23 +123,27 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 	}()
 
 	ssrc := GetLiveSSRC()
-	ip, port, err := CreateGBSource(streamId, "UDP", "recvonly", ssrc)
+	query := r.URL.Query()
+	setup := strings.ToLower(query.Get("setup"))
+	ip, port, err := CreateGBSource(streamId, setup, ssrc)
 	if err != nil {
 		Sugar.Errorf("创建GBSource失败 err:%s", err.Error())
 		return
 	}
 
-	inviteRequest, err := device.DoLive(channelId, ip, port, "RTP/AVP", "recvonly", ssrc)
+	inviteRequest, err := device.DoLive(channelId, ip, port, setup, ssrc)
 	if err != nil {
 		return
 	}
 
 	var bye sip.Request
+	var answer string
 	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	SipUA.SendRequestWithContext(reqCtx, inviteRequest, gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
 		if res.StatusCode() < 200 {
 
 		} else if res.StatusCode() == 200 {
+			answer = res.Body()
 			ackRequest := sip.NewAckRequest("", inviteRequest, res, "", nil)
 			ackRequest.AppendHeader(globalContactAddress.AsContactHeader())
 			//手动替换ack请求目标地址, answer的contact可能不对.
@@ -168,6 +174,26 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 
 	if !inviteOk {
 		return
+	}
+
+	if "active" == setup {
+		parse, err := sdp.Parse(answer)
+		if err != nil {
+			inviteOk = false
+			logger.Errorf("解析应答sdp失败 err:%s sdp:%s", err.Error(), answer)
+			return
+		}
+		if parse.Video == nil || parse.Video.Port == 0 {
+			inviteOk = false
+			logger.Errorf("应答不没有视频连接地址 sdp:%s", answer)
+			return
+		}
+
+		addr := fmt.Sprintf("%s:%d", parse.Addr, parse.Video.Port)
+		if err = ConnectGBSource(streamId, addr); err != nil {
+			inviteOk = false
+			logger.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
+		}
 	}
 
 	if stream.waitPublishStream() {

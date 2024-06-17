@@ -25,9 +25,21 @@ const (
 		"s=Play\r\n" +
 		"c=IN IP4 %s\r\n" +
 		"t=0 0\r\n" +
-		"m=video %d %s 96\r\n" +
+		"m=video %d RTP/AVP 96\r\n" +
 		"a=%s\r\n" +
 		"a=rtpmap:96 PS/90000\r\n" +
+		"y=%s"
+
+	InviteTCPFormat = "v=0\r\n" +
+		"o=%s 0 0 IN IP4 %s\r\n" +
+		"s=Play\r\n" +
+		"c=IN IP4 %s\r\n" +
+		"t=0 0\r\n" +
+		"m=video %d TCP/RTP/AVP 96\r\n" +
+		"a=%s\r\n" +
+		"a=rtpmap:96 PS/90000\r\n" +
+		"a=setup:%s\r\n" +
+		"a=connection:new\r\n" +
 		"y=%s"
 )
 
@@ -128,10 +140,25 @@ func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to s
 	return builder
 }
 
-func (d *DBDevice) DoLive(channelId, ip string, port uint16, mediaProtocol string, setup string, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) DoLive(channelId, ip string, port uint16, setup string, ssrc uint32) (sip.Request, error) {
 	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipRealm, channelId)
 
-	sdp := fmt.Sprintf(InviteFormat, Config.SipId, ip, ip, port, mediaProtocol, setup, fmt.Sprintf("%0*d", 10, ssrc))
+	tcp := true
+	//var active bool
+	var sdp string
+	if "passive" == setup {
+	} else if "active" == setup {
+		//	active = true
+	} else {
+		tcp = false
+	}
+
+	if !tcp {
+		sdp = fmt.Sprintf(InviteFormat, Config.SipId, ip, ip, port, "recvonly", fmt.Sprintf("%0*d", 10, ssrc))
+	} else {
+		sdp = fmt.Sprintf(InviteTCPFormat, Config.SipId, ip, ip, port, "recvonly", setup, fmt.Sprintf("%0*d", 10, ssrc))
+	}
+
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(globalContactAddress)
 	builder.SetBody(sdp)
