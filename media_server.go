@@ -17,7 +17,7 @@ func Send(path string, body interface{}) (*http.Response, error) {
 	}
 
 	client := &http.Client{
-		Timeout: time.Duration(10 * time.Second),
+		Timeout: 10 * time.Second,
 	}
 
 	request, err := http.NewRequest("post", url, bytes.NewBuffer(marshal))
@@ -40,7 +40,7 @@ func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, error) {
 		SSRC:   ssrc,
 	}
 
-	response, err := Send("v1/gb28181/source/create", v)
+	response, err := Send("api/v1/gb28181/source/create", v)
 	if err != nil {
 		return "", 0, err
 	}
@@ -71,7 +71,7 @@ func ConnectGBSource(id, addr string) error {
 		RemoteAddr: addr,
 	}
 
-	_, err := Send("v1/gb28181/source/connect", v)
+	_, err := Send("api/v1/gb28181/source/connect", v)
 	return err
 }
 
@@ -82,6 +82,6 @@ func CloseGBSource(id string) error {
 		Source: id,
 	}
 
-	_, err := Send("v1/gb28181/source/close", v)
+	_, err := Send("api/v1/gb28181/source/close", v)
 	return err
 }

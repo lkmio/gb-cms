@@ -81,7 +81,7 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 	sendResponse(tx, response)
 
 	if device != nil {
-		catalog, err := device.DoCatalog()
+		catalog, err := device.BuildCatalogRequest()
 		if err != nil {
 			panic(err)
 		}
@@ -160,18 +160,38 @@ func StartSipServer(config *Config_, db DeviceDB) (SipServer, error) {
 		}
 
 		cmd := strings.ToLower(body[startIndex+len(CmdTagStart) : endIndex])
+		var message interface{}
 		if "keepalive" == cmd {
 			return
 		} else if "catalog" == cmd {
-			message := &QueryCatalogResponse{}
-			if err := DecodeXML([]byte(body), message); err != nil {
-				Sugar.Errorf("解析xml异常 >>> %s %s", err.Error(), body)
-				return
-			}
+			message = &QueryCatalogResponse{}
+		} else if "recordinfo" == cmd {
+			message = &QueryRecordInfoResponse{}
+		} else if "mediastatus" == cmd {
+			return
+		}
 
-			if device := DeviceManager.Find(message.DeviceID); device != nil {
-				device.OnCatalog(message)
+		if err := DecodeXML([]byte(body), message); err != nil {
+			Sugar.Errorf("解析xml异常 >>> %s %s", err.Error(), body)
+			return
+		}
+
+		switch cmd {
+		case "catalog":
+			{
+				if device := DeviceManager.Find(message.(*QueryCatalogResponse).DeviceID); device != nil {
+					device.OnCatalog(message.(*QueryCatalogResponse))
+				}
 			}
+			break
+
+		case "recordinfo":
+			{
+				if device := DeviceManager.Find(message.(*QueryRecordInfoResponse).DeviceID); device != nil {
+					device.OnRecord(message.(*QueryRecordInfoResponse))
+				}
+			}
+			break
 		}
 	})
 

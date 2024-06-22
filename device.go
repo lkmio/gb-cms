@@ -19,28 +19,6 @@ const (
 		"%s" +
 		"</DeviceID>\r\n" +
 		"</Query>\r\n"
-
-	InviteFormat = "v=0\r\n" +
-		"o=%s 0 0 IN IP4 %s\r\n" +
-		"s=Play\r\n" +
-		"c=IN IP4 %s\r\n" +
-		"t=0 0\r\n" +
-		"m=video %d RTP/AVP 96\r\n" +
-		"a=%s\r\n" +
-		"a=rtpmap:96 PS/90000\r\n" +
-		"y=%s"
-
-	InviteTCPFormat = "v=0\r\n" +
-		"o=%s 0 0 IN IP4 %s\r\n" +
-		"s=Play\r\n" +
-		"c=IN IP4 %s\r\n" +
-		"t=0 0\r\n" +
-		"m=video %d TCP/RTP/AVP 96\r\n" +
-		"a=%s\r\n" +
-		"a=rtpmap:96 PS/90000\r\n" +
-		"a=setup:%s\r\n" +
-		"a=connection:new\r\n" +
-		"y=%s"
 )
 
 var (
@@ -97,13 +75,15 @@ type QueryCatalogResponse struct {
 	DeviceList DeviceList `xml:"DeviceList"`
 }
 
-func (d *DBDevice) DoCatalog() (sip.Request, error) {
-	builder := d.NewRequestBuilder(sip.MESSAGE, Config.SipId, Config.SipRealm, d.Id)
-
+func (d *DBDevice) BuildCatalogRequest() (sip.Request, error) {
 	body := fmt.Sprintf(CatalogFormat, "1", d.Id)
+	return d.BuildMessageRequest(d.Id, body)
+}
+
+func (d *DBDevice) BuildMessageRequest(to, body string) (sip.Request, error) {
+	builder := d.NewRequestBuilder(sip.MESSAGE, Config.SipId, Config.SipRealm, to)
 	builder.SetContentType(&XmlMessageType)
 	builder.SetBody(body)
-
 	return builder.Build()
 }
 
@@ -140,30 +120,60 @@ func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to s
 	return builder
 }
 
-func (d *DBDevice) DoLive(channelId, ip string, port uint16, setup string, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) BuildSDP(userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) string {
+	format := "v=0\r\n" +
+		"o=%s 0 0 IN IP4 %s\r\n" +
+		"s=%s\r\n" +
+		"c=IN IP4 %s\r\n" +
+		"t=%s %s\r\n" +
+		"m=video %d %s 96\r\n" +
+		"a=%s\r\n" +
+		"a=rtpmap:96 PS/90000\r\n"
+
+	tcpFormat := "a=setup:%s\r\n" +
+		"a=connection:new\r\n"
+
+	var tcp bool
+	var mediaProtocol string
+	if "active" == setup || "passive" == setup {
+		mediaProtocol = "TCP/RTP/AVP"
+		tcp = true
+	} else {
+		mediaProtocol = "RTP/AVP"
+	}
+
+	sdp := fmt.Sprintf(format, userName, ip, sessionName, ip, startTime, stopTime, port, mediaProtocol, "recvonly")
+	if tcp {
+		sdp += fmt.Sprintf(tcpFormat, setup)
+	}
+
+	if speed > 0 {
+		sdp += fmt.Sprintf("a=downloadspeed:%d\r\n", speed)
+	}
+
+	sdp += fmt.Sprintf("y=%s", fmt.Sprintf("%0*d", 10, ssrc))
+	return sdp
+}
+
+func (d *DBDevice) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) (sip.Request, error) {
 	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipRealm, channelId)
-
-	tcp := true
-	//var active bool
-	var sdp string
-	if "passive" == setup {
-	} else if "active" == setup {
-		//	active = true
-	} else {
-		tcp = false
-	}
-
-	if !tcp {
-		sdp = fmt.Sprintf(InviteFormat, Config.SipId, ip, ip, port, "recvonly", fmt.Sprintf("%0*d", 10, ssrc))
-	} else {
-		sdp = fmt.Sprintf(InviteTCPFormat, Config.SipId, ip, ip, port, "recvonly", setup, fmt.Sprintf("%0*d", 10, ssrc))
-	}
-
+	sdp := d.BuildSDP(Config.SipId, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(globalContactAddress)
 	builder.SetBody(sdp)
-
 	return builder.Build()
+}
+
+func (d *DBDevice) BuildLiveRequest(channelId, ip string, port uint16, setup string, ssrc uint32) (sip.Request, error) {
+	return d.BuildInviteRequest("Play", channelId, ip, port, "0", "0", setup, 0, ssrc)
+}
+
+func (d *DBDevice) BuildPlaybackRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, ssrc uint32) (sip.Request, error) {
+	return d.BuildInviteRequest("Playback", channelId, ip, port, startTime, stopTime, setup, 0, ssrc)
+}
+
+func (d *DBDevice) BuildDownloadRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) (sip.Request, error) {
+	return d.BuildInviteRequest("Download", channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
 }
 
 func (d *DBDevice) OnCatalog(response *QueryCatalogResponse) {

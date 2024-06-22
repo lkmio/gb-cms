@@ -27,6 +27,18 @@ func (mr *MalformedRequest) Error() string {
 	return mr.Msg
 }
 
+func httpResponse2(w http.ResponseWriter, payload interface{}) {
+	body, _ := json.Marshal(payload)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT")
+	w.Write(body)
+}
+
+func httpResponseOK(w http.ResponseWriter, payload interface{}) {
+	httpResponse2(w, MalformedRequest{200, "ok", payload})
+}
+
 func DecodeJSONBody(body io.ReadCloser, dst interface{}) error {
 	dec := json.NewDecoder(body)
 	//dec.DisallowUnknownFields()
