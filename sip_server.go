@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -40,6 +42,8 @@ type SipServer interface {
 		options ...gosip.RequestWithContextOption)
 
 	SendRequest(request sip.Request)
+
+	SendRequestWithTimeout(seconds int, request sip.Request, options ...gosip.RequestWithContextOption) (sip.Response, error)
 
 	Send(msg sip.Message) error
 }
@@ -99,6 +103,19 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction) {
 }
 
 func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction) {
+	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
+	sendResponse(tx, response)
+
+	body := strings.Replace(req.Body(), "GB2312", "UTF-8", 1)
+	mobilePosition := MobilePositionNotify{}
+	if err := xml.Unmarshal([]byte(body), &mobilePosition); err != nil {
+		Sugar.Errorf("解析位置通知失败 err:%s body:%s", err.Error(), body)
+		return
+	}
+
+	if device := DeviceManager.Find(mobilePosition.DeviceID); device != nil {
+		device.OnMobilePositionNotify(&mobilePosition)
+	}
 }
 
 func sendResponse(tx sip.ServerTransaction, response sip.Response) bool {
@@ -114,6 +131,12 @@ func sendResponse(tx sip.ServerTransaction, response sip.Response) bool {
 func (s *sipServer) SendRequestWithContext(ctx context.Context, request sip.Request, options ...gosip.RequestWithContextOption) {
 	Sugar.Infof("send reqeust:%s", request.String())
 	s.sip.RequestWithContext(ctx, request, options...)
+}
+
+func (s *sipServer) SendRequestWithTimeout(seconds int, request sip.Request, options ...gosip.RequestWithContextOption) (sip.Response, error) {
+	Sugar.Infof("send reqeust:%s", request.String())
+	reqCtx, _ := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
+	return s.sip.RequestWithContext(reqCtx, request, options...)
 }
 
 func (s *sipServer) SendRequest(request sip.Request) {

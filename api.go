@@ -26,26 +26,25 @@ func init() {
 	}
 }
 
-type eventInfo struct {
-	Stream     string `json:"stream"`      //Stream id
-	Protocol   string `json:"protocol"`    //推拉流协议
-	RemoteAddr string `json:"remote_addr"` //peer地址
-}
-
 func withCheckParams(f func(streamId, protocol string, w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if "" != req.URL.RawQuery {
 			logger.Infof("on request %s?%s", req.URL.Path, req.URL.RawQuery)
 		}
 
-		info := eventInfo{}
-		err := HttpDecodeJSONBody(w, req, &info)
+		v := struct {
+			Stream     string `json:"stream"`      //Stream id
+			Protocol   string `json:"protocol"`    //推拉流协议
+			RemoteAddr string `json:"remote_addr"` //peer地址
+		}{}
+
+		err := HttpDecodeJSONBody(w, req, &v)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		f(info.Stream, info.Protocol, w, req)
+		f(v.Stream, v.Protocol, w, req)
 	}
 }
 
@@ -102,7 +101,6 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 		return
 	}
 
-	//发送invite
 	split := strings.Split(streamId, "/")
 	if len(split) != 2 {
 		w.WriteHeader(http.StatusOK)
@@ -376,8 +374,26 @@ func (api *ApiServer) OnRecordList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnSubscribePosition(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponse2(w, devices)
+	v := struct {
+		DeviceID  string `json:"device_id"`
+		ChannelID string `json:"channel_id"`
+	}{}
+
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	device := DeviceManager.Find(v.DeviceID)
+	if device == nil {
+		return
+	}
+
+	if err := device.DoSubscribePosition(v.ChannelID); err != nil {
+
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (api *ApiServer) OnSeekPlayback(w http.ResponseWriter, r *http.Request) {
@@ -391,8 +407,12 @@ func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnBroadcast(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponse2(w, devices)
+	//v := struct {
+	//	DeviceID  string `json:"device_id"`
+	//	ChannelID string `json:"channel_id"`
+	//	RoomID    string `json:"room_id"` //如果要实现群呼功能, 除第一次广播外, 后续请求都携带该参数
+	//}{}
+
 }
 
 func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {

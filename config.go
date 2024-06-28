@@ -15,6 +15,7 @@ type Config_ struct {
 	Password               string `json:"password"`
 	AliveExpires           int    `json:"alive_expires"`
 	MobilePositionInterval int    `json:"mobile_position_interval"`
+	MobilePositionExpires  int    `json:"mobile_position_expires"`
 	MediaServer            string `json:"media_server"`
 
 	SipPort sip.Port
