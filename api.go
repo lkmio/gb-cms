@@ -35,7 +35,7 @@ type eventInfo struct {
 func withCheckParams(f func(streamId, protocol string, w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if "" != req.URL.RawQuery {
-			logger.Infof("on request %s?%s", req.URL.Path, req.URL.RawQuery)
+			Sugar.Infof("on request %s?%s", req.URL.Path, req.URL.RawQuery)
 		}
 
 		info := eventInfo{}
@@ -102,7 +102,6 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 		return
 	}
 
-	//发送invite
 	split := strings.Split(streamId, "/")
 	if len(split) != 2 {
 		w.WriteHeader(http.StatusOK)
@@ -153,28 +152,28 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 	var startTimeSeconds string
 	var endTimeSeconds string
 	var err error
-	var ssrc uint32
+	var ssrc string
 	if "playback" == streamType || "download" == streamType {
 		startTime, err := time.ParseInLocation("2006-01-02t15:04:05", startTimeStr, time.Local)
 		if err != nil {
-			logger.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), startTimeStr)
+			Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), startTimeStr)
 			return
 		}
 		endTime, err := time.ParseInLocation("2006-01-02t15:04:05", endTimeStr, time.Local)
 		if err != nil {
-			logger.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), startTimeStr)
+			Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), startTimeStr)
 			return
 		}
 
 		startTimeSeconds = strconv.FormatInt(startTime.Unix(), 10)
 		endTimeSeconds = strconv.FormatInt(endTime.Unix(), 10)
-
 		ssrc = GetVodSSRC()
 	} else {
 		ssrc = GetLiveSSRC()
 	}
 
-	ip, port, err := CreateGBSource(streamId, setup, ssrc)
+	ssrcValue, _ := strconv.Atoi(ssrc)
+	ip, port, err := CreateGBSource(streamId, setup, uint32(ssrcValue))
 	if err != nil {
 		Sugar.Errorf("创建GBSource失败 err:%s", err.Error())
 		return
@@ -239,19 +238,19 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 		parse, err := sdp.Parse(answer)
 		if err != nil {
 			inviteOk = false
-			logger.Errorf("解析应答sdp失败 err:%s sdp:%s", err.Error(), answer)
+			Sugar.Errorf("解析应答sdp失败 err:%s sdp:%s", err.Error(), answer)
 			return
 		}
 		if parse.Video == nil || parse.Video.Port == 0 {
 			inviteOk = false
-			logger.Errorf("应答不没有视频连接地址 sdp:%s", answer)
+			Sugar.Errorf("应答没有视频连接地址 sdp:%s", answer)
 			return
 		}
 
 		addr := fmt.Sprintf("%s:%d", parse.Addr, parse.Video.Port)
 		if err = ConnectGBSource(streamId, addr); err != nil {
 			inviteOk = false
-			logger.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
+			Sugar.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
 		}
 	}
 

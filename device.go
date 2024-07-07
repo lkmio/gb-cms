@@ -24,7 +24,7 @@ const (
 var (
 	XmlMessageType sip.ContentType = "Application/MANSCDP+xml"
 
-	SDPMessageType sip.ContentType = "Application/SDP"
+	SDPMessageType sip.ContentType = "application/sdp"
 )
 
 type DBDevice struct {
@@ -120,7 +120,7 @@ func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to s
 	return builder
 }
 
-func (d *DBDevice) BuildSDP(userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) string {
+func (d *DBDevice) BuildSDP(userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) string {
 	format := "v=0\r\n" +
 		"o=%s 0 0 IN IP4 %s\r\n" +
 		"s=%s\r\n" +
@@ -151,28 +151,36 @@ func (d *DBDevice) BuildSDP(userName, sessionName, ip string, port uint16, start
 		sdp += fmt.Sprintf("a=downloadspeed:%d\r\n", speed)
 	}
 
-	sdp += fmt.Sprintf("y=%s", fmt.Sprintf("%0*d", 10, ssrc))
+	sdp += fmt.Sprintf("y=%s\r\n", ssrc)
 	return sdp
 }
 
-func (d *DBDevice) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
 	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipRealm, channelId)
 	sdp := d.BuildSDP(Config.SipId, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(globalContactAddress)
 	builder.SetBody(sdp)
-	return builder.Build()
+	request, err := builder.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	var subjectHeader = Subject(channelId + ":" + channelId + "," + Config.SipId + ":" + ssrc)
+	request.AppendHeader(subjectHeader)
+
+	return request, err
 }
 
-func (d *DBDevice) BuildLiveRequest(channelId, ip string, port uint16, setup string, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) BuildLiveRequest(channelId, ip string, port uint16, setup string, ssrc string) (sip.Request, error) {
 	return d.BuildInviteRequest("Play", channelId, ip, port, "0", "0", setup, 0, ssrc)
 }
 
-func (d *DBDevice) BuildPlaybackRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) BuildPlaybackRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, ssrc string) (sip.Request, error) {
 	return d.BuildInviteRequest("Playback", channelId, ip, port, startTime, stopTime, setup, 0, ssrc)
 }
 
-func (d *DBDevice) BuildDownloadRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc uint32) (sip.Request, error) {
+func (d *DBDevice) BuildDownloadRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
 	return d.BuildInviteRequest("Download", channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
 }
 

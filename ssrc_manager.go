@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -9,17 +10,21 @@ const (
 )
 
 var (
-	ssrc uint32
-	lock sync.Mutex
+	ssrcCount uint32
+	lock      sync.Mutex
 )
 
-func GetLiveSSRC() uint32 {
+func NextSSRC() uint32 {
 	lock.Lock()
 	defer lock.Unlock()
-	ssrc = (ssrc + 1) % SsrcMaxValue
-	return ssrc
+	ssrcCount = (ssrcCount + 1) % SsrcMaxValue
+	return ssrcCount
 }
 
-func GetVodSSRC() uint32 {
-	return 1000000000 + GetLiveSSRC()
+func GetLiveSSRC() string {
+	return fmt.Sprintf("0%09d", NextSSRC())
+}
+
+func GetVodSSRC() string {
+	return fmt.Sprintf("%d", 1000000000+NextSSRC())
 }
