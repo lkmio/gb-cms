@@ -55,6 +55,7 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", withCheckParams(apiServer.OnPublishDone))
 	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", withCheckParams(apiServer.OnIdleTimeout))
 	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", withCheckParams(apiServer.OnReceiveTimeout))
+	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	apiServer.router.HandleFunc("/api/v1/device/list", apiServer.OnDeviceList)         //查询在线设备
 	apiServer.router.HandleFunc("/api/v1/record/list", apiServer.OnRecordList)         //查询录像列表
@@ -263,8 +264,8 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 
 func (api *ApiServer) CloseStream(streamId string) {
 	stream, _ := StreamManager.Remove(streamId)
-	if stream != nil && stream.ByeRequest != nil {
-		SipUA.SendRequest(stream.ByeRequest)
+	if stream != nil {
+		stream.Close()
 		return
 	}
 }
@@ -418,4 +419,13 @@ func (api *ApiServer) OnBroadcast(w http.ResponseWriter, r *http.Request) {
 func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
 	devices := DeviceManager.AllDevices()
 	httpResponse2(w, devices)
+}
+
+func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
+	Sugar.Infof("lkm启动")
+
+	streams := StreamManager.PopAll()
+	for _, stream := range streams {
+		stream.Close()
+	}
 }

@@ -24,6 +24,18 @@ func (s *Stream) waitPublishStream() bool {
 	case <-s.publishEvent:
 		return true
 	case <-timeout.Done():
+		s.cancelFunc = nil
 		return false
+	}
+}
+
+func (s *Stream) Close() {
+	if s.cancelFunc != nil {
+		s.cancelFunc()
+	}
+
+	if s.ByeRequest != nil {
+		SipUA.SendRequest(s.ByeRequest)
+		s.ByeRequest = nil
 	}
 }
