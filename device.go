@@ -194,3 +194,41 @@ func (d *DBDevice) OnCatalog(response *QueryCatalogResponse) {
 		d.Channels[device.DeviceID] = device
 	}
 }
+
+// CreateByeRequestFromAnswer 根据invite的应答创建Bye请求
+// 应答的to头域需携带tag
+func (d *DBDevice) CreateByeRequestFromAnswer(message sip.Response, uas bool) sip.Request {
+	from, _ := message.From()
+	to, _ := message.To()
+	id, _ := message.CallID()
+
+	requestLine := &sip.SipUri{}
+	requestLine.SetUser(from.Address.User())
+	host, port, _ := net.SplitHostPort(d.RemoteAddr)
+	portInt, _ := strconv.Atoi(port)
+	sipPort := sip.Port(portInt)
+	requestLine.SetHost(host)
+	requestLine.SetPort(&sipPort)
+
+	seq, _ := message.CSeq()
+
+	builder := sip.NewRequestBuilder()
+	if uas {
+		builder.SetFrom(sip.NewAddressFromToHeader(to))
+		builder.SetTo(sip.NewAddressFromFromHeader(from))
+	} else {
+		builder.SetFrom(sip.NewAddressFromFromHeader(from))
+		builder.SetTo(sip.NewAddressFromToHeader(to))
+	}
+
+	builder.SetCallID(id)
+	builder.SetMethod(sip.BYE)
+	builder.SetRecipient(requestLine)
+	builder.SetSeqNo(uint(seq.SeqNo + 1))
+	build, err := builder.Build()
+	if err != nil {
+		panic(err)
+	}
+
+	return build
+}

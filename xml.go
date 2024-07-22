@@ -8,6 +8,7 @@ import (
 	"golang.org/x/text/transform"
 	"io"
 	"io/ioutil"
+	"strings"
 )
 
 func GbkToUtf8(s []byte) ([]byte, error) {
@@ -33,14 +34,16 @@ func DoDecodeXML(data []byte, message interface{}) error {
 }
 
 func DecodeXML(data []byte, message interface{}) error {
-	err := DoDecodeXML(data, message)
+	uft8Data := []byte(strings.Replace(string(data), "GB2312", "UTF-8", 1))
+
+	err := DoDecodeXML(uft8Data, message)
 	if err != nil {
-		utf8, err := GbkToUtf8(data)
+		utf8, err := GbkToUtf8(uft8Data)
 		if err != nil {
 			return err
 		}
 
-		err = DoDecodeXML(data, utf8)
+		err = DoDecodeXML(uft8Data, utf8)
 	}
 
 	return err

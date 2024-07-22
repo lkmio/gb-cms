@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/xml"
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/log"
 	"github.com/ghettovoice/gosip/sip"
+	"github.com/ghettovoice/gosip/util"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -58,6 +59,12 @@ func (s *sipServer) Send(msg sip.Message) error {
 	return s.sip.Send(msg)
 }
 
+func setToTag(response sip.Message, toTag string) {
+	toHeader := response.GetHeaders("To")
+	to := toHeader[0].(*sip.ToHeader)
+	to.Params = sip.NewParams().Add("tag", sip.String{Str: toTag})
+}
+
 func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 	var device *DBDevice
 	_ = req.GetHeaders("Authorization")
@@ -94,6 +101,58 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 }
 
 func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction) {
+	sendResponse(tx, sip.NewResponseFromRequest("", req, 100, "Trying", ""))
+
+	var response sip.Response
+	var session *BroadcastSession
+	user := req.Recipient().User().String()
+	exist := false
+	defer func() {
+		if !exist {
+			response = sip.NewResponseFromRequest("", req, 404, http.StatusText(404), "")
+		}
+
+		sendResponse(tx, response)
+		if session != nil {
+			session.Answer <- 0
+		}
+	}()
+
+	if len(user) != 20 {
+		return
+	}
+
+	roomId := user[:10]
+	room := BroadcastManager.FindRoom(roomId)
+	if room == nil {
+		return
+	}
+
+	session = room.Find(user)
+	if session == nil {
+		return
+	}
+
+	device := DeviceManager.Find(session.DeviceID)
+	if device == nil {
+		return
+	}
+
+	exist = true
+	code, sdp := device.OnInviteBroadcast(req, session)
+	response = sip.NewResponseFromRequest("", req, sip.StatusCode(code), http.StatusText(code), "")
+
+	if code >= 200 && code < 300 {
+		toTag := util.RandString(10)
+		setToTag(response, toTag)
+
+		session.Successful = true
+		session.ByeRequest = device.CreateByeRequestFromAnswer(response, true)
+
+		response.SetBody(sdp, true)
+		response.AppendHeader(&SDPMessageType)
+		response.AppendHeader(globalContactAddress.AsContactHeader())
+	}
 }
 
 func (s *sipServer) OnAck(req sip.Request, tx sip.ServerTransaction) {
@@ -106,10 +165,9 @@ func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction) {
 	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
 	sendResponse(tx, response)
 
-	body := strings.Replace(req.Body(), "GB2312", "UTF-8", 1)
 	mobilePosition := MobilePositionNotify{}
-	if err := xml.Unmarshal([]byte(body), &mobilePosition); err != nil {
-		Sugar.Errorf("解析位置通知失败 err:%s body:%s", err.Error(), body)
+	if err := DecodeXML([]byte(req.Body()), &mobilePosition); err != nil {
+		Sugar.Errorf("解析位置通知失败 err:%s body:%s", err.Error(), req.Body())
 		return
 	}
 

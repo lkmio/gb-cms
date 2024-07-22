@@ -17,6 +17,8 @@ type Config_ struct {
 	MobilePositionInterval int    `json:"mobile_position_interval"`
 	MobilePositionExpires  int    `json:"mobile_position_expires"`
 	MediaServer            string `json:"media_server"`
+	Port                   []int  `json:"port"`
+	ListenIP               string `json:"listen_ip"`
 
 	SipPort sip.Port
 }

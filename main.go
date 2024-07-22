@@ -1,12 +1,14 @@
 package main
 
 import (
+	"github.com/lkmio/avformat/transport"
 	"go.uber.org/zap/zapcore"
 )
 
 var (
-	Config *Config_
-	SipUA  SipServer
+	Config           *Config_
+	SipUA            SipServer
+	TransportManager transport.Manager
 )
 
 func init() {
@@ -29,6 +31,7 @@ func main() {
 	}
 
 	Config = config
+	TransportManager = transport.NewTransportManager(uint16(Config.Port[0]), uint16(Config.Port[1]))
 
 	db := &MemoryDB{}
 	devices := db.LoadDevices()

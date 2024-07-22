@@ -7,6 +7,9 @@ import (
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
+	"github.com/lkmio/avformat/librtp"
+	"github.com/lkmio/avformat/utils"
 	"math"
 	"net/http"
 	"strconv"
@@ -15,13 +18,20 @@ import (
 )
 
 type ApiServer struct {
-	router *mux.Router
+	router   *mux.Router
+	upgrader *websocket.Upgrader
 }
 
 var apiServer *ApiServer
 
 func init() {
 	apiServer = &ApiServer{
+		upgrader: &websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		},
+
 		router: mux.NewRouter(),
 	}
 }
@@ -63,8 +73,18 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/playback/seek", apiServer.OnSeekPlayback)     //回放seek
 
 	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl) //云台控制
-	apiServer.router.HandleFunc("/api/v1/broadcast", apiServer.OnBroadcast)    //语音广播
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)              //语音对讲
+
+	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                 //语音广播/对讲, 音频传输链路
+	apiServer.router.HandleFunc("/api/v1/broadcast/invite", apiServer.OnBroadcast) //语音广播
+	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", apiServer.OnHangup)    //挂断广播会话
+	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                  //语音对讲
+	apiServer.router.HandleFunc("/broadcast.html", func(writer http.ResponseWriter, request *http.Request) {
+		http.ServeFile(writer, request, "./broadcast.html")
+	})
+	apiServer.router.HandleFunc("/g711.js", func(writer http.ResponseWriter, request *http.Request) {
+		http.ServeFile(writer, request, "./g711.js")
+	})
+
 	http.Handle("/", apiServer.router)
 
 	srv := &http.Server{
@@ -217,13 +237,7 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 				Sugar.Errorf("send ack error %s %s", err.Error(), ackRequest.String())
 			} else {
 				inviteOk = true
-				bye = ackRequest.Clone().(sip.Request)
-				bye.SetMethod(sip.BYE)
-				bye.RemoveHeader("Via")
-				if seq, ok := bye.CSeq(); ok {
-					seq.SeqNo++
-					seq.MethodName = sip.BYE
-				}
+				bye = device.CreateByeRequestFromAnswer(res, false)
 			}
 		} else if res.StatusCode() > 299 {
 			cancel()
@@ -398,27 +412,149 @@ func (api *ApiServer) OnSubscribePosition(w http.ResponseWriter, r *http.Request
 }
 
 func (api *ApiServer) OnSeekPlayback(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponse2(w, devices)
 }
 
 func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponse2(w, devices)
+}
+
+func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
+	conn, err := api.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		Sugar.Errorf("websocket头检查失败 err:%s", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	roomId := utils.RandStringBytes(10)
+	room := BroadcastManager.CreateRoom(roomId)
+	response := MalformedRequest{200, "ok", map[string]string{
+		"room_id": roomId,
+	}}
+
+	conn.WriteJSON(response)
+
+	rtp := make([]byte, 1500)
+	muxer := librtp.NewMuxer(8, 0, 0xFFFFFFFF)
+	muxer.SetAllocHandler(func(params interface{}) []byte {
+		return rtp
+	})
+	muxer.SetWriteHandler(func(data []byte, timestamp uint32, params interface{}) {
+		room.DispatchRtpPacket(data)
+	})
+
+	for {
+		_, bytes, err := conn.ReadMessage()
+		n := len(bytes)
+		if err != nil {
+			Sugar.Infof("语音断开连接")
+			break
+		} else if n < 1 {
+			continue
+		}
+
+		count := (n-1)/320 + 1
+		for i := 0; i < count; i++ {
+			offset := i * 320
+			min := int(math.Min(float64(n), 320))
+			muxer.Input(bytes[offset:offset+min], uint32(min))
+			n -= min
+		}
+	}
+
+	Sugar.Infof("主讲websocket断开连接 roomid:%s", roomId)
+	muxer.Close()
+
+	sessions := BroadcastManager.RemoveRoom(roomId)
+	for _, session := range sessions {
+		session.Close()
+	}
+}
+
+func (api *ApiServer) OnHangup(w http.ResponseWriter, r *http.Request) {
+	v := struct {
+		DeviceID  string `json:"device_id"`
+		ChannelID string `json:"channel_id"`
+		RoomID    string `json:"room_id"`
+	}{}
+
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	if session := BroadcastManager.Remove(GenerateSessionId(v.DeviceID, v.ChannelID)); session != nil {
+		session.Close()
+	}
+
+	httpResponseOK(w, nil)
 }
 
 func (api *ApiServer) OnBroadcast(w http.ResponseWriter, r *http.Request) {
-	//v := struct {
-	//	DeviceID  string `json:"device_id"`
-	//	ChannelID string `json:"channel_id"`
-	//	RoomID    string `json:"room_id"` //如果要实现群呼功能, 除第一次广播外, 后续请求都携带该参数
-	//}{}
+	v := struct {
+		DeviceID  string `json:"device_id"`
+		ChannelID string `json:"channel_id"`
+		RoomID    string `json:"room_id"`
+		Type      int    `json:"type"`
+	}{
+		Type: int(BroadcastTypeTCP),
+	}
 
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	broadcastRoom := BroadcastManager.FindRoom(v.RoomID)
+	if broadcastRoom == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	//全局唯一ID
+	sessionId := GenerateSessionId(v.DeviceID, v.ChannelID)
+	if BroadcastManager.Find(sessionId) != nil {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	device := DeviceManager.Find(v.DeviceID)
+	if device == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	sourceId := v.RoomID + utils.RandStringBytes(10)
+	session := &BroadcastSession{
+		SourceID:  sourceId,
+		DeviceID:  v.DeviceID,
+		ChannelID: v.ChannelID,
+		RoomId:    v.RoomID,
+		Type:      BroadcastType(v.Type),
+	}
+
+	if BroadcastManager.AddSession(v.RoomID, session) {
+		device.DoBroadcast(sourceId, v.ChannelID)
+		httpResponseOK(w, nil)
+	} else {
+		w.WriteHeader(http.StatusForbidden)
+	}
+
+	select {
+	case <-session.Answer:
+		break
+	case <-r.Context().Done():
+		break
+	}
+
+	if !session.Successful {
+		Sugar.Errorf("广播失败 session:%s", sessionId)
+		BroadcastManager.Remove(sessionId)
+	} else {
+		Sugar.Infof("广播成功 session:%s", sessionId)
+	}
 }
 
 func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponse2(w, devices)
 }
 
 func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {

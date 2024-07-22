@@ -64,7 +64,7 @@ func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, error) {
 
 func ConnectGBSource(id, addr string) error {
 	v := &struct {
-		Source     string `json:"source"` //SourceId
+		Source     string `json:"source"` //SourceID
 		RemoteAddr string `json:"remote_addr"`
 	}{
 		Source:     id,
