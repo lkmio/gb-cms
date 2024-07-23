@@ -72,8 +72,14 @@ func (s *BroadcastSession) Close() {
 
 func (s *BroadcastSession) Write(data []byte) {
 	if BroadcastTypeUDP == s.Type {
-		s.Transport.(*transport.UDPClient).Write(data)
-	} else if s.conn != nil {
+		s.Transport.(*transport.UDPClient).Write(data[2:])
+	} else if s.conn == nil {
+		return
+	}
+
+	if BroadcastTypeTCPStream == s.Type {
+		s.conn.Write(data[2:])
+	} else {
 		s.conn.Write(data)
 	}
 }

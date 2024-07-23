@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip"
@@ -436,10 +437,11 @@ func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
 	rtp := make([]byte, 1500)
 	muxer := librtp.NewMuxer(8, 0, 0xFFFFFFFF)
 	muxer.SetAllocHandler(func(params interface{}) []byte {
-		return rtp
+		return rtp[2:]
 	})
 	muxer.SetWriteHandler(func(data []byte, timestamp uint32, params interface{}) {
-		room.DispatchRtpPacket(data)
+		binary.BigEndian.PutUint16(rtp, uint16(len(data)))
+		room.DispatchRtpPacket(rtp[:2+len(data)])
 	})
 
 	for {
