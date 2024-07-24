@@ -66,6 +66,7 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", withCheckParams(apiServer.OnPublishDone))
 	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", withCheckParams(apiServer.OnIdleTimeout))
 	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", withCheckParams(apiServer.OnReceiveTimeout))
+	apiServer.router.HandleFunc("/api/v1/hook/on_record", withCheckParams(apiServer.OnReceiveTimeout))
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	apiServer.router.HandleFunc("/api/v1/device/list", apiServer.OnDeviceList)         //查询在线设备
@@ -327,6 +328,11 @@ func (api *ApiServer) OnReceiveTimeout(streamId string, protocol string, w http.
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+func (api *ApiServer) OnRecord(streamId string, protocol string, w http.ResponseWriter, req *http.Request) {
+	Sugar.Infof("receive onrecord. protocol:%s stream id:%s", protocol, streamId)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (api *ApiServer) OnDeviceList(w http.ResponseWriter, r *http.Request) {
