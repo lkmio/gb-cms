@@ -12,6 +12,7 @@ import (
 	"github.com/lkmio/avformat/librtp"
 	"github.com/lkmio/avformat/utils"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -228,8 +229,11 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 			ackRequest.AppendHeader(globalContactAddress.AsContactHeader())
 			//手动替换ack请求目标地址, answer的contact可能不对.
 			recipient := ackRequest.Recipient()
-			recipient.SetHost(Config.PublicIP)
-			recipient.SetPort(&Config.SipPort)
+			remoteIP, remotePortStr, _ := net.SplitHostPort(device.RemoteAddr)
+			remotePort, _ := strconv.Atoi(remotePortStr)
+			sipPort := sip.Port(remotePort)
+			recipient.SetHost(remoteIP)
+			recipient.SetPort(&sipPort)
 
 			Sugar.Infof("send ack %s", ackRequest.String())
 
@@ -281,7 +285,7 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 func (api *ApiServer) CloseStream(streamId string) {
 	stream, _ := StreamManager.Remove(streamId)
 	if stream != nil {
-		stream.Close()
+		stream.Close(true)
 		return
 	}
 }
@@ -474,7 +478,7 @@ func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
 
 	sessions := BroadcastManager.RemoveRoom(roomId)
 	for _, session := range sessions {
-		session.Close()
+		session.Close(true)
 	}
 }
 
@@ -491,7 +495,7 @@ func (api *ApiServer) OnHangup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if session := BroadcastManager.Remove(GenerateSessionId(v.DeviceID, v.ChannelID)); session != nil {
-		session.Close()
+		session.Close(true)
 	}
 
 	httpResponseOK(w, nil)
@@ -570,6 +574,6 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 
 	streams := StreamManager.PopAll()
 	for _, stream := range streams {
-		stream.Close()
+		stream.Close(true)
 	}
 }

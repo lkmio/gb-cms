@@ -1,6 +1,8 @@
 package main
 
-import "sync"
+import (
+	"sync"
+)
 
 var (
 	BroadcastManager *broadcastManager
@@ -10,12 +12,14 @@ func init() {
 	BroadcastManager = &broadcastManager{
 		rooms:    make(map[string]*BroadcastRoom, 12),
 		sessions: make(map[string]*BroadcastSession, 12),
+		callIds:  make(map[string]*BroadcastSession, 12),
 	}
 }
 
 type broadcastManager struct {
-	rooms    map[string]*BroadcastRoom
-	sessions map[string]*BroadcastSession //关联全部广播会话
+	rooms    map[string]*BroadcastRoom    //主讲人关联房间
+	sessions map[string]*BroadcastSession //sessionId关联全部广播会话
+	callIds  map[string]*BroadcastSession //callId关联全部广播会话
 	lock     sync.RWMutex
 }
 
@@ -67,14 +71,34 @@ func (b *broadcastManager) Remove(sessionId string) *BroadcastSession {
 	if !ok {
 		return nil
 	}
-	delete(b.sessions, sessionId)
 
-	room, ok := b.rooms[session.RoomId]
-	if !ok {
-		return session
+	b.RemoveSession(session)
+	return session
+}
+
+func (b *broadcastManager) RemoveSession(session *BroadcastSession) {
+	delete(b.sessions, session.Id())
+
+	if session.ByeRequest != nil {
+		id, _ := session.ByeRequest.CallID()
+		delete(b.callIds, id.Value())
 	}
 
-	room.Remove(session.SourceID)
+	if room, ok := b.rooms[session.RoomId]; ok {
+		room.Remove(session.SourceID)
+	}
+}
+
+func (b *broadcastManager) RemoveWithCallId(callId string) *BroadcastSession {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	session, ok := b.callIds[callId]
+	if !ok {
+		return nil
+	}
+
+	b.RemoveSession(session)
 	return session
 }
 
@@ -101,6 +125,17 @@ func (b *broadcastManager) AddSession(roomId string, session *BroadcastSession) 
 	} else if add := room.Add(session); add {
 		b.sessions[session.Id()] = session
 		return true
+	}
+
+	return false
+}
+
+func (b *broadcastManager) AddSessionWithCallId(callId string, session *BroadcastSession) bool {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	if _, ok := b.callIds[callId]; !ok {
+		b.callIds[callId] = session
 	}
 
 	return false

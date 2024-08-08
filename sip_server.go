@@ -151,6 +151,9 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction) {
 		session.Successful = true
 		session.ByeRequest = device.CreateByeRequestFromAnswer(response, true)
 
+		id, _ := req.CallID()
+		BroadcastManager.AddSessionWithCallId(id.Value(), session)
+
 		response.SetBody(sdp, true)
 		response.AppendHeader(&SDPMessageType)
 		response.AppendHeader(globalContactAddress.AsContactHeader())
@@ -158,9 +161,20 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction) {
 }
 
 func (s *sipServer) OnAck(req sip.Request, tx sip.ServerTransaction) {
+
 }
 
 func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction) {
+	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
+	sendResponse(tx, response)
+
+	id, _ := req.CallID()
+
+	if stream, err := StreamManager.RemoveWithCallId(id.Value()); err == nil {
+		stream.Close(false)
+	} else if session := BroadcastManager.RemoveWithCallId(id.Value()); session != nil {
+		session.Close(false)
+	}
 }
 
 func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction) {

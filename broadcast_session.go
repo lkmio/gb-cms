@@ -55,16 +55,16 @@ func (s *BroadcastSession) OnDisConnected(conn net.Conn, err error) {
 	Sugar.Infof("TCP语音广播断开连接 session:%s", sessionId)
 
 	BroadcastManager.Remove(sessionId)
-	s.Close()
+	s.Close(true)
 }
 
-func (s *BroadcastSession) Close() {
+func (s *BroadcastSession) Close(sendBye bool) {
 	if s.Transport != nil {
 		s.Transport.Close()
 		s.Transport = nil
 	}
 
-	if s.ByeRequest != nil {
+	if sendBye && s.ByeRequest != nil {
 		SipUA.SendRequest(s.ByeRequest)
 		s.ByeRequest = nil
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/lkmio/avformat/transport"
 	"go.uber.org/zap/zapcore"
 	"net"
@@ -34,6 +35,9 @@ func main() {
 	}
 
 	Config = config
+	indent, _ := json.MarshalIndent(Config, "", "\t")
+	Sugar.Infof("server config:\r\n%s", indent)
+
 	TransportManager = transport.NewTransportManager(uint16(Config.Port[0]), uint16(Config.Port[1]))
 
 	DB = &LocalDB{}
@@ -47,9 +51,11 @@ func main() {
 		panic(err)
 	}
 
+	Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
 	Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
 	SipUA = server
 
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
+	Sugar.Infof("启动http server. addr: %s", httpAddr)
 	startApiServer(httpAddr)
 }

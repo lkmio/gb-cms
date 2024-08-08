@@ -29,12 +29,12 @@ func (s *Stream) waitPublishStream() bool {
 	}
 }
 
-func (s *Stream) Close() {
+func (s *Stream) Close(sendBye bool) {
 	if s.cancelFunc != nil {
 		s.cancelFunc()
 	}
 
-	if s.ByeRequest != nil {
+	if sendBye && s.ByeRequest != nil {
 		SipUA.SendRequest(s.ByeRequest)
 		s.ByeRequest = nil
 	}
