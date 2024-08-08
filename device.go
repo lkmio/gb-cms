@@ -82,7 +82,7 @@ func (d *DBDevice) BuildCatalogRequest() (sip.Request, error) {
 }
 
 func (d *DBDevice) BuildMessageRequest(to, body string) (sip.Request, error) {
-	builder := d.NewRequestBuilder(sip.MESSAGE, Config.SipId, Config.SipRealm, to)
+	builder := d.NewRequestBuilder(sip.MESSAGE, Config.SipId, Config.SipContactAddr, to)
 	builder.SetContentType(&XmlMessageType)
 	builder.SetBody(body)
 	return builder.Build()
@@ -157,7 +157,7 @@ func (d *DBDevice) BuildSDP(userName, sessionName, ip string, port uint16, start
 }
 
 func (d *DBDevice) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
-	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipRealm, channelId)
+	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipContactAddr, channelId)
 	sdp := d.BuildSDP(Config.SipId, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(globalContactAddress)

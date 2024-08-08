@@ -2,25 +2,24 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/ghettovoice/gosip/sip"
 	"os"
 )
 
 type Config_ struct {
-	SipAddr                string `json:"sip_addr"`
-	HttpAddr               string `json:"http_addr"`
-	PublicIP               string `json:"public_ip"`
-	SipId                  string `json:"sip_id"`
-	SipRealm               string `json:"sip_realm"`
-	Password               string `json:"password"`
+	SipPort  int    `json:"sip_port"`
+	HttpPort int    `json:"http_port"`
+	ListenIP string `json:"listen_ip"`
+	PublicIP string `json:"public_ip"`
+
+	SipId          string `json:"sip_id"`
+	Password       string `json:"password"`
+	SipContactAddr string
+
 	AliveExpires           int    `json:"alive_expires"`
 	MobilePositionInterval int    `json:"mobile_position_interval"`
 	MobilePositionExpires  int    `json:"mobile_position_expires"`
 	MediaServer            string `json:"media_server"`
-	Port                   []int  `json:"port"`
-	ListenIP               string `json:"listen_ip"`
-
-	SipPort sip.Port
+	Port                   []int  `json:"port"` //语音广播/对讲需要的端口
 }
 
 type LogConfig struct {

@@ -219,7 +219,8 @@ func StartSipServer(config *Config_) (SipServer, error) {
 		Host: config.PublicIP,
 	}, nil, nil, logger)
 
-	err := server.Listen("udp", config.SipAddr)
+	addr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.SipPort))
+	err := server.Listen("udp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -299,16 +300,13 @@ func StartSipServer(config *Config_) (SipServer, error) {
 	})
 
 	s.config = config
-
-	_, p, _ := net.SplitHostPort(config.SipAddr)
-	port, _ := strconv.Atoi(p)
-	config.SipPort = sip.Port(port)
+	port := sip.Port(Config.SipPort)
 
 	globalContactAddress = &sip.Address{
 		Uri: &sip.SipUri{
 			FUser: sip.String{Str: config.SipId},
 			FHost: config.PublicIP,
-			FPort: &config.SipPort,
+			FPort: &port,
 		},
 	}
 

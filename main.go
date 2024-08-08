@@ -3,6 +3,8 @@ package main
 import (
 	"github.com/lkmio/avformat/transport"
 	"go.uber.org/zap/zapcore"
+	"net"
+	"strconv"
 )
 
 var (
@@ -44,7 +46,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
 	SipUA = server
 
-	startApiServer(config.HttpAddr)
+	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
+	startApiServer(httpAddr)
 }
