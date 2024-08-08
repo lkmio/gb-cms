@@ -7,9 +7,9 @@ import (
 )
 
 type Stream struct {
-	Id         string //推流ID
-	Protocol   string //推流协议
-	ByeRequest sip.Request
+	Id            string //推流ID
+	Protocol      string //推流协议
+	DialogRequest sip.Request
 
 	publishEvent chan byte
 	cancelFunc   func()
@@ -34,8 +34,21 @@ func (s *Stream) Close(sendBye bool) {
 		s.cancelFunc()
 	}
 
-	if sendBye && s.ByeRequest != nil {
-		SipUA.SendRequest(s.ByeRequest)
-		s.ByeRequest = nil
+	if sendBye && s.DialogRequest != nil {
+		SipUA.SendRequest(s.CreateRequestFromDialog(sip.BYE))
+		s.DialogRequest = nil
 	}
+}
+
+func (s *Stream) CreateRequestFromDialog(method sip.RequestMethod) sip.Request {
+	{
+		seq, _ := s.DialogRequest.CSeq()
+		seq.SeqNo++
+		seq.MethodName = method
+	}
+
+	request := s.DialogRequest.Clone().(sip.Request)
+	request.SetMethod(method)
+
+	return request
 }

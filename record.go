@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
@@ -16,6 +17,12 @@ const (
 		"<EndTime>%s</EndTime>\r\n" +
 		"<Type>%s</Type>\r\n" +
 		"</Query>\r\n"
+
+	SeekBodyFormat = "PLAY RTSP/1.0\r\n" + "CSeq: %d\r\n" + "Range: npt=%d-\r\n"
+)
+
+var (
+	RtspMessageType sip.ContentType = "application/RTSP"
 )
 
 type QueryRecordInfoResponse struct {

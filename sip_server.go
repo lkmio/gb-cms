@@ -149,7 +149,7 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction) {
 		setToTag(response, toTag)
 
 		session.Successful = true
-		session.ByeRequest = device.CreateByeRequestFromAnswer(response, true)
+		session.ByeRequest = device.CreateDialogRequestFromAnswer(response, true)
 
 		id, _ := req.CallID()
 		BroadcastManager.AddSessionWithCallId(id.Value(), session)

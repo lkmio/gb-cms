@@ -151,7 +151,7 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 		return
 	}
 
-	stream = &Stream{Id: streamId, Protocol: "28181", ByeRequest: nil}
+	stream = &Stream{Id: streamId, Protocol: "28181", DialogRequest: nil}
 	if err := StreamManager.Add(stream); err != nil {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -243,7 +243,7 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 				Sugar.Errorf("send ack error %s %s", err.Error(), ackRequest.String())
 			} else {
 				inviteOk = true
-				bye = device.CreateByeRequestFromAnswer(res, false)
+				bye = device.CreateDialogRequestFromAnswer(res, false)
 			}
 		} else if res.StatusCode() > 299 {
 			cancel()
@@ -275,7 +275,7 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 	}
 
 	if stream.waitPublishStream() {
-		stream.ByeRequest = bye
+		stream.DialogRequest = bye
 		w.WriteHeader(http.StatusOK)
 	} else {
 		SipUA.SendRequest(bye)
@@ -423,6 +423,30 @@ func (api *ApiServer) OnSubscribePosition(w http.ResponseWriter, r *http.Request
 }
 
 func (api *ApiServer) OnSeekPlayback(w http.ResponseWriter, r *http.Request) {
+	v := struct {
+		StreamId string `json:"stream_id"`
+		Seconds  int    `json:"seconds"`
+	}{}
+
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	stream := StreamManager.Find(v.StreamId)
+	if stream == nil || stream.DialogRequest == nil {
+		return
+	}
+
+	seekRequest := stream.CreateRequestFromDialog(sip.INFO)
+	seq, _ := seekRequest.CSeq()
+	body := fmt.Sprintf(SeekBodyFormat, seq.SeqNo, v.Seconds)
+	seekRequest.SetBody(body, true)
+	seekRequest.RemoveHeader(RtspMessageType.Name())
+	seekRequest.AppendHeader(&RtspMessageType)
+
+	SipUA.SendRequest(seekRequest)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {

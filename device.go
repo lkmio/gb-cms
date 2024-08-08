@@ -185,9 +185,9 @@ func (d *DBDevice) BuildDownloadRequest(channelId, ip string, port uint16, start
 	return d.BuildInviteRequest("Download", channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
 }
 
-// CreateByeRequestFromAnswer 根据invite的应答创建Bye请求
+// CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求
 // 应答的to头域需携带tag
-func (d *DBDevice) CreateByeRequestFromAnswer(message sip.Response, uas bool) sip.Request {
+func (d *DBDevice) CreateDialogRequestFromAnswer(message sip.Response, uas bool) sip.Request {
 	from, _ := message.From()
 	to, _ := message.To()
 	id, _ := message.CallID()

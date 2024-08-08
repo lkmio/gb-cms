@@ -36,7 +36,7 @@ func (s *streamManager) AddWithCallId(stream *Stream) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	id, _ := stream.ByeRequest.CallID()
+	id, _ := stream.DialogRequest.CallID()
 	if _, ok := s.streams[id.Value()]; ok {
 		return fmt.Errorf("the stream %s has been exist", id.Value())
 	}
@@ -71,8 +71,8 @@ func (s *streamManager) Remove(id string) (*Stream, error) {
 
 	stream, ok := s.streams[id]
 	delete(s.streams, id)
-	if ok && stream.ByeRequest != nil {
-		callID, _ := stream.ByeRequest.CallID()
+	if ok && stream.DialogRequest != nil {
+		callID, _ := stream.DialogRequest.CallID()
 		delete(s.callIds, callID.Value())
 		return stream, nil
 	}
