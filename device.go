@@ -32,6 +32,7 @@ type DBDevice struct {
 	Name       string             `json:"name"`
 	RemoteAddr string             `json:"remote_addr"`
 	Protocol   string             `json:"protocol"`
+	Status     string             `xml:"Status,omitempty"` //在线状态 ON-在线/OFF-离线
 	Channels   map[string]Channel `json:"channels"`
 }
 
@@ -182,17 +183,6 @@ func (d *DBDevice) BuildPlaybackRequest(channelId, ip string, port uint16, start
 
 func (d *DBDevice) BuildDownloadRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
 	return d.BuildInviteRequest("Download", channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
-}
-
-func (d *DBDevice) OnCatalog(response *QueryCatalogResponse) {
-	if d.Channels == nil {
-		d.Channels = make(map[string]Channel, 5)
-	}
-
-	for index := range response.DeviceList.Devices {
-		device := response.DeviceList.Devices[index]
-		d.Channels[device.DeviceID] = device
-	}
 }
 
 // CreateByeRequestFromAnswer 根据invite的应答创建Bye请求

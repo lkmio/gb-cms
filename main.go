@@ -9,6 +9,7 @@ var (
 	Config           *Config_
 	SipUA            SipServer
 	TransportManager transport.Manager
+	DB               DeviceDB
 )
 
 func init() {
@@ -33,13 +34,13 @@ func main() {
 	Config = config
 	TransportManager = transport.NewTransportManager(uint16(Config.Port[0]), uint16(Config.Port[1]))
 
-	db := &MemoryDB{}
-	devices := db.LoadDevices()
+	DB = &LocalDB{}
+	devices := DB.LoadDevices()
 	for _, device := range devices {
 		DeviceManager.Add(device)
 	}
 
-	server, err := StartSipServer(config, db)
+	server, err := StartSipServer(config)
 	if err != nil {
 		panic(err)
 	}

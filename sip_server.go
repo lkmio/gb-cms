@@ -51,7 +51,6 @@ type SipServer interface {
 
 type sipServer struct {
 	sip    gosip.Server
-	db     DeviceDB
 	config *Config_
 }
 
@@ -67,6 +66,7 @@ func setToTag(response sip.Message, toTag string) {
 
 func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 	var device *DBDevice
+	var query bool
 	_ = req.GetHeaders("Authorization")
 	fromHeader := req.GetHeaders("From")[0].(*sip.FromHeader)
 	expiresHeader := req.GetHeaders("Expires")
@@ -75,7 +75,7 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 
 	if expiresHeader != nil && "0" == expiresHeader[0].Value() {
 		Sugar.Infof("注销信令 from:%s", fromHeader.Address.User())
-		s.db.RemoveDevice(fromHeader.Name())
+		DB.UnRegisterDevice(fromHeader.Name())
 	} else /*if authorizationHeader == nil*/ {
 		expires := sip.Expires(3600)
 		response.AppendHeader(&expires)
@@ -86,16 +86,18 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 			RemoteAddr: req.Source(),
 		}
 
-		s.db.AddDevice(device)
+		err, b := DB.RegisterDevice(device)
+		query = err != nil || b
 	}
 
 	sendResponse(tx, response)
 
-	if device != nil {
+	if device != nil && query {
 		catalog, err := device.BuildCatalogRequest()
 		if err != nil {
 			panic(err)
 		}
+
 		s.SendRequest(catalog)
 	}
 }
@@ -212,7 +214,7 @@ func (s *sipServer) SendRequest(request sip.Request) {
 	}()
 }
 
-func StartSipServer(config *Config_, db DeviceDB) (SipServer, error) {
+func StartSipServer(config *Config_) (SipServer, error) {
 	server := gosip.NewServer(gosip.ServerConfig{
 		Host: config.PublicIP,
 	}, nil, nil, logger)
@@ -229,8 +231,17 @@ func StartSipServer(config *Config_, db DeviceDB) (SipServer, error) {
 	server.OnRequest(sip.ACK, s.OnAck)
 	server.OnRequest(sip.NOTIFY, s.OnNotify)
 	server.OnRequest(sip.MESSAGE, func(req sip.Request, tx sip.ServerTransaction) {
-		response := sip.NewResponseFromRequest("", req, 200, "OK", "")
-		sendResponse(tx, response)
+		online := true
+		defer func() {
+			var response sip.Response
+			if online {
+				response = sip.NewResponseFromRequest("", req, 200, "OK", "")
+			} else {
+				response = sip.NewResponseFromRequest("", req, 403, "OK", "")
+			}
+
+			sendResponse(tx, response)
+		}()
 
 		body := req.Body()
 		startIndex := strings.Index(body, CmdTagStart)
@@ -273,10 +284,20 @@ func StartSipServer(config *Config_, db DeviceDB) (SipServer, error) {
 				}
 			}
 			break
+
+		case "keepalive":
+			{
+				device := DeviceManager.Find(message.(*QueryCatalogResponse).DeviceID)
+				if device != nil {
+					DB.KeepAliveDevice(device)
+				}
+
+				online = device != nil
+			}
+			break
 		}
 	})
 
-	s.db = db
 	s.config = config
 
 	_, p, _ := net.SplitHostPort(config.SipAddr)

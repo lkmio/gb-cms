@@ -3,7 +3,9 @@ package main
 type DeviceDB interface {
 	LoadDevices() []*DBDevice
 
-	AddDevice(device *DBDevice) error
+	RegisterDevice(device *DBDevice) (error, bool)
 
-	RemoveDevice(id string)
+	UnRegisterDevice(id string)
+
+	KeepAliveDevice(device *DBDevice)
 }
