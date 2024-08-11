@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"gb-cms/sdp"
-	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lkmio/avformat/librtp"
 	"github.com/lkmio/avformat/utils"
 	"math"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -157,14 +154,6 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 		return
 	}
 
-	var inviteOk bool
-	defer func() {
-		if !inviteOk {
-			api.CloseStream(streamId)
-			go CloseGBSource(streamId)
-		}
-	}()
-
 	query := r.URL.Query()
 	setup := strings.ToLower(query.Get("setup"))
 	streamType := strings.ToLower(query.Get("stream_type"))
@@ -174,8 +163,6 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 
 	var startTimeSeconds string
 	var endTimeSeconds string
-	var err error
-	var ssrc string
 	if "playback" == streamType || "download" == streamType {
 		startTime, err := time.ParseInLocation("2006-01-02t15:04:05", startTimeStr, time.Local)
 		if err != nil {
@@ -190,95 +177,33 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 
 		startTimeSeconds = strconv.FormatInt(startTime.Unix(), 10)
 		endTimeSeconds = strconv.FormatInt(endTime.Unix(), 10)
-		ssrc = GetVodSSRC()
-	} else {
-		ssrc = GetLiveSSRC()
 	}
 
-	ssrcValue, _ := strconv.Atoi(ssrc)
-	ip, port, err := CreateGBSource(streamId, setup, uint32(ssrcValue))
-	if err != nil {
-		Sugar.Errorf("创建GBSource失败 err:%s", err.Error())
-		return
-	}
-
-	var inviteRequest sip.Request
+	var dialogRequest sip.Request
+	var ok bool
 	if "playback" == streamType {
-		inviteRequest, err = device.BuildPlaybackRequest(channelId, ip, port, startTimeSeconds, endTimeSeconds, setup, ssrc)
+		dialogRequest, ok = device.Playback(streamId, channelId, startTimeSeconds, endTimeSeconds, setup)
 	} else if "download" == streamType {
 		speed, _ := strconv.Atoi(speedStr)
 		speed = int(math.Min(4, float64(speed)))
-		inviteRequest, err = device.BuildDownloadRequest(channelId, ip, port, startTimeSeconds, endTimeSeconds, setup, speed, ssrc)
+		dialogRequest, ok = device.Download(streamId, channelId, startTimeSeconds, endTimeSeconds, setup, speed)
 	} else {
-		inviteRequest, err = device.BuildLiveRequest(channelId, ip, port, setup, ssrc)
+		dialogRequest, ok = device.Live(streamId, channelId, setup)
 	}
 
-	if err != nil {
+	if !ok {
+		api.CloseStream(streamId)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	var bye sip.Request
-	var answer string
-	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	SipUA.SendRequestWithContext(reqCtx, inviteRequest, gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
-		if res.StatusCode() < 200 {
-
-		} else if res.StatusCode() == 200 {
-			answer = res.Body()
-			ackRequest := sip.NewAckRequest("", inviteRequest, res, "", nil)
-			ackRequest.AppendHeader(globalContactAddress.AsContactHeader())
-			//手动替换ack请求目标地址, answer的contact可能不对.
-			recipient := ackRequest.Recipient()
-			remoteIP, remotePortStr, _ := net.SplitHostPort(device.RemoteAddr)
-			remotePort, _ := strconv.Atoi(remotePortStr)
-			sipPort := sip.Port(remotePort)
-			recipient.SetHost(remoteIP)
-			recipient.SetPort(&sipPort)
-
-			Sugar.Infof("send ack %s", ackRequest.String())
-
-			err := SipUA.Send(ackRequest)
-			if err != nil {
-				cancel()
-				Sugar.Errorf("send ack error %s %s", err.Error(), ackRequest.String())
-			} else {
-				inviteOk = true
-				bye = device.CreateDialogRequestFromAnswer(res, false)
-			}
-		} else if res.StatusCode() > 299 {
-			cancel()
-		}
-	}))
-
-	if !inviteOk {
-		return
-	}
-
-	if "active" == setup {
-		parse, err := sdp.Parse(answer)
-		if err != nil {
-			inviteOk = false
-			Sugar.Errorf("解析应答sdp失败 err:%s sdp:%s", err.Error(), answer)
-			return
-		}
-		if parse.Video == nil || parse.Video.Port == 0 {
-			inviteOk = false
-			Sugar.Errorf("应答没有视频连接地址 sdp:%s", answer)
-			return
-		}
-
-		addr := fmt.Sprintf("%s:%d", parse.Addr, parse.Video.Port)
-		if err = ConnectGBSource(streamId, addr); err != nil {
-			inviteOk = false
-			Sugar.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
-		}
-	}
-
+	stream.DialogRequest = dialogRequest
 	if stream.waitPublishStream() {
-		stream.DialogRequest = bye
 		w.WriteHeader(http.StatusOK)
 	} else {
-		SipUA.SendRequest(bye)
+		Sugar.Infof("收流超时 发送bye请求...")
+		SipUA.SendRequest(stream.CreateRequestFromDialog(sip.BYE))
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -367,7 +292,7 @@ func (api *ApiServer) OnRecordList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sn := GetSN()
-	err = device.DoRecordList(v.ChannelId, v.StartTime, v.EndTime, sn, v.Type_)
+	err = device.DoQueryRecordList(v.ChannelId, v.StartTime, v.EndTime, sn, v.Type_)
 	if err != nil {
 		httpResponseOK(w, fmt.Sprintf("发送查询录像记录失败 err:%s", err.Error()))
 		return

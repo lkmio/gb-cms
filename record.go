@@ -60,7 +60,7 @@ type RecordInfo struct {
 	ShutdownTime   string `xml:"ShutdownTime" json:"shutdownTime"`
 }
 
-func (d *DBDevice) DoRecordList(channelId, startTime, endTime string, sn int, type_ string) error {
+func (d *DBDevice) DoQueryRecordList(channelId, startTime, endTime string, sn int, type_ string) error {
 	body := fmt.Sprintf(QueryRecordFormat, sn, channelId, startTime, endTime, type_)
 	msg, err := d.BuildMessageRequest(channelId, body)
 	if err != nil {

@@ -49,12 +49,12 @@ func (d *DBDevice) OnInviteBroadcast(request sip.Request, session *BroadcastSess
 
 	sdp, err := sdp.Parse(body)
 	if err != nil {
-		logger.Infof("解析sdp失败 err:%s sdp:%s", err.Error(), body)
+		Sugar.Infof("解析sdp失败 err:%s sdp:%s", err.Error(), body)
 		return http.StatusBadRequest, ""
 	}
 
 	if sdp.Audio == nil {
-		logger.Infof("处理sdp失败 缺少audio字段 sdp:%s", body)
+		Sugar.Infof("处理sdp失败 缺少audio字段 sdp:%s", body)
 		return http.StatusBadRequest, ""
 	}
 
