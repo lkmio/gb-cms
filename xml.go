@@ -7,21 +7,11 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 	"io"
-	"io/ioutil"
-	"strings"
 )
 
 func GbkToUtf8(s []byte) ([]byte, error) {
 	reader := transform.NewReader(bytes.NewReader(s), simplifiedchinese.GBK.NewDecoder())
-
-	d, e := ioutil.ReadAll(reader)
-
-	if e != nil {
-
-		return nil, e
-	}
-
-	return d, nil
+	return io.ReadAll(reader)
 }
 
 func DoDecodeXML(data []byte, message interface{}) error {
@@ -34,16 +24,16 @@ func DoDecodeXML(data []byte, message interface{}) error {
 }
 
 func DecodeXML(data []byte, message interface{}) error {
-	uft8Data := []byte(strings.Replace(string(data), "GB2312", "UTF-8", 1))
-
+	//uft8Data := []byte(strings.Replace(string(data), "GB2312", "UTF-8", 1))
+	uft8Data := data
 	err := DoDecodeXML(uft8Data, message)
 	if err != nil {
-		utf8, err := GbkToUtf8(uft8Data)
+		uft8Data, err = GbkToUtf8(uft8Data)
 		if err != nil {
 			return err
 		}
 
-		err = DoDecodeXML(uft8Data, utf8)
+		err = DoDecodeXML(uft8Data, message)
 	}
 
 	return err

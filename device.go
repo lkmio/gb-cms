@@ -53,7 +53,7 @@ type Channel struct {
 	Certifiable  int    `xml:"Certifiable,omitempty"`
 	ErrCode      int    `xml:"ErrCode,omitempty"`
 	EndTime      string `xml:"EndTime,omitempty"`
-	Secrecy      int    `xml:"Secrecy,omitempty"`
+	Secrecy      string `xml:"Secrecy,omitempty"`
 	IPAddress    string `xml:"IPAddress,omitempty"`
 	Port         int    `xml:"Port,omitempty"`
 	Password     string `xml:"Password,omitempty"`
