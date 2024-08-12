@@ -6,11 +6,9 @@ import (
 	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/lkmio/avformat/utils"
 	"math"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -21,24 +19,6 @@ const (
 	InviteTypePlayback = InviteType(1)
 	InviteTypeDownload = InviteType(2)
 )
-
-func generateStreamId(inviteType InviteType, deviceId, channelId string) string {
-	utils.Assert(channelId != "")
-
-	var streamId []string
-	if deviceId != "" {
-		streamId = append(streamId, deviceId)
-	}
-
-	streamId = append(streamId, channelId)
-	if InviteTypePlayback == inviteType {
-		return strings.Join(streamId, "/") + ".playback"
-	} else if InviteTypeDownload == inviteType {
-		return strings.Join(streamId, "/") + ".download"
-	}
-
-	return strings.Join(streamId, "/")
-}
 
 func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int) (sip.Request, bool) {
 	var ok bool
@@ -57,10 +37,6 @@ func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string,
 	}
 
 	ssrcValue, _ := strconv.Atoi(ssrc)
-	if streamId == "" {
-		streamId = generateStreamId(inviteType, d.Id, channelId)
-	}
-
 	ip, port, err := CreateGBSource(streamId, setup, uint32(ssrcValue))
 	if err != nil {
 		Sugar.Errorf("创建GBSource失败 err:%s", err.Error())

@@ -20,16 +20,19 @@ type streamManager struct {
 	lock    sync.RWMutex
 }
 
-func (s *streamManager) Add(stream *Stream) error {
+// Add 添加Stream
+// 如果Stream已经存在, 返回oldStream与false
+func (s *streamManager) Add(stream *Stream) (*Stream, bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if _, ok := s.streams[stream.Id]; ok {
-		return fmt.Errorf("the stream %s has been exist", stream.Id)
+	old, ok := s.streams[stream.Id]
+	if ok {
+		return old, false
 	}
 
 	s.streams[stream.Id] = stream
-	return nil
+	return nil, true
 }
 
 func (s *streamManager) AddWithCallId(stream *Stream) error {
@@ -37,11 +40,11 @@ func (s *streamManager) AddWithCallId(stream *Stream) error {
 	defer s.lock.Unlock()
 
 	id, _ := stream.DialogRequest.CallID()
-	if _, ok := s.streams[id.Value()]; ok {
+	if _, ok := s.callIds[id.Value()]; ok {
 		return fmt.Errorf("the stream %s has been exist", id.Value())
 	}
 
-	s.streams[id.Value()] = stream
+	s.callIds[id.Value()] = stream
 	return nil
 }
 
