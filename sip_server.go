@@ -81,8 +81,10 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction) {
 		response.AppendHeader(&expires)
 
 		//sip.NewResponseFromRequest("", req, 401, "Unauthorized", "")
+
 		device = &DBDevice{
 			Id:         fromHeader.Address.User().String(),
+			Transport:  req.Transport(),
 			RemoteAddr: req.Source(),
 		}
 
@@ -234,8 +236,9 @@ func StartSipServer(config *Config_) (SipServer, error) {
 	}, nil, nil, logger)
 
 	addr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.SipPort))
-	err := server.Listen("udp", addr)
-	if err != nil {
+	if err := server.Listen("udp", addr); err != nil {
+		return nil, err
+	} else if err := server.Listen("tcp", addr); err != nil {
 		return nil, err
 	}
 
@@ -324,5 +327,5 @@ func StartSipServer(config *Config_) (SipServer, error) {
 		},
 	}
 
-	return s, err
+	return s, nil
 }

@@ -31,7 +31,7 @@ type DBDevice struct {
 	Id         string             `json:"id"`
 	Name       string             `json:"name"`
 	RemoteAddr string             `json:"remote_addr"`
-	Protocol   string             `json:"protocol"`
+	Transport  string             `json:"transport"`
 	Status     string             `xml:"Status,omitempty"` //在线状态 ON-在线/OFF-离线
 	Channels   map[string]Channel `json:"channels"`
 }
@@ -88,8 +88,18 @@ func (d *DBDevice) BuildMessageRequest(to, body string) (sip.Request, error) {
 	return builder.Build()
 }
 
-func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to string) *sip.RequestBuilder {
+func (d *DBDevice) NewSIPRequestBuilderWithTransport() *sip.RequestBuilder {
 	builder := sip.NewRequestBuilder()
+	hop := sip.ViaHop{
+		Transport: d.Transport,
+	}
+
+	builder.AddVia(&hop)
+	return builder
+}
+
+func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to string) *sip.RequestBuilder {
+	builder := d.NewSIPRequestBuilderWithTransport()
 	builder.SetMethod(method)
 
 	host, p, _ := net.SplitHostPort(d.RemoteAddr)
@@ -113,7 +123,6 @@ func (d *DBDevice) NewRequestBuilder(method sip.RequestMethod, from, realm, to s
 
 	fromAddress.Params = sip.NewParams().Add("tag", sip.String{Str: GenerateTag()})
 	builder.SetFrom(fromAddress)
-
 	builder.SetTo(&sip.Address{
 		Uri: requestUri,
 	})
@@ -202,7 +211,7 @@ func (d *DBDevice) CreateDialogRequestFromAnswer(message sip.Response, uas bool)
 
 	seq, _ := message.CSeq()
 
-	builder := sip.NewRequestBuilder()
+	builder := d.NewSIPRequestBuilderWithTransport()
 	if uas {
 		builder.SetFrom(sip.NewAddressFromToHeader(to))
 		builder.SetTo(sip.NewAddressFromFromHeader(from))
@@ -215,10 +224,10 @@ func (d *DBDevice) CreateDialogRequestFromAnswer(message sip.Response, uas bool)
 	builder.SetMethod(sip.BYE)
 	builder.SetRecipient(requestLine)
 	builder.SetSeqNo(uint(seq.SeqNo + 1))
-	build, err := builder.Build()
+	request, err := builder.Build()
 	if err != nil {
 		panic(err)
 	}
 
-	return build
+	return request
 }

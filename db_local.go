@@ -17,7 +17,7 @@ func (m LocalDB) RegisterDevice(device *DBDevice) (error, bool) {
 		d.Status = "ON"
 		d.RemoteAddr = device.RemoteAddr
 		d.Name = device.Name
-		d.Protocol = device.Protocol
+		d.Transport = device.Transport
 	} else if err := DeviceManager.Add(device); err != nil {
 		return err, false
 	}
