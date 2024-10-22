@@ -1,22 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"sync"
 )
 
 var StreamManager *streamManager
 
 func init() {
-	StreamManager = &streamManager{
-		streams: make(map[string]*Stream, 64),
-		callIds: make(map[string]*Stream, 64),
-	}
+	StreamManager = NewStreamManager()
 }
 
 type streamManager struct {
-	streams map[string]*Stream
-	callIds map[string]*Stream
+	streams map[StreamID]*Stream
+	callIds map[string]*Stream // 本SipUA的CallID与Stream的关系
 	lock    sync.RWMutex
 }
 
@@ -26,29 +22,28 @@ func (s *streamManager) Add(stream *Stream) (*Stream, bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	old, ok := s.streams[stream.Id]
+	old, ok := s.streams[stream.ID]
 	if ok {
 		return old, false
 	}
 
-	s.streams[stream.Id] = stream
+	s.streams[stream.ID] = stream
 	return nil, true
 }
 
-func (s *streamManager) AddWithCallId(stream *Stream) error {
+func (s *streamManager) AddWithCallId(id string, stream *Stream) bool {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	id, _ := stream.DialogRequest.CallID()
-	if _, ok := s.callIds[id.Value()]; ok {
-		return fmt.Errorf("the stream %s has been exist", id.Value())
+	if _, ok := s.callIds[id]; ok {
+		return false
 	}
 
-	s.callIds[id.Value()] = stream
-	return nil
+	s.callIds[id] = stream
+	return true
 }
 
-func (s *streamManager) Find(id string) *Stream {
+func (s *streamManager) Find(id StreamID) *Stream {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -68,7 +63,7 @@ func (s *streamManager) FindWithCallId(id string) *Stream {
 	return nil
 }
 
-func (s *streamManager) Remove(id string) (*Stream, error) {
+func (s *streamManager) Remove(id StreamID) *Stream {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -77,24 +72,24 @@ func (s *streamManager) Remove(id string) (*Stream, error) {
 	if ok && stream.DialogRequest != nil {
 		callID, _ := stream.DialogRequest.CallID()
 		delete(s.callIds, callID.Value())
-		return stream, nil
+		return stream
 	}
 
-	return nil, fmt.Errorf("stream with id %s was not find", id)
+	return nil
 }
 
-func (s *streamManager) RemoveWithCallId(id string) (*Stream, error) {
+func (s *streamManager) RemoveWithCallId(id string) *Stream {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	stream, ok := s.callIds[id]
 	if ok {
 		delete(s.callIds, id)
-		delete(s.streams, stream.Id)
-		return stream, nil
+		delete(s.streams, stream.ID)
+		return stream
 	}
 
-	return nil, fmt.Errorf("stream with id %s was not find", id)
+	return nil
 }
 
 func (s *streamManager) PopAll() []*Stream {
@@ -106,7 +101,14 @@ func (s *streamManager) PopAll() []*Stream {
 		streams = append(streams, stream)
 	}
 
-	s.streams = make(map[string]*Stream)
+	s.streams = make(map[StreamID]*Stream)
 	s.callIds = make(map[string]*Stream)
 	return streams
+}
+
+func NewStreamManager() *streamManager {
+	return &streamManager{
+		streams: make(map[StreamID]*Stream, 64),
+		callIds: make(map[string]*Stream, 64),
+	}
 }

@@ -4,25 +4,26 @@ package main
 type LocalDB struct {
 }
 
-func (m LocalDB) LoadDevices() []*DBDevice {
+func (m LocalDB) LoadDevices() []*Device {
 	return nil
 }
 
-func (m LocalDB) RegisterDevice(device *DBDevice) (error, bool) {
+func (m LocalDB) RegisterDevice(device *Device) (error, bool) {
 	//持久化...
 	device.Status = "ON"
 
-	d := DeviceManager.Find(device.Id)
-	if d != nil {
-		d.Status = "ON"
-		d.RemoteAddr = device.RemoteAddr
-		d.Name = device.Name
-		d.Transport = device.Transport
+	oldDevice := DeviceManager.Find(device.ID)
+	if oldDevice != nil {
+		oldDevice.(*Device).Status = "ON"
+		oldDevice.(*Device).RemoteAddr = device.RemoteAddr
+		oldDevice.(*Device).Name = device.Name
+		oldDevice.(*Device).Transport = device.Transport
+		device = oldDevice.(*Device)
 	} else if err := DeviceManager.Add(device); err != nil {
 		return err, false
 	}
 
-	return nil, d == nil || len(d.Channels) == 0
+	return nil, oldDevice == nil || len(device.Channels) == 0
 }
 
 func (m LocalDB) UnRegisterDevice(id string) {
@@ -31,9 +32,25 @@ func (m LocalDB) UnRegisterDevice(id string) {
 		return
 	}
 
-	device.Status = "OFF"
+	device.(*Device).Status = "OFF"
 }
 
-func (m LocalDB) KeepAliveDevice(device *DBDevice) {
+func (m LocalDB) KeepAliveDevice(device *Device) {
 
+}
+
+func (m LocalDB) AddPlatform(record GBPlatformRecord) error {
+	//if ExistPlatform(record.SeverID) {
+	//	return
+	//}
+
+	return nil
+}
+
+func (m LocalDB) LoadPlatforms() []GBPlatformRecord {
+	//if ExistPlatform(record.SeverID) {
+	//	return
+	//}
+
+	return nil
 }

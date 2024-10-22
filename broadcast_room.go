@@ -31,19 +31,19 @@ func (r *BroadcastRoom) Remove(sourceId string) {
 	delete(r.members, sourceId)
 }
 
-func (r *BroadcastRoom) Exist(sessionId string) bool {
+func (r *BroadcastRoom) Exist(sourceId string) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	_, ok := r.members[sessionId]
+	_, ok := r.members[sourceId]
 	return ok
 }
 
-func (r *BroadcastRoom) Find(sessionId string) *BroadcastSession {
+func (r *BroadcastRoom) Find(sourceId string) *BroadcastSession {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	session, _ := r.members[sessionId]
+	session, _ := r.members[sourceId]
 	return session
 }
 

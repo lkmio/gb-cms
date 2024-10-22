@@ -28,7 +28,7 @@ type InviteParams struct {
 	EndTime   string `json:"end_time"`
 	Setup     string `json:"setup"`
 	Speed     string `json:"speed"`
-	streamId  string
+	streamId  StreamID
 }
 
 var apiServer *ApiServer
@@ -45,16 +45,16 @@ func init() {
 	}
 }
 
-func withHookParams(f func(streamId, protocol string, w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
+func withHookParams(f func(streamId StreamID, protocol string, w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if "" != req.URL.RawQuery {
 			Sugar.Infof("on request %s?%s", req.URL.Path, req.URL.RawQuery)
 		}
 
 		v := struct {
-			Stream     string `json:"stream"`      //Stream id
-			Protocol   string `json:"protocol"`    //推拉流协议
-			RemoteAddr string `json:"remote_addr"` //peer地址
+			Stream     StreamID `json:"stream"`      //Stream id
+			Protocol   string   `json:"protocol"`    //推拉流协议
+			RemoteAddr string   `json:"remote_addr"` //peer地址
 		}{}
 
 		err := HttpDecodeJSONBody(w, req, &v)
@@ -77,20 +77,26 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_record", withHookParams(apiServer.OnReceiveTimeout))
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
-	//统一处理live/playback/download请求
+	// 统一处理live/playback/download请求
 	apiServer.router.HandleFunc("/api/v1/{action}/start", apiServer.OnInvite)
-	apiServer.router.HandleFunc("/api/v1/stream/close", apiServer.OnCloseStream) //释放流(实时/回放/下载), 以拉流计数为准, 如果没有客户端拉流, 不等流媒体服务通知空闲超时，立即释放流，否则(还有客户端拉流)不会释放。
+	apiServer.router.HandleFunc("/api/v1/stream/close", apiServer.OnCloseStream) // 释放流(实时/回放/下载), 实际以拉流计数为准, 如果没有客户端拉流, 不等流媒体服务通知空闲超时，立即释放流，否则(还有客户端拉流)不会释放。
 
-	apiServer.router.HandleFunc("/api/v1/device/list", apiServer.OnDeviceList)         //查询在线设备
-	apiServer.router.HandleFunc("/api/v1/record/list", apiServer.OnRecordList)         //查询录像列表
-	apiServer.router.HandleFunc("/api/v1/position/sub", apiServer.OnSubscribePosition) //订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", apiServer.OnSeekPlayback)     //回放seek
-	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)         //云台控制
+	apiServer.router.HandleFunc("/api/v1/device/list", apiServer.OnDeviceList)         // 查询在线设备
+	apiServer.router.HandleFunc("/api/v1/record/list", apiServer.OnRecordList)         // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/position/sub", apiServer.OnSubscribePosition) // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", apiServer.OnSeekPlayback)     // 回放seek
+	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)         // 云台控制
 
-	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                 //语音广播/对讲, 音频传输链路
-	apiServer.router.HandleFunc("/api/v1/broadcast/invite", apiServer.OnBroadcast) //语音广播
-	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", apiServer.OnHangup)    //挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                  //语音对讲
+	apiServer.router.HandleFunc("/api/v1/platform/add", apiServer.OnPlatformAdd)                      // 添加上级平台
+	apiServer.router.HandleFunc("/api/v1/platform/remove", apiServer.OnPlatformRemove)                // 删除上级平台
+	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                    // 上级平台列表
+	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", apiServer.OnPlatformChannelBind)     // 级联绑定通道
+	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", apiServer.OnPlatformChannelUnbind) // 级联取消绑定通道
+
+	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                 // 语音广播/对讲, 主讲音频传输链路
+	apiServer.router.HandleFunc("/api/v1/broadcast/invite", apiServer.OnBroadcast) // 发起语音广播
+	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", apiServer.OnHangup)    // 挂断广播会话
+	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                  // 语音对讲
 	apiServer.router.HandleFunc("/broadcast.html", func(writer http.ResponseWriter, request *http.Request) {
 		http.ServeFile(writer, request, "./broadcast.html")
 	})
@@ -115,197 +121,28 @@ func startApiServer(addr string) {
 	}
 }
 
-func generateStreamId(inviteType InviteType, deviceId, channelId string, startTime, endTime string) string {
-	utils.Assert(channelId != "")
-
-	var streamId []string
-	if deviceId != "" {
-		streamId = append(streamId, deviceId)
-	}
-
-	streamId = append(streamId, channelId)
-	if InviteTypePlayback == inviteType {
-		return strings.Join(streamId, "/") + ".playback" + "." + startTime + "." + endTime
-	} else if InviteTypeDownload == inviteType {
-		return strings.Join(streamId, "/") + ".download" + "." + startTime + "." + endTime
-	}
-
-	return strings.Join(streamId, "/")
-}
-
-func (api *ApiServer) OnInvite(w http.ResponseWriter, r *http.Request) {
-	v := InviteParams{}
-	err := HttpDecodeJSONBody(w, r, &v)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	vars := mux.Vars(r)
-	action := strings.ToLower(vars["action"])
-	if "playback" == action {
-		apiServer.DoInvite(InviteTypePlayback, v, true, w, r)
-	} else if "download" == action {
-		apiServer.DoInvite(InviteTypeDownload, v, true, w, r)
-	} else if "live" == action {
-		apiServer.DoInvite(InviteTypeLive, v, true, w, r)
-	} else {
-		w.WriteHeader(http.StatusNotFound)
-	}
-}
-
-func (api *ApiServer) OnLiveStart(device *DBDevice, params InviteParams, streamId string, w http.ResponseWriter, r *http.Request) (sip.Request, bool, error) {
-	dialog, b := device.Live(streamId, params.ChannelID, params.Setup)
-	return dialog, b, nil
-}
-
-func (api *ApiServer) OnPlaybackStart(device *DBDevice, params InviteParams, streamId string, w http.ResponseWriter, r *http.Request) (sip.Request, bool, error) {
-	startTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.StartTime, time.Local)
-	if err != nil {
-		Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.StartTime)
-		return nil, false, err
-	}
-
-	endTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.EndTime, time.Local)
-	if err != nil {
-		Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.EndTime)
-		return nil, false, err
-	}
-
-	startTimeSeconds := strconv.FormatInt(startTime.Unix(), 10)
-	endTimeSeconds := strconv.FormatInt(endTime.Unix(), 10)
-	dialog, b := device.Playback(streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup)
-	return dialog, b, nil
-}
-
-func (api *ApiServer) OnDownloadStart(device *DBDevice, params InviteParams, streamId string, w http.ResponseWriter, r *http.Request) (sip.Request, bool, error) {
-	startTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.StartTime, time.Local)
-	if err != nil {
-		Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.StartTime)
-		return nil, false, err
-	}
-
-	endTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.EndTime, time.Local)
-	if err != nil {
-		Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.EndTime)
-		return nil, false, err
-	}
-
-	startTimeSeconds := strconv.FormatInt(startTime.Unix(), 10)
-	endTimeSeconds := strconv.FormatInt(endTime.Unix(), 10)
-	speed, _ := strconv.Atoi(params.Speed)
-	speed = int(math.Min(4, float64(speed)))
-
-	dialog, b := device.Download(streamId, params.ChannelID, params.StartTime, startTimeSeconds, endTimeSeconds, speed)
-	return dialog, b, nil
-}
-
-// DoInvite 处理Invite请求
-// @params sync 是否异步等待流媒体的publish事件(确认收到流), 目前请求流分两种方式，流媒体hook和http接口, hook方式同步等待确认收到流再应答, http接口直接应答成功。
-func (api *ApiServer) DoInvite(inviteType InviteType, params InviteParams, sync bool, w http.ResponseWriter, r *http.Request) (*Stream, bool) {
-	device := DeviceManager.Find(params.DeviceID)
-	if device == nil {
-		Sugar.Warnf("设备离线 id:%s", params.DeviceID)
-		return nil, false
-	}
-
-	streamId := params.streamId
-	if streamId == "" {
-		streamId = generateStreamId(inviteType, device.Id, params.ChannelID, params.StartTime, params.EndTime)
-	}
-	stream := &Stream{
-		Id:         streamId,
-		Protocol:   "28181",
-		StreamType: inviteType,
-	}
-
-	var inviteOK bool
-	var publishOK bool
-	defer func() {
-		if !inviteOK {
-			StreamManager.Remove(streamId)
-			w.WriteHeader(http.StatusInternalServerError)
-		} else if !publishOK {
-			CloseStream(streamId)
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			response := map[string]string{
-				"stream_id": streamId,
-			}
-
-			httpResponseOK(w, response)
-		}
-	}()
-
-	//如果添加Stream失败, 说明Stream已经存在
-	if stream, ok := StreamManager.Add(stream); !ok {
-		Sugar.Infof("stream %s 已经存在", streamId)
-		inviteOK = true
-		publishOK = true
-		return stream, true
-	}
-
-	var dialog sip.Request
-	var err error
-	if InviteTypePlayback == inviteType {
-		dialog, inviteOK, err = api.OnPlaybackStart(device, params, streamId, w, r)
-	} else if InviteTypeDownload == inviteType {
-		dialog, inviteOK, err = api.OnDownloadStart(device, params, streamId, w, r)
-	} else {
-		dialog, inviteOK, err = api.OnLiveStart(device, params, streamId, w, r)
-	}
-
-	if !inviteOK || err != nil {
-		StreamManager.Remove(streamId)
-		w.WriteHeader(http.StatusInternalServerError)
-		return nil, false
-	}
-
-	stream.DialogRequest = dialog
-	StreamManager.AddWithCallId(stream)
-
-	//启动收流超时计时器
-	wait := func() bool {
-		ok := stream.WaitForPublishEvent(10)
-		if !ok {
-			Sugar.Infof("收流超时 发送bye请求...")
-			CloseStream(streamId)
-		}
-		return ok
-	}
-
-	if sync {
-		publishOK = true
-		go wait()
-	} else {
-		publishOK = wait()
-	}
-
-	return stream, publishOK
-}
-
-func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPlay(streamId StreamID, protocol string, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("play. protocol:%s stream id:%s", protocol, streamId)
 
-	//[注意]: windows上使用cmd/power shell推拉流如果要携带多个参数, 请用双引号将与号引起来("&")
-	//session_id是为了同一个录像文件, 允许同时点播多个.当然如果实时流支持多路预览, 也是可以的.
+	// [注意]: windows上使用cmd/power shell推拉流如果要携带多个参数, 请用双引号将与号引起来("&")
+	// session_id是为了同一个录像文件, 允许同时点播多个.当然如果实时流支持多路预览, 也是可以的.
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001
 	//ffplay -i http://127.0.0.1:8080/34020000001320000001/34020000001310000001.flv?setup=passive
 	//ffplay -i http://127.0.0.1:8080/34020000001320000001/34020000001310000001.m3u8?setup=passive
 	//ffplay -i rtsp://test:123456@127.0.0.1/34020000001320000001/34020000001310000001?setup=passive
 
-	//回放示例
+	// 回放示例
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001.session_id_0?setup=passive"&"stream_type=playback"&"start_time=2024-06-18T15:20:56"&"end_time=2024-06-18T15:25:56
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001.session_id_0?setup=passive&stream_type=playback&start_time=2024-06-18T15:20:56&end_time=2024-06-18T15:25:56
 
-	//跳过非国标拉流
-	split := strings.Split(streamId, "/")
+	// 跳过非国标拉流
+	split := strings.Split(string(streamId), "/")
 	if len(split) != 2 || len(split[0]) != 20 || len(split[1]) < 20 {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	//已经存在，累加计数
+	// 已经存在，累加计数
 	if stream := StreamManager.Find(streamId); stream != nil {
 		stream.IncreaseSinkCount()
 		w.WriteHeader(http.StatusOK)
@@ -345,9 +182,81 @@ func (api *ApiServer) OnPlay(streamId, protocol string, w http.ResponseWriter, r
 	}
 }
 
+func (api *ApiServer) OnInvite(w http.ResponseWriter, r *http.Request) {
+	v := InviteParams{}
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	vars := mux.Vars(r)
+	action := strings.ToLower(vars["action"])
+	if "playback" == action {
+		apiServer.DoInvite(InviteTypePlayback, v, true, w, r)
+	} else if "download" == action {
+		apiServer.DoInvite(InviteTypeDownload, v, true, w, r)
+	} else if "live" == action {
+		apiServer.DoInvite(InviteTypeLive, v, true, w, r)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// DoInvite 处理Invite请求
+// @params sync 是否异步等待流媒体的publish事件(确认收到流), 目前请求流分两种方式，流媒体hook和http接口, hook方式同步等待确认收到流再应答, http接口直接应答成功。
+func (api *ApiServer) DoInvite(inviteType InviteType, params InviteParams, sync bool, w http.ResponseWriter, r *http.Request) (*Stream, bool) {
+	device := DeviceManager.Find(params.DeviceID)
+	if device == nil {
+		Sugar.Warnf("设备离线 id:%s", params.DeviceID)
+		w.WriteHeader(http.StatusNotFound)
+		return nil, false
+	}
+
+	// 解析时间范围参数
+	var startTimeSeconds string
+	var endTimeSeconds string
+	if InviteTypeLive != inviteType {
+		startTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.StartTime, time.Local)
+		if err != nil {
+			Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.StartTime)
+			w.WriteHeader(http.StatusBadRequest)
+			return nil, false
+		}
+
+		endTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.EndTime, time.Local)
+		if err != nil {
+			Sugar.Errorf("解析开始时间失败 err:%s start_time:%s", err.Error(), params.EndTime)
+			w.WriteHeader(http.StatusBadRequest)
+			return nil, false
+		}
+
+		startTimeSeconds = strconv.FormatInt(startTime.Unix(), 10)
+		endTimeSeconds = strconv.FormatInt(endTime.Unix(), 10)
+	}
+
+	streamId := params.streamId
+	if streamId == "" {
+		streamId = GenerateStreamId(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
+	}
+
+	// 解析回放或下载速度参数
+	speed, _ := strconv.Atoi(params.Speed)
+	speed = int(math.Min(4, float64(speed)))
+	stream, ok := device.(*Device).StartStream(inviteType, streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return nil, false
+	}
+
+	// 返回stream id
+	response := map[string]string{"stream_id": string(streamId)}
+	httpResponseOK(w, response)
+	return stream, true
+}
+
 func (api *ApiServer) OnCloseStream(w http.ResponseWriter, r *http.Request) {
 	v := struct {
-		StreamID string `json:"stream_id"`
+		StreamID StreamID `json:"stream_id"`
 	}{}
 
 	err := HttpDecodeJSONBody(w, r, &v)
@@ -369,22 +278,28 @@ func (api *ApiServer) OnCloseStream(w http.ResponseWriter, r *http.Request) {
 	CloseStream(v.StreamID)
 }
 
-func CloseStream(streamId string) {
-	stream, _ := StreamManager.Remove(streamId)
+func CloseStream(streamId StreamID) {
+	stream := StreamManager.Remove(streamId)
 	if stream != nil {
 		stream.Close(true)
 	}
 }
 
-func (api *ApiServer) OnPlayDone(streamId, protocol string, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPlayDone(streamId StreamID, protocol string, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("play done. protocol:%s stream id:%s", protocol, streamId)
 	if stream := StreamManager.Find(streamId); stream != nil {
 		stream.DecreaseSinkCount()
 	}
+
+	// 与上级级联断开连接
+	if protocol == "gb_stream_forward" {
+
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
-func (api *ApiServer) OnPublish(streamId, protocol string, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPublish(streamId StreamID, protocol string, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("publish. protocol:%s stream id:%s", protocol, streamId)
 
 	w.WriteHeader(http.StatusOK)
@@ -394,14 +309,13 @@ func (api *ApiServer) OnPublish(streamId, protocol string, w http.ResponseWriter
 	}
 }
 
-func (api *ApiServer) OnPublishDone(streamId, protocol string, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPublishDone(streamId StreamID, protocol string, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("publish done. protocol:%s stream id:%s", protocol, streamId)
-
 	w.WriteHeader(http.StatusOK)
 	CloseStream(streamId)
 }
 
-func (api *ApiServer) OnIdleTimeout(streamId string, protocol string, w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnIdleTimeout(streamId StreamID, protocol string, w http.ResponseWriter, req *http.Request) {
 	Sugar.Infof("publish timeout. protocol:%s stream id:%s", protocol, streamId)
 
 	if protocol != "rtmp" {
@@ -412,7 +326,7 @@ func (api *ApiServer) OnIdleTimeout(streamId string, protocol string, w http.Res
 	}
 }
 
-func (api *ApiServer) OnReceiveTimeout(streamId string, protocol string, w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnReceiveTimeout(streamId StreamID, protocol string, w http.ResponseWriter, req *http.Request) {
 	Sugar.Infof("receive timeout. protocol:%s stream id:%s", protocol, streamId)
 
 	if protocol != "rtmp" {
@@ -456,7 +370,7 @@ func (api *ApiServer) OnRecordList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sn := GetSN()
-	err = device.DoQueryRecordList(v.ChannelId, v.StartTime, v.EndTime, sn, v.Type_)
+	err = device.QueryRecord(v.ChannelId, v.StartTime, v.EndTime, sn, v.Type_)
 	if err != nil {
 		httpResponseOK(w, fmt.Sprintf("发送查询录像记录失败 err:%s", err.Error()))
 		return
@@ -504,7 +418,7 @@ func (api *ApiServer) OnSubscribePosition(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := device.DoSubscribePosition(v.ChannelID); err != nil {
+	if err := device.SubscribePosition(v.ChannelID); err != nil {
 
 	}
 
@@ -513,8 +427,8 @@ func (api *ApiServer) OnSubscribePosition(w http.ResponseWriter, r *http.Request
 
 func (api *ApiServer) OnSeekPlayback(w http.ResponseWriter, r *http.Request) {
 	v := struct {
-		StreamId string `json:"stream_id"`
-		Seconds  int    `json:"seconds"`
+		StreamId StreamID `json:"stream_id"`
+		Seconds  int      `json:"seconds"`
 	}{}
 
 	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
@@ -539,6 +453,7 @@ func (api *ApiServer) OnSeekPlayback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
+
 }
 
 func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +573,7 @@ func (api *ApiServer) OnBroadcast(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if BroadcastManager.AddSession(v.RoomID, session) {
-		device.DoBroadcast(sourceId, v.ChannelID)
+		device.Broadcast(sourceId, v.ChannelID)
 		httpResponseOK(w, nil)
 	} else {
 		w.WriteHeader(http.StatusForbidden)
@@ -688,5 +603,99 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 	streams := StreamManager.PopAll()
 	for _, stream := range streams {
 		stream.Close(true)
+	}
+}
+
+func (api *ApiServer) OnPlatformAdd(w http.ResponseWriter, r *http.Request) {
+	v := GBPlatformRecord{}
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	if PlatformManager.ExistPlatform(v.SeverID) || PlatformManager.ExistPlatformWithServerAddr(v.ServerAddr) {
+		return
+	}
+
+	platform, err := NewGBPlatform(&v, SipUA)
+	if err != nil {
+		return
+	} else if !PlatformManager.AddPlatform(platform) {
+		return
+	}
+
+	platform.Start()
+}
+
+func (api *ApiServer) OnPlatformRemove(w http.ResponseWriter, r *http.Request) {
+	v := GBPlatformRecord{}
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	platform := PlatformManager.RemovePlatform(v.SeverID)
+	if platform != nil {
+		platform.Stop()
+	}
+}
+
+func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
+	platforms := PlatformManager.Platforms()
+	httpResponseOK(w, platforms)
+}
+
+func (api *ApiServer) OnPlatformChannelBind(w http.ResponseWriter, r *http.Request) {
+	v := struct {
+		ServerID string      `json:"server_id"`
+		Channels [][2]string `json:"channels"` //二维数组, 索引0-设备ID/索引1-通道ID
+	}{}
+
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	platform := PlatformManager.FindPlatform(v.ServerID)
+	if platform == nil {
+		return
+	}
+
+	var channels []*Channel
+	for _, pair := range v.Channels {
+		device := DeviceManager.Find(pair[0])
+		if device == nil {
+			continue
+		}
+
+		channel := device.FindChannel(pair[1])
+		if channel == nil {
+			continue
+		}
+
+		channels = append(channels, channel)
+	}
+
+	platform.AddChannels(channels)
+}
+
+func (api *ApiServer) OnPlatformChannelUnbind(w http.ResponseWriter, r *http.Request) {
+	v := struct {
+		ServerID string      `json:"server_id"`
+		Channels [][2]string `json:"channels"` //二维数组, 索引0-设备ID/索引1-通道ID
+	}{}
+
+	if err := HttpDecodeJSONBody(w, r, &v); err != nil {
+		httpResponse2(w, err)
+		return
+	}
+
+	platform := PlatformManager.FindPlatform(v.ServerID)
+	if platform == nil {
+		return
+	}
+
+	for _, pair := range v.Channels {
+		platform.RemoveChannel(pair[1])
 	}
 }

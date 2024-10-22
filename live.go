@@ -20,13 +20,67 @@ const (
 	InviteTypeDownload = InviteType(2)
 )
 
-func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int) (sip.Request, bool) {
+func (i *InviteType) SessionName2Type(name string) {
+	switch name {
+	case "download":
+		*i = InviteTypeDownload
+		break
+	case "playback":
+		*i = InviteTypePlayback
+		break
+	//case "play":
+	default:
+		*i = InviteTypeLive
+		break
+	}
+}
+
+func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, bool) {
+	stream := &Stream{
+		ID:           streamId,
+		forwardSinks: map[string]*Sink{},
+	}
+
+	// 先添加占位置, 防止重复请求
+	if oldStream, b := StreamManager.Add(stream); !b {
+		return oldStream, true
+	}
+
+	if dialog, ok := d.Invite(inviteType, streamId, channelId, startTime, stopTime, setup, speed); ok {
+		stream.DialogRequest = dialog
+		callID, _ := dialog.CallID()
+		StreamManager.AddWithCallId(callID.Value(), stream)
+	} else {
+		StreamManager.Remove(streamId)
+		return nil, false
+	}
+
+	//开启收流超时
+	wait := func() bool {
+		ok := stream.WaitForPublishEvent(10)
+		if !ok {
+			Sugar.Infof("收流超时 发送bye请求...")
+			CloseStream(streamId)
+		}
+		return ok
+	}
+
+	if sync {
+		go wait()
+	} else if !sync && !wait() {
+		return nil, false
+	}
+
+	return stream, true
+}
+
+func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int) (sip.Request, bool) {
 	var ok bool
 	var ssrc string
 
 	defer func() {
 		if !ok {
-			go CloseGBSource(streamId)
+			go CloseGBSource(string(streamId))
 		}
 	}()
 
@@ -37,7 +91,7 @@ func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string,
 	}
 
 	ssrcValue, _ := strconv.Atoi(ssrc)
-	ip, port, err := CreateGBSource(streamId, setup, uint32(ssrcValue))
+	ip, port, err := CreateGBSource(string(streamId), setup, uint32(ssrcValue))
 	if err != nil {
 		Sugar.Errorf("创建GBSource失败 err:%s", err.Error())
 		return nil, false
@@ -67,7 +121,7 @@ func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string,
 		} else if res.StatusCode() == 200 {
 			answer = res.Body()
 			ackRequest := sip.NewAckRequest("", inviteRequest, res, "", nil)
-			ackRequest.AppendHeader(globalContactAddress.AsContactHeader())
+			ackRequest.AppendHeader(GlobalContactAddress.AsContactHeader())
 			//手动替换ack请求目标地址, answer的contact可能不对.
 			recipient := ackRequest.Recipient()
 			remoteIP, remotePortStr, _ := net.SplitHostPort(d.RemoteAddr)
@@ -98,17 +152,14 @@ func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string,
 
 	if "active" == setup {
 		parse, err := sdp.Parse(answer)
-		if err != nil {
-			ok = false
-			Sugar.Errorf("解析应答sdp失败 err:%s sdp:%s", err.Error(), answer)
+		ok = err == nil && parse.Video != nil && parse.Video.Port != 0
+		if !ok {
+			Sugar.Errorf("解析应答sdp失败 err:%v sdp:%s", err, answer)
 			return nil, false
-		} else if parse.Video == nil || parse.Video.Port == 0 {
-			ok = false
-			Sugar.Errorf("answer中没有视频连接地址 sdp:%s", answer)
 		}
 
 		addr := fmt.Sprintf("%s:%d", parse.Addr, parse.Video.Port)
-		if err = ConnectGBSource(streamId, addr); err != nil {
+		if err = ConnectGBSource(string(streamId), addr); err != nil {
 			ok = false
 			Sugar.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
 		}
@@ -117,15 +168,15 @@ func (d *DBDevice) Invite(inviteType InviteType, streamId, channelId, ip string,
 	return dialogRequest, ok
 }
 
-func (d *DBDevice) Live(streamId, channelId, setup string) (sip.Request, bool) {
-	return d.Invite(InviteTypeLive, streamId, channelId, "", 0, "", "", setup, 0)
+func (d *Device) Live(streamId StreamID, channelId, setup string) (sip.Request, bool) {
+	return d.Invite(InviteTypeLive, streamId, channelId, "", "", setup, 0)
 }
 
-func (d *DBDevice) Playback(streamId, channelId, startTime, stopTime, setup string) (sip.Request, bool) {
-	return d.Invite(InviteTypePlayback, streamId, channelId, "", 0, startTime, stopTime, setup, 0)
+func (d *Device) Playback(streamId StreamID, channelId, startTime, stopTime, setup string) (sip.Request, bool) {
+	return d.Invite(InviteTypePlayback, streamId, channelId, startTime, stopTime, setup, 0)
 
 }
 
-func (d *DBDevice) Download(streamId, channelId, startTime, stopTime, setup string, speed int) (sip.Request, bool) {
-	return d.Invite(InviteTypePlayback, streamId, channelId, "", 0, startTime, stopTime, setup, speed)
+func (d *Device) Download(streamId StreamID, channelId, startTime, stopTime, setup string, speed int) (sip.Request, bool) {
+	return d.Invite(InviteTypePlayback, streamId, channelId, startTime, stopTime, setup, speed)
 }

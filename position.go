@@ -25,9 +25,9 @@ type MobilePositionNotify struct {
 	Altitude  string `xml:"Altitude"`
 }
 
-func (d *DBDevice) DoSubscribePosition(channelId string) error {
+func (d *Device) DoSubscribePosition(channelId string) error {
 	if channelId == "" {
-		channelId = d.Id
+		channelId = d.ID
 	}
 
 	//暂时不考虑级联
@@ -37,7 +37,7 @@ func (d *DBDevice) DoSubscribePosition(channelId string) error {
 	expiresHeader := sip.Expires(Config.MobilePositionExpires)
 	builder.SetExpires(&expiresHeader)
 	builder.SetContentType(&XmlMessageType)
-	builder.SetContact(globalContactAddress)
+	builder.SetContact(GlobalContactAddress)
 	builder.SetBody(body)
 
 	request, err := builder.Build()
@@ -59,6 +59,6 @@ func (d *DBDevice) DoSubscribePosition(channelId string) error {
 	return nil
 }
 
-func (d *DBDevice) OnMobilePositionNotify(notify *MobilePositionNotify) {
-	Sugar.Infof("收到位置信息 device:%s data:%v", d.Id, notify)
+func (d *Device) OnMobilePositionNotify(notify *MobilePositionNotify) {
+	Sugar.Infof("收到位置信息 device:%s data:%v", d.ID, notify)
 }

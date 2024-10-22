@@ -60,23 +60,9 @@ type RecordInfo struct {
 	ShutdownTime   string `xml:"ShutdownTime" json:"shutdownTime"`
 }
 
-func (d *DBDevice) DoQueryRecordList(channelId, startTime, endTime string, sn int, type_ string) error {
+func (d *Device) DoQueryRecordList(channelId, startTime, endTime string, sn int, type_ string) error {
 	body := fmt.Sprintf(QueryRecordFormat, sn, channelId, startTime, endTime, type_)
-	msg, err := d.BuildMessageRequest(channelId, body)
-	if err != nil {
-		return err
-	}
-
-	SipUA.SendRequest(msg)
+	request := d.BuildMessageRequest(channelId, body)
+	SipUA.SendRequest(request)
 	return nil
-}
-
-func (d *DBDevice) OnRecord(response *QueryRecordInfoResponse) {
-	event := SNManager.FindEvent(response.SN)
-	if event == nil {
-		Sugar.Errorf("处理录像查询响应失败 SN:%d", response.SN)
-		return
-	}
-
-	event(response)
 }

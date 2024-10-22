@@ -1,11 +1,23 @@
 package main
 
 type DeviceDB interface {
-	LoadDevices() []*DBDevice
+	LoadDevices() []*Device
 
-	RegisterDevice(device *DBDevice) (error, bool)
+	RegisterDevice(device *Device) (error, bool)
 
 	UnRegisterDevice(id string)
 
-	KeepAliveDevice(device *DBDevice)
+	KeepAliveDevice(device *Device)
+
+	LoadPlatforms() []GBPlatformRecord
+
+	AddPlatform(record GBPlatformRecord) error
+
+	//RemovePlatform(record GBPlatformRecord) (GBPlatformRecord, bool)
+	//
+	//PlatformList() []GBPlatformRecord
+	//
+	//BindPlatformChannel() bool
+	//
+	//UnbindPlatformChannel() bool
 }

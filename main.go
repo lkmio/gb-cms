@@ -46,7 +46,7 @@ func main() {
 		DeviceManager.Add(device)
 	}
 
-	server, err := StartSipServer(config)
+	server, err := StartSipServer(config.SipId, config.ListenIP, config.PublicIP, config.SipPort)
 	if err != nil {
 		panic(err)
 	}

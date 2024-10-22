@@ -49,7 +49,7 @@ func GenerateTag() string {
 	return hex.EncodeToString(randomBytes(6))
 }
 
-// Generate a SIP 2.0 Via branch ID. This is probably not suitable for use by
+// Generate a SIP 2.0 Via branch Username. This is probably not suitable for use by
 // stateless proxies.
 func GenerateBranch() string {
 	return "z9hG4bK-" + GenerateTag()
@@ -67,7 +67,7 @@ func GenerateCallID() string {
 	return uuid4
 }
 
-// Generate a random ID for an SDP.
+// Generate a random Username for an SDP.
 func GenerateOriginID() string {
 	return strconv.FormatUint(uint64(rand.Uint32()), 10)
 }

@@ -18,9 +18,19 @@ func init() {
 
 type broadcastManager struct {
 	rooms    map[string]*BroadcastRoom    //主讲人关联房间
-	sessions map[string]*BroadcastSession //sessionId关联全部广播会话
-	callIds  map[string]*BroadcastSession //callId关联全部广播会话
+	sessions map[string]*BroadcastSession //sessionId关联广播会话
+	callIds  map[string]*BroadcastSession //callId关联广播会话
 	lock     sync.RWMutex
+}
+
+func FindBroadcastSessionWithSourceID(user string) *BroadcastSession {
+	roomId := user[:10]
+	room := BroadcastManager.FindRoom(roomId)
+	if room != nil {
+		return room.Find(user)
+	}
+
+	return nil
 }
 
 func (b *broadcastManager) CreateRoom(id string) *BroadcastRoom {

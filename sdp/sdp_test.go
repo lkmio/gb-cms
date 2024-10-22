@@ -383,7 +383,7 @@ func TestParse(t *testing.T) {
 			"o=34020099991320000015 2950 2950 IN IP4 192.168.1.64\r\n" +
 			"s=Play\r\n" +
 			"c=IN IP4 192.168.1.64\r\n" +
-			"t=0 0\r\n" +
+			"t=2 3\r\n" +
 			"m=audio 15066 RTP/AVP 8 96\r\n" +
 			"a=recvonly\r\n" +
 			"a=rtpmap:8 PCMA/8000\r\n" +
@@ -410,7 +410,7 @@ func TestParse(t *testing.T) {
 				sdp.Origin.User)
 		}
 		if test.sdp.Origin.ID != sdp.Origin.ID {
-			t.Error(test.name, "Origin.ID doesn't match")
+			t.Error(test.name, "Origin.Username doesn't match")
 		}
 		if test.sdp.Origin.Version != sdp.Origin.Version {
 			t.Error(test.name, "Origin.Version doesn't match")
