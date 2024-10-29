@@ -39,9 +39,9 @@ func (m *MediaStream) write() {
 	var index int
 	length := len(rtpPackets)
 	for m.ctx.Err() == nil && index < length {
-		time.Sleep(time.Millisecond * 30)
+		time.Sleep(time.Millisecond * 40)
 
-		//一次发某个时间范围内的所有rtp包
+		//一次发送某个时间范围内的所有rtp包
 		ts := binary.BigEndian.Uint32(rtpPackets[index][2+4:])
 		mutex := locks[ts]
 		{
@@ -244,6 +244,14 @@ func (v VirtualDevice) OnBye(request sip.Request) {
 	stream.Close(false)
 }
 
+func (v VirtualDevice) Offline() {
+	for _, stream := range v.streams {
+		stream.Close(true)
+	}
+
+	v.streams = nil
+}
+
 type ClientConfig struct {
 	DeviceIDPrefix  string `json:"device_id_prefix"`
 	ChannelIDPrefix string `json:"channel_id_prefix"`
@@ -268,7 +276,7 @@ func TestGBClient(t *testing.T) {
 
 	rtpData, err := os.ReadFile(clientConfig.RawFilePath)
 	if err != nil {
-		println("读取rtp源文件 不能推流")
+		println("读取rtp源文件失败 不能推流")
 	} else {
 		// 分割rtp包
 		offset := 2
@@ -290,6 +298,13 @@ func TestGBClient(t *testing.T) {
 			rtpPackets = append(rtpPackets, rtpData[offset-2:offset+rtpSize])
 		}
 	}
+
+	println("========================================")
+	println("源码地址: https://github.com/lkmio/gb-cms")
+	println("视频来源于网络,如有侵权,请联系删除")
+	println("========================================\r\n")
+
+	time.Sleep(3 * time.Second)
 
 	// 初始化UA配置, 防止SipServer使用时空指针
 	Config = &Config_{}
@@ -327,6 +342,13 @@ func TestGBClient(t *testing.T) {
 		DeviceManager.Add(device)
 		device.AddChannels(channels)
 		device.Start()
+
+		device.SetOnRegisterHandler(func() {
+			fmt.Printf(deviceId + " 注册成功\r\n")
+		}, func() {
+			fmt.Printf(deviceId + " 离线\r\n")
+			device.Offline()
+		})
 	}
 
 	for {

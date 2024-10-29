@@ -52,7 +52,7 @@ type sipClient struct {
 	NatAddr    string //Nat地址
 
 	ua                   SipServer
-	existed              bool
+	exited               bool
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	keepaliveFailedCount int
@@ -227,8 +227,8 @@ func (g *sipClient) Refresh() time.Duration {
 		g.keepaliveFailedCount = 0
 	}
 
-	// 心跳失败超过三次, 重新发起注册
-	if g.keepaliveFailedCount > 2 {
+	// 心跳失败, 重新发起注册
+	if g.keepaliveFailedCount > 0 {
 		g.keepaliveFailedCount = 0
 		g.registerOK = false
 		g.registerOKRequest = nil
@@ -247,11 +247,11 @@ func (g *sipClient) Refresh() time.Duration {
 }
 
 func (g *sipClient) Start() {
-	utils.Assert(!g.existed)
+	utils.Assert(!g.exited)
 	g.ctx, g.cancel = context.WithCancel(context.Background())
 
 	go func() {
-		for !g.existed {
+		for !g.exited {
 			duration := g.Refresh()
 			expires, dis := g.IsExpires()
 			if duration < time.Second || expires {
@@ -260,7 +260,7 @@ func (g *sipClient) Start() {
 				duration = time.Duration(int(math.Min(duration.Seconds(), float64(dis)))) * time.Second
 			}
 
-			if g.existed {
+			if g.exited {
 				return
 			}
 
@@ -275,9 +275,9 @@ func (g *sipClient) Start() {
 }
 
 func (g *sipClient) Stop() {
-	utils.Assert(!g.existed)
+	utils.Assert(!g.exited)
 
-	g.existed = true
+	g.exited = true
 	g.cancel()
 	g.registerOK = false
 	g.onlineCB = nil

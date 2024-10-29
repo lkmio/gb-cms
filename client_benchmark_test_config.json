@@ -2,9 +2,11 @@
   "device_id_prefix": "3402000000132",
   "channel_id_prefix": "3402000000131",
   "server_id": "34020000002000000001",
+  "?domain": "国标上级域的地址",
   "domain": "192.168.2.148:5060",
   "password": "12345678",
   "listenAddr": "192.168.2.148:15062",
   "count": 1,
+  "?rtp_over_tcp_raw_file_path": "rtp over tcp的推流源文件",
   "rtp_over_tcp_raw_file_path": "./rtp.raw"
 }
