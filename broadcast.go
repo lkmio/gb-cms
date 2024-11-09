@@ -38,6 +38,7 @@ func (d *Device) DoBroadcast(sourceId, channelId string) error {
 	return nil
 }
 
+// OnInvite 邀请语音广播
 func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	session := FindBroadcastSessionWithSourceID(user)
 	if session == nil {
@@ -45,46 +46,46 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	}
 
 	body := request.Body()
-	if body == "" {
-		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
-	}
-
-	sdp, err := sdp.Parse(body)
+	offer, err := sdp.Parse(body)
 	if err != nil {
-		Sugar.Infof("解析sdp失败 err:%s sdp:%s", err.Error(), body)
+		Sugar.Infof("解析sdp失败. session: %s err: %s sdp: %s", session.Id(), err.Error(), body)
+		session.Answer <- http.StatusBadRequest
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
-	}
-
-	if sdp.Audio == nil {
-		Sugar.Infof("处理sdp失败 缺少audio字段 sdp:%s", body)
+	} else if offer.Audio == nil {
+		Sugar.Infof("offer中缺少audio字段. session: %s sdp: %s", session.Id(), body)
+		session.Answer <- http.StatusBadRequest
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
 	var answerSDP string
-	isTcp := strings.Contains(sdp.Audio.Proto, "TCP")
+	isTcp := strings.Contains(offer.Audio.Proto, "TCP")
+	// UDP广播
 	if !isTcp && BroadcastTypeUDP == session.Type {
 		var client *transport.UDPClient
 		err := TransportManager.AllocPort(false, func(port uint16) error {
 			client = &transport.UDPClient{}
 			localAddr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort(Config.ListenIP, strconv.Itoa(int(port))))
-			remoteAddr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort(sdp.Addr, strconv.Itoa(int(sdp.Audio.Port))))
+			remoteAddr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort(offer.Addr, strconv.Itoa(int(offer.Audio.Port))))
 			return client.Connect(localAddr, remoteAddr)
 		})
 
 		if err == nil {
 			Sugar.Errorf("创建UDP广播端口失败 err:%s", err.Error())
+			session.Answer <- http.StatusInternalServerError
 			return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 		}
 
-		session.RemoteIP = sdp.Addr
-		session.RemotePort = int(sdp.Audio.Port)
+		session.RemoteIP = offer.Addr
+		session.RemotePort = int(offer.Audio.Port)
 		session.Transport = client
 		session.Transport.SetHandler(session)
 		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, Config.PublicIP, Config.PublicIP, client.ListenPort(), "RTP/AVP")
 	} else {
+		// TCP广播
 		server, err := TransportManager.NewTCPServer(Config.ListenIP)
 		if err != nil {
-			Sugar.Errorf("创建TCP广播端口失败 err:%s", err.Error())
+			Sugar.Errorf("创建TCP广播端口失败 session: %s err:%s", session.Id(), err.Error())
+			session.Answer <- http.StatusInternalServerError
 			return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 		}
 
@@ -95,7 +96,6 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	}
 
 	response := CreateResponseWithStatusCode(request, http.StatusOK)
-
 	setToTag(response)
 
 	session.Successful = true
@@ -108,6 +108,6 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	response.AppendHeader(&SDPMessageType)
 	response.AppendHeader(GlobalContactAddress.AsContactHeader())
 
-	session.Answer <- 0
+	session.Answer <- http.StatusOK
 	return response
 }

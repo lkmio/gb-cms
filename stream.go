@@ -13,6 +13,8 @@ type Sink struct {
 	id       string
 	deviceID string
 	dialog   sip.Request
+
+	platformID string // 级联上级ID
 }
 
 // Stream 国标推流源
@@ -26,6 +28,7 @@ type Stream struct {
 
 	forwardSinks map[string]*Sink // 级联转发Sink, Key为与上级的CallID
 	lock         sync.RWMutex
+	urls         []string // 拉流地址
 }
 
 func (s *Stream) AddForwardSink(id string, sink *Sink) {
@@ -46,7 +49,7 @@ func (s *Stream) RemoveForwardSink(id string) *Sink {
 	return sink
 }
 
-func (s *Stream) AllForwardSink() []*Sink {
+func (s *Stream) ForwardSinks() []*Sink {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -98,7 +101,7 @@ func (s *Stream) Close(sendBye bool) {
 	go CloseGBSource(string(s.ID))
 
 	// 关闭所有级联会话
-	sinks := s.AllForwardSink()
+	sinks := s.ForwardSinks()
 	for _, sink := range sinks {
 		platform := PlatformManager.FindPlatform(sink.deviceID)
 		id, _ := sink.dialog.CallID()

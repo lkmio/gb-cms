@@ -97,13 +97,12 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 		break
 	}
 
-	var ok bool
 	stream := StreamManager.Find(streamId)
 	addr := fmt.Sprintf("%s:%d", parse.Addr, media.Port)
 	if stream == nil {
-		stream, ok = device.(*Device).StartStream(inviteType, streamId, user, time[0], time[1], offerSetup, 0, true)
-		if !ok {
-			Sugar.Errorf("级联转发失败 预览流失败 StreamID: %s", streamId)
+		stream, err = device.(*Device).StartStream(inviteType, streamId, user, time[0], time[1], offerSetup, 0, true)
+		if err != nil {
+			Sugar.Errorf("级联转发失败 err: %s stream: %s", err.Error(), streamId)
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 		}
 	}
@@ -132,7 +131,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 
 	// 添加级联转发流
 	callID, _ := request.CallID()
-	stream.AddForwardSink(callID.Value(), &Sink{sinkID, g.ID, g.CreateDialogRequestFromAnswer(response, true)})
+	stream.AddForwardSink(callID.Value(), &Sink{sinkID, g.ID, g.CreateDialogRequestFromAnswer(response, true), g.Username})
 
 	// 保存与上级的会话
 	g.streams.AddWithCallId(callID.Value(), stream)

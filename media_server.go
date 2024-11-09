@@ -29,7 +29,7 @@ func Send(path string, body interface{}) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, error) {
+func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, []string, error) {
 	v := &struct {
 		Source string `json:"source"`
 		Setup  string `json:"setup"`
@@ -42,24 +42,22 @@ func CreateGBSource(id, setup string, ssrc uint32) (string, uint16, error) {
 
 	response, err := Send("api/v1/gb28181/source/create", v)
 	if err != nil {
-		return "", 0, err
+		return "", 0, nil, err
 	}
 
-	connectInfo := &struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-		Data struct {
-			IP   string `json:"ip"`
-			Port uint16 `json:"port,omitempty"`
-		}
-	}{}
+	data := &Response[struct {
+		IP   string   `json:"ip"`
+		Port uint16   `json:"port,omitempty"`
+		Urls []string `json:"urls"`
+	}]{}
 
-	err = DecodeJSONBody(response.Body, connectInfo)
-	if err != nil {
-		return "", 0, err
+	if err = DecodeJSONBody(response.Body, data); err != nil {
+		return "", 0, nil, err
+	} else if http.StatusOK != data.Code {
+		return "", 0, nil, fmt.Errorf(data.Msg)
 	}
 
-	return connectInfo.Data.IP, connectInfo.Data.Port, nil
+	return data.Data.IP, data.Data.Port, data.Data.Urls, nil
 }
 
 func ConnectGBSource(id, addr string) error {
@@ -104,17 +102,19 @@ func AddForwardStreamSink(id, serverAddr, setup string, ssrc uint32) (ip string,
 		return "", 0, "", err
 	}
 
-	r := struct {
-		ID   string `json:"id"` //sink id
+	data := &Response[struct {
+		Sink string `json:"sink"`
 		IP   string `json:"ip"`
 		Port uint16 `json:"port"`
-	}{}
+	}]{}
 
-	if err = DecodeJSONBody(response.Body, &r); err != nil {
+	if err = DecodeJSONBody(response.Body, data); err != nil {
 		return "", 0, "", err
+	} else if http.StatusOK != data.Code {
+		return "", 0, "", fmt.Errorf(data.Msg)
 	}
 
-	return r.IP, r.Port, r.ID, nil
+	return data.Data.IP, data.Data.Port, data.Data.Sink, nil
 }
 
 func CloseSink(sourceId string, sinkId string) {

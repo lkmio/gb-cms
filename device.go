@@ -61,7 +61,7 @@ type GBDevice interface {
 	//
 	//SubscribeAlarm()
 
-	Broadcast(sourceId, channelId string) error
+	Broadcast(sourceId, channelId string) sip.ClientTransaction
 
 	OnKeepalive()
 
@@ -182,11 +182,10 @@ func (d *Device) SubscribePosition(channelId string) error {
 	return nil
 }
 
-func (d *Device) Broadcast(sourceId, channelId string) error {
+func (d *Device) Broadcast(sourceId, channelId string) sip.ClientTransaction {
 	body := fmt.Sprintf(BroadcastFormat, 1, sourceId, channelId)
 	request := d.BuildMessageRequest(channelId, body)
-	SipUA.SendRequest(request)
-	return nil
+	return SipUA.SendRequest(request)
 }
 
 func (d *Device) OnKeepalive() {

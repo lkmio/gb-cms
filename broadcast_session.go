@@ -10,13 +10,13 @@ import (
 type BroadcastType int
 
 const (
-	BroadcastTypeUDP       = BroadcastType(0) //server主动向client的udp地址发包
-	BroadcastTypeTCP       = BroadcastType(1) //等待client连接tcpserver, 用此链接发包
-	BroadcastTypeTCPStream = BroadcastType(2) //@See BroadcastTypeTCP, 包头不含2字节包长
+	BroadcastTypeUDP       = BroadcastType(0) // server主动向client的udp地址发包
+	BroadcastTypeTCP       = BroadcastType(1) // 等待client连接tcpserver, 用此链接发包
+	BroadcastTypeTCPStream = BroadcastType(2) // @See BroadcastTypeTCP, 包头不含2字节包长
 )
 
 type BroadcastSession struct {
-	SourceID  string //发送广播消息时, 让设备invite请求携带的Id
+	SourceID  string // 发送广播消息时, 让设备invite请求携带的Id
 	DeviceID  string
 	ChannelID string
 	RoomId    string
@@ -24,10 +24,10 @@ type BroadcastSession struct {
 	Type      BroadcastType
 
 	RemotePort int
-	RemoteIP   string    //udp广播时, 对方的连接地址
-	Successful bool      //对讲成功
-	Answer     chan byte //处理invite后, 通知http接口
-	conn       net.Conn  //tcp广播时, client的链路
+	RemoteIP   string   // udp广播时, 对方的连接地址
+	Successful bool     // 对讲成功
+	Answer     chan int // 处理invite后, 通知http接口
+	conn       net.Conn // tcp广播时, client的链路
 	ByeRequest sip.Request
 }
 
