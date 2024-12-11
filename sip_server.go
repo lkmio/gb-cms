@@ -60,6 +60,7 @@ type sipServer struct {
 	sip             gosip.Server
 	listenAddr      string
 	xmlReflectTypes map[string]reflect.Type
+	handler         EventHandler
 }
 
 func (s *sipServer) Send(msg sip.Message) error {
@@ -73,36 +74,39 @@ func setToTag(response sip.Message) {
 }
 
 func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent bool) {
-	var device *Device
-	var query bool
+	var device GBDevice
+	var queryCatalog bool
+
 	_ = req.GetHeaders("Authorization")
 	fromHeader := req.GetHeaders("From")[0].(*sip.FromHeader)
 	expiresHeader := req.GetHeaders("Expires")
 
 	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
-
+	id := fromHeader.Address.User().String()
 	if expiresHeader != nil && "0" == expiresHeader[0].Value() {
-		Sugar.Infof("注销信令 from:%s", fromHeader.Address.User())
-		DB.UnRegisterDevice(fromHeader.Name())
+		Sugar.Infof("设备注销 Device: %s", id)
+		s.handler.OnUnregister(id)
 	} else /*if authorizationHeader == nil*/ {
-		expires := sip.Expires(3600)
-		response.AppendHeader(&expires)
-
-		//sip.NewResponseFromRequest("", req, 401, "Unauthorized", "")
-
-		device = &Device{
-			ID:         fromHeader.Address.User().String(),
-			Transport:  req.Transport(),
-			RemoteAddr: req.Source(),
+		var expires int
+		expires, device, queryCatalog = s.handler.OnRegister(id, req.Transport(), req.Source())
+		if device != nil {
+			Sugar.Infof("注册成功 Device: %s", id)
+			expiresHeader := sip.Expires(expires)
+			response.AppendHeader(&expiresHeader)
+		} else {
+			Sugar.Infof("注册失败 Device: %s", id)
+			response = sip.NewResponseFromRequest("", req, 401, "Unauthorized", "")
 		}
-
-		err, b := DB.RegisterDevice(device)
-		query = err != nil || b
 	}
 
 	SendResponse(tx, response)
 
-	if device != nil && query {
+	if device != nil {
+		// 查询设备信息
+		device.QueryDeviceInfo()
+	}
+
+	if queryCatalog {
 		device.QueryCatalog()
 	}
 }
@@ -182,20 +186,20 @@ func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction, parent b
 
 	mobilePosition := MobilePositionNotify{}
 	if err := DecodeXML([]byte(req.Body()), &mobilePosition); err != nil {
-		Sugar.Errorf("解析位置通知失败 err:%s body:%s", err.Error(), req.Body())
+		Sugar.Errorf("解析位置通知失败 err: %s request: %s", err.Error(), req.String())
 		return
 	}
 
 	if device := DeviceManager.Find(mobilePosition.DeviceID); device != nil {
-		device.OnNotifyPosition(&mobilePosition)
+		s.handler.OnNotifyPosition(&mobilePosition)
 	}
 }
 
 func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent bool) {
-	var online bool
+	var ok bool
 	defer func() {
 		var response sip.Response
-		if online {
+		if ok {
 			response = CreateResponseWithStatusCode(req, http.StatusOK)
 		} else {
 			response = CreateResponseWithStatusCode(req, http.StatusForbidden)
@@ -209,12 +213,13 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	cmd := GetCmdType(body)
 	src, ok := s.xmlReflectTypes[xmlName+"."+cmd]
 	if !ok {
+		Sugar.Errorf("处理XML消息失败, 找不到结构体. request: %s", req.String())
 		return
 	}
 
 	message := reflect.New(src).Interface()
 	if err := DecodeXML([]byte(body), message); err != nil {
-		Sugar.Errorf("解析xml异常 >>> %s %s", err.Error(), body)
+		Sugar.Errorf("解析XML消息失败 err: %s request: %s", err.Error(), body)
 		return
 	}
 
@@ -227,8 +232,8 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 		device = DeviceManager.Find(deviceId)
 	}
 
-	if online = device != nil; !online {
-		Sugar.Errorf("处理Msg失败 设备离线: %s Msg: %s", deviceId, body)
+	if ok = device != nil; !ok {
+		Sugar.Errorf("处理XML消息失败, 设备离线: %s request: %s", deviceId, req.String())
 		return
 	}
 
@@ -236,29 +241,54 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	case XmlNameControl:
 		break
 	case XmlNameQuery:
-		client, ok := device.(GBClient)
+		// 被上级查询
+		var client GBClient
+		client, ok = device.(GBClient)
 		if !ok {
-			online = false
+			Sugar.Errorf("处理XML消息失败, 类型转换失败. request: %s", req.String())
 			return
 		}
 
 		if CmdDeviceInfo == cmd {
 			client.OnQueryDeviceInfo(message.(*BaseMessage).SN)
 		} else if CmdCatalog == cmd {
-			client.OnQueryCatalog(message.(*BaseMessage).SN)
+			var channels []*Channel
+
+			// 查询出所有通道
+			if DB != nil {
+				result, _, err := DB.QueryChannels(client.GetID(), 1, 0xFFFFFFFF)
+				if err != nil {
+					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), client.GetID())
+				}
+
+				channels = result
+			} else {
+				// 从模拟多个国标客户端中查找
+				channels = DeviceChannelsManager.FindChannels(client.GetID())
+			}
+
+			client.OnQueryCatalog(message.(*BaseMessage).SN, channels)
 		}
+
 		break
 	case XmlNameNotify:
 		if CmdKeepalive == cmd {
-			device.OnKeepalive()
+			// 下级设备心跳通知
+			ok = s.handler.OnKeepAlive(deviceId)
 		}
+
 		break
+
 	case XmlNameResponse:
+		// 查询下级的应答
 		if CmdCatalog == cmd {
-			device.OnCatalog(message.(*CatalogResponse))
+			go s.handler.OnCatalog(device, message.(*CatalogResponse))
 		} else if CmdRecordInfo == cmd {
-			device.OnRecord(message.(*QueryRecordInfoResponse))
+			go s.handler.OnRecord(device, message.(*QueryRecordInfoResponse))
+		} else if CmdDeviceInfo == cmd {
+			go s.handler.OnDeviceInfo(device, message.(*DeviceInfoResponse))
 		}
+
 		break
 	}
 }
@@ -272,29 +302,25 @@ func SendResponseWithStatusCode(request sip.Request, tx sip.ServerTransaction, c
 }
 
 func SendResponse(tx sip.ServerTransaction, response sip.Response) bool {
-	Sugar.Infof("send response >>> %s", response.String())
 	sendError := tx.Respond(response)
 
 	if sendError != nil {
-		Sugar.Infof("send response error %s %s", sendError.Error(), response.String())
+		Sugar.Errorf("发送响应消息失败, error: %s response: %s", sendError.Error(), response.String())
 	}
 
 	return sendError == nil
 }
 
 func (s *sipServer) SendRequestWithContext(ctx context.Context, request sip.Request, options ...gosip.RequestWithContextOption) {
-	Sugar.Infof("send reqeust: %s", request.String())
 	s.sip.RequestWithContext(ctx, request, options...)
 }
 
 func (s *sipServer) SendRequestWithTimeout(seconds int, request sip.Request, options ...gosip.RequestWithContextOption) (sip.Response, error) {
-	Sugar.Infof("send reqeust: %s", request.String())
 	reqCtx, _ := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
 	return s.sip.RequestWithContext(reqCtx, request, options...)
 }
 
 func (s *sipServer) SendRequest(request sip.Request) sip.ClientTransaction {
-	Sugar.Infof("send reqeust: %s", request.String())
 	transaction, err := s.sip.Request(request)
 	if err != nil {
 		panic(err)
@@ -310,7 +336,6 @@ func (s *sipServer) ListenAddr() string {
 // 过滤SIP消息、超找消息来源
 func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool)) gosip.RequestHandler {
 	return func(req sip.Request, tx sip.ServerTransaction) {
-		Sugar.Infof("process request: %s", req.String())
 
 		source := req.Source()
 		platform := PlatformManager.FindPlatformWithServerAddr(source)
@@ -319,6 +344,7 @@ func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool
 			if platform == nil {
 				// SUBSCRIBE/INFO只能上级发起
 				SendResponseWithStatusCode(req, tx, http.StatusBadRequest)
+				Sugar.Errorf("处理%s请求失败, %s消息只能上级发起. request: %s", req.Method(), req.Method(), req.String())
 				return
 			}
 			break
@@ -326,6 +352,7 @@ func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool
 			if platform != nil {
 				// NOTIFY和REGISTER只能下级发起
 				SendResponseWithStatusCode(req, tx, http.StatusBadRequest)
+				Sugar.Errorf("处理%s请求失败, %s消息只能下级发起. request: %s", req.Method(), req.Method(), req.String())
 				return
 			}
 			break

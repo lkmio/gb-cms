@@ -3,29 +3,33 @@ package main
 import "encoding/xml"
 
 type Channel struct {
-	DeviceID     string `xml:"DeviceID"`
-	Name         string `xml:"Name,omitempty"`
-	Manufacturer string `xml:"Manufacturer,omitempty"`
-	Model        string `xml:"Model,omitempty"`
-	Owner        string `xml:"Owner,omitempty"`
-	CivilCode    string `xml:"CivilCode,omitempty"`
-	Block        string `xml:"Block,omitempty"`
-	Address      string `xml:"Address,omitempty"`
-	Parental     string `xml:"Parental,omitempty"`
-	ParentID     string `xml:"ParentID,omitempty"`
-	SafetyWay    string `xml:"SafetyWay,omitempty"`
-	RegisterWay  string `xml:"RegisterWay,omitempty"`
-	CertNum      string `xml:"CertNum,omitempty"`
-	Certifiable  string `xml:"Certifiable,omitempty"`
-	ErrCode      string `xml:"ErrCode,omitempty"`
-	EndTime      string `xml:"EndTime,omitempty"`
-	Secrecy      string `xml:"Secrecy,omitempty"`
-	IPAddress    string `xml:"IPAddress,omitempty"`
-	Port         string `xml:"Port,omitempty"`
-	Password     string `xml:"Password,omitempty"`
-	Status       string `xml:"Status,omitempty"`
-	Longitude    string `xml:"Longitude,omitempty"`
-	Latitude     string `xml:"Latitude,omitempty"`
+	DeviceID     string       `xml:"DeviceID"`
+	Name         string       `xml:"Name,omitempty"`
+	Manufacturer string       `xml:"Manufacturer,omitempty"`
+	Model        string       `xml:"Model,omitempty"`
+	Owner        string       `xml:"Owner,omitempty"`
+	CivilCode    string       `xml:"CivilCode,omitempty"`
+	Block        string       `xml:"Block,omitempty"`
+	Address      string       `xml:"Address,omitempty"`
+	Parental     string       `xml:"Parental,omitempty"`
+	ParentID     string       `xml:"ParentID,omitempty"`
+	SafetyWay    string       `xml:"SafetyWay,omitempty"`
+	RegisterWay  string       `xml:"RegisterWay,omitempty"`
+	CertNum      string       `xml:"CertNum,omitempty"`
+	Certifiable  string       `xml:"Certifiable,omitempty"`
+	ErrCode      string       `xml:"ErrCode,omitempty"`
+	EndTime      string       `xml:"EndTime,omitempty"`
+	Secrecy      string       `xml:"Secrecy,omitempty"`
+	IPAddress    string       `xml:"IPAddress,omitempty"`
+	Port         string       `xml:"Port,omitempty"`
+	Password     string       `xml:"Password,omitempty"`
+	Status       OnlineStatus `xml:"Status,omitempty"`
+	Longitude    string       `xml:"Longitude,omitempty"`
+	Latitude     string       `xml:"Latitude,omitempty"`
+}
+
+func (d *Channel) Online() bool {
+	return d.Status == ON
 }
 
 type BaseMessageGetter interface {

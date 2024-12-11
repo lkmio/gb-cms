@@ -7,8 +7,8 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.1
 	github.com/natefinch/lumberjack v2.0.0+incompatible
-	github.com/sirupsen/logrus v1.9.3
-	github.com/x-cray/logrus-prefixed-formatter v0.5.2
+	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.21.0
 	golang.org/x/text v0.16.0
@@ -32,6 +32,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
 
-require github.com/lkmio/avformat v0.0.0
+require (
+	github.com/gomodule/redigo v1.9.2
+	github.com/lkmio/avformat v0.0.0
+)
 
 replace github.com/lkmio/avformat => ../avformat

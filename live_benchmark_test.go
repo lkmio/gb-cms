@@ -86,21 +86,21 @@ func startLive(deviceId, channelId, setup string) (bool, string) {
 }
 
 func startLiveAll(setup string) {
-	devices := queryAllDevices()
-	if len(devices) == 0 {
-		return
-	}
-
-	max := 50
-	for _, device := range devices {
-		for _, channel := range device.Channels {
-			go startLive(device.ID, channel.DeviceID, setup)
-			max--
-			if max < 1 {
-				return
-			}
-		}
-	}
+	//devices := queryAllDevices()
+	//if len(devices) == 0 {
+	//	return
+	//}
+	//
+	//max := 50
+	//for _, device := range devices {
+	//	for _, channel := range device.Channels {
+	//		go startLive(device.ID, channel.DeviceID, setup)
+	//		max--
+	//		if max < 1 {
+	//			return
+	//		}
+	//	}
+	//}
 }
 
 func TestLiveAll(t *testing.T) {

@@ -16,15 +16,12 @@ type GBClient interface {
 	SetDeviceInfo(name, manufacturer, model, firmware string)
 
 	// OnQueryCatalog 被查询目录
-	OnQueryCatalog(sn int)
+	OnQueryCatalog(sn int, channels []*Channel)
 
 	// OnQueryDeviceInfo 被查询设备信息
 	OnQueryDeviceInfo(sn int)
 
 	OnSubscribeCatalog(sn int)
-
-	// AddChannels 重写添加通道函数, 增加SIP通知通道变化
-	AddChannels(channels []*Channel)
 }
 
 type Client struct {
@@ -33,17 +30,17 @@ type Client struct {
 	deviceInfo *DeviceInfoResponse
 }
 
-func (g *Client) OnQueryCatalog(sn int) {
-	channels := g.GetChannels()
-	if len(channels) == 0 {
-		return
-	}
-
+func (g *Client) OnQueryCatalog(sn int, channels []*Channel) {
 	response := CatalogResponse{}
 	response.SN = sn
 	response.CmdType = CmdCatalog
 	response.DeviceID = g.sipClient.Username
 	response.SumNum = len(channels)
+
+	if response.SumNum < 1 {
+		g.SendMessage(&response)
+		return
+	}
 
 	for i, _ := range channels {
 		channel := *channels[i]
@@ -148,6 +145,6 @@ func NewGBClient(username, serverId, serverAddr, transport, password string, reg
 		ua:               ua,
 	}
 
-	client := &Client{sip, Device{ID: username, Channels: map[string]*Channel{}}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
+	client := &Client{sip, Device{ID: username}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
 	return client
 }

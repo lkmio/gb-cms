@@ -5,13 +5,23 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 	"net"
 	"strconv"
-	"sync"
 )
 
 const (
 	CatalogFormat = "<?xml version=\"1.0\"?>\r\n" +
 		"<Query>\r\n" +
 		"<CmdType>Catalog</CmdType>\r\n" +
+		"<SN>" +
+		"%s" +
+		"</SN>\r\n" +
+		"<DeviceID>" +
+		"%s" +
+		"</DeviceID>\r\n" +
+		"</Query>\r\n"
+
+	DeviceInfoFormat = "<?xml version=\"1.0\"?>\r\n" +
+		"<Query>\r\n" +
+		"<CmdType>DeviceInfo</CmdType>\r\n" +
 		"<SN>" +
 		"%s" +
 		"</SN>\r\n" +
@@ -27,28 +37,36 @@ var (
 	SDPMessageType sip.ContentType = "application/sdp"
 )
 
+type OnlineStatus string
+
+const (
+	ON  = OnlineStatus("ON")
+	OFF = OnlineStatus("OFF")
+)
+
+func (s OnlineStatus) String() string {
+	return string(s)
+}
+
 type GBDevice interface {
 	GetID() string
 
+	// QueryDeviceInfo 发送查询设备信息命令
+	QueryDeviceInfo()
+
+	// QueryCatalog 发送查询目录命令
 	QueryCatalog()
 
+	// QueryRecord 发送查询录像命令
 	QueryRecord(channelId, startTime, endTime string, sn int, type_ string) error
 
 	//Invite(channel string, setup string)
-
-	OnCatalog(response *CatalogResponse)
-
-	OnRecord(response *QueryRecordInfoResponse)
-
-	OnDeviceInfo(response *DeviceInfoResponse)
 
 	// OnInvite 语音广播
 	OnInvite(request sip.Request, user string) sip.Response
 
 	// OnBye 设备侧主动挂断
 	OnBye(request sip.Request)
-
-	OnNotifyPosition(notify *MobilePositionNotify)
 
 	//
 	//OnNotifyCatalog()
@@ -63,20 +81,6 @@ type GBDevice interface {
 
 	Broadcast(sourceId, channelId string) sip.ClientTransaction
 
-	OnKeepalive()
-
-	// AddChannels 批量添加通道
-	AddChannels(channels []*Channel)
-
-	// GetChannels 获取所有通道
-	GetChannels() []*Channel
-
-	// FindChannel 根据通道ID查找通道
-	FindChannel(id string) *Channel
-
-	// RemoveChannel 根据通道ID删除通道
-	RemoveChannel(id string) *Channel
-
 	// UpdateChannel 订阅目录，通道发生改变
 	// 附录P.4.2.2
 	// @Params event ON-上线/OFF-离线/VLOST-视频丢失/DEFECT-故障/ADD-增加/DEL-删除/UPDATE-更新
@@ -84,17 +88,25 @@ type GBDevice interface {
 }
 
 type Device struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	RemoteAddr string              `json:"remote_addr"`
-	Transport  string              `json:"transport"`
-	Status     string              `json:"Status,omitempty"` //在线状态 ON-在线/OFF-离线
-	Channels   map[string]*Channel `json:"channels"`
-	lock       sync.RWMutex
+	ID           string       `json:"id"`
+	Name         string       `json:"name"`
+	RemoteAddr   string       `json:"remote_addr"`
+	Transport    string       `json:"transport"`
+	Status       OnlineStatus `json:"status"` //在线状态 ON-在线/OFF-离线
+	Manufacturer string       `json:"manufacturer"`
+	Model        string       `json:"model"`
+	Firmware     string       `json:"firmware"`
+
+	ChannelsTotal  int `json:"total_channels"`  // 通道总数
+	ChannelsOnline int `json:"online_channels"` // 通道在线数量
 }
 
 func (d *Device) GetID() string {
 	return d.ID
+}
+
+func (d *Device) Online() bool {
+	return d.Status == ON
 }
 
 func (d *Device) BuildMessageRequest(to, body string) sip.Request {
@@ -102,7 +114,14 @@ func (d *Device) BuildMessageRequest(to, body string) sip.Request {
 	if err != nil {
 		panic(err)
 	}
+
 	return request
+}
+
+func (d *Device) QueryDeviceInfo() {
+	body := fmt.Sprintf(DeviceInfoFormat, "1", d.ID)
+	request := d.BuildMessageRequest(d.ID, body)
+	SipUA.SendRequest(request)
 }
 
 func (d *Device) QueryCatalog() {
@@ -119,32 +138,6 @@ func (d *Device) QueryRecord(channelId, startTime, endTime string, sn int, type_
 }
 
 func (d *Device) OnBye(request sip.Request) {
-
-}
-
-func (d *Device) OnCatalog(response *CatalogResponse) {
-	for _, device := range response.DeviceList.Devices {
-		device.ParentID = d.ID
-	}
-
-	d.AddChannels(response.DeviceList.Devices)
-}
-
-func (d *Device) OnRecord(response *QueryRecordInfoResponse) {
-	event := SNManager.FindEvent(response.SN)
-	if event == nil {
-		Sugar.Errorf("处理录像查询响应失败 SN:%d", response.SN)
-		return
-	}
-
-	event(response)
-}
-
-func (d *Device) OnDeviceInfo(response *DeviceInfoResponse) {
-
-}
-
-func (d *Device) OnNotifyPosition(notify *MobilePositionNotify) {
 
 }
 
@@ -188,60 +181,8 @@ func (d *Device) Broadcast(sourceId, channelId string) sip.ClientTransaction {
 	return SipUA.SendRequest(request)
 }
 
-func (d *Device) OnKeepalive() {
-
-}
-
-func (d *Device) AddChannels(channels []*Channel) {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	if d.Channels == nil {
-		d.Channels = make(map[string]*Channel, 5)
-	}
-
-	for i, _ := range channels {
-		d.Channels[channels[i].DeviceID] = channels[i]
-	}
-}
-
-func (d *Device) GetChannels() []*Channel {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-
-	var channels []*Channel
-	for _, channel := range d.Channels {
-		channels = append(channels, channel)
-	}
-
-	return channels
-}
-
-func (d *Device) RemoveChannel(id string) *Channel {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-
-	if channel, ok := d.Channels[id]; ok {
-		delete(d.Channels, id)
-		return channel
-	}
-
-	return nil
-}
-
-func (d *Device) FindChannel(id string) *Channel {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-
-	if channel, ok := d.Channels[id]; ok {
-		return channel
-	}
-	return nil
-}
-
 func (d *Device) UpdateChannel(id string, event string) {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
+
 }
 
 func (d *Device) BuildCatalogRequest() (sip.Request, error) {
@@ -323,7 +264,6 @@ func (d *Device) BuildDownloadRequest(channelId, ip string, port uint16, startTi
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求
 // 应答的to头域需携带tag
-
 func CreateDialogRequestFromAnswer(message sip.Response, uas bool, remoteAddr string) sip.Request {
 	from, _ := message.From()
 	to, _ := message.To()

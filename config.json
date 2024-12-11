@@ -10,5 +10,21 @@
   "mobile_position_interval": 10,
 
   "media_server": "0.0.0.0:8080",
-  "port": [20030,20050]
+  "port": [20030,20050],
+
+  "redis": {
+    "addr": "0.0.0.0:6379",
+    "password": ""
+  },
+
+  "hooks": {
+    "?online": "设备上线通知",
+    "online": "",
+
+    "?offline": "设备下线通知",
+    "offline": "",
+
+    "?position" : "设备位置通知",
+    "position": ""
+  }
 }

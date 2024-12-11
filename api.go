@@ -43,8 +43,8 @@ type PlayDoneParams struct {
 }
 
 type QueryRecordParams struct {
-	DeviceId  string `json:"device_id"`
-	ChannelId string `json:"channel_id"`
+	DeviceID  string `json:"device_id"`
+	ChannelID string `json:"channel_id"`
 	Timeout   int    `json:"timeout"`
 	StartTime string `json:"start_time"`
 	EndTime   string `json:"end_time"`
@@ -88,6 +88,19 @@ type StreamIDParams struct {
 	StreamID StreamID `json:"stream_id"`
 }
 
+type PageQuery struct {
+	PageNumber *int        `json:"page_number"` // 页数
+	PageSize   *int        `json:"page_size"`   // 每页大小
+	TotalPages int         `json:"total_pages"` // 总页数
+	TotalCount int         `json:"total_count"` // 总记录数
+	Data       interface{} `json:"data"`
+}
+
+type PageQueryChannel struct {
+	PageQuery
+	DeviceID string `json:"device_id"`
+}
+
 var apiServer *ApiServer
 
 func init() {
@@ -102,7 +115,7 @@ func init() {
 	}
 }
 
-func filterRequestBodyParams[T any](f func(params T, w http.ResponseWriter, req *http.Request), params interface{}) func(http.ResponseWriter, *http.Request) {
+func withDecodedParams[T any](f func(params T, w http.ResponseWriter, req *http.Request), params interface{}) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if err := HttpDecodeJSONBody(w, req, params); err != nil {
 			Sugar.Errorf("处理http请求失败 err: %s path: %s", err.Error(), req.URL.Path)
@@ -114,38 +127,46 @@ func filterRequestBodyParams[T any](f func(params T, w http.ResponseWriter, req 
 	}
 }
 
+func withDecodedParams2[T any](f func(params T, w http.ResponseWriter, req *http.Request), params interface{}) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		_ = HttpDecodeJSONBody(w, req, params)
+		f(params.(T), w, req)
+	}
+}
+
 func startApiServer(addr string) {
-	apiServer.router.HandleFunc("/api/v1/hook/on_play", filterRequestBodyParams(apiServer.OnPlay, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", filterRequestBodyParams(apiServer.OnPlayDone, &PlayDoneParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_publish", filterRequestBodyParams(apiServer.OnPublish, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", filterRequestBodyParams(apiServer.OnPublishDone, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", filterRequestBodyParams(apiServer.OnIdleTimeout, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", filterRequestBodyParams(apiServer.OnReceiveTimeout, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_record", filterRequestBodyParams(apiServer.OnRecord, &RecordParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_play", withDecodedParams(apiServer.OnPlay, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", withDecodedParams(apiServer.OnPlayDone, &PlayDoneParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_publish", withDecodedParams(apiServer.OnPublish, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", withDecodedParams(apiServer.OnPublishDone, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", withDecodedParams(apiServer.OnIdleTimeout, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", withDecodedParams(apiServer.OnReceiveTimeout, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_record", withDecodedParams(apiServer.OnRecord, &RecordParams{}))
 
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	// 统一处理live/playback/download请求
-	apiServer.router.HandleFunc("/api/v1/{action}/start", filterRequestBodyParams(apiServer.OnInvite, &InviteParams{}))
+	apiServer.router.HandleFunc("/api/v1/{action}/start", withDecodedParams(apiServer.OnInvite, &InviteParams{}))
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
-	apiServer.router.HandleFunc("/api/v1/stream/close", filterRequestBodyParams(apiServer.OnCloseStream, &StreamIDParams{}))
+	apiServer.router.HandleFunc("/api/v1/stream/close", withDecodedParams(apiServer.OnCloseStream, &StreamIDParams{}))
 
-	apiServer.router.HandleFunc("/api/v1/device/list", apiServer.OnDeviceList)                                                      // 查询在线设备
-	apiServer.router.HandleFunc("/api/v1/record/list", filterRequestBodyParams(apiServer.OnRecordList, &QueryRecordParams{}))       // 查询录像列表
-	apiServer.router.HandleFunc("/api/v1/position/sub", filterRequestBodyParams(apiServer.OnSubscribePosition, &DeviceChannelID{})) // 订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", filterRequestBodyParams(apiServer.OnSeekPlayback, &SeekParams{}))          // 回放seek
-	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)                                                      // 云台控制
+	apiServer.router.HandleFunc("/api/v1/device/list", withDecodedParams2(apiServer.OnDeviceList, &PageQuery{}))              // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/channel/list", withDecodedParams(apiServer.OnChannelList, &PageQueryChannel{}))      // 查询通道列表
+	apiServer.router.HandleFunc("/api/v1/record/list", withDecodedParams(apiServer.OnRecordList, &QueryRecordParams{}))       // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/position/sub", withDecodedParams(apiServer.OnSubscribePosition, &DeviceChannelID{})) // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", withDecodedParams(apiServer.OnSeekPlayback, &SeekParams{}))          // 回放seek
+	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)                                                // 云台控制
 
-	apiServer.router.HandleFunc("/api/v1/platform/add", filterRequestBodyParams(apiServer.OnPlatformAdd, &GBPlatformRecord{}))                     // 添加上级平台
-	apiServer.router.HandleFunc("/api/v1/platform/remove", filterRequestBodyParams(apiServer.OnPlatformRemove, &GBPlatformRecord{}))               // 删除上级平台
-	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                                 // 上级平台列表
-	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", filterRequestBodyParams(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
-	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", filterRequestBodyParams(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联取消绑定通道
+	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                           // 级联设备列表
+	apiServer.router.HandleFunc("/api/v1/platform/add", withDecodedParams(apiServer.OnPlatformAdd, &GBPlatformRecord{}))                     // 添加级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/remove", withDecodedParams(apiServer.OnPlatformRemove, &GBPlatformRecord{}))               // 删除级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", withDecodedParams(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
+	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", withDecodedParams(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联解绑通道
 
-	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                                                                                         // 语音广播/对讲, 主讲音频传输链路
-	apiServer.router.HandleFunc("/api/v1/broadcast/invite", filterRequestBodyParams(apiServer.OnBroadcast, &BroadcastParams{Type: int(BroadcastTypeTCP)})) // 发起语音广播
-	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", filterRequestBodyParams(apiServer.OnHangup, &HangupParams{}))                                  // 挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                          // 语音对讲
+	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                                                                                   // 语音广播/对讲, 主讲音频传输链路
+	apiServer.router.HandleFunc("/api/v1/broadcast/invite", withDecodedParams(apiServer.OnBroadcast, &BroadcastParams{Type: int(BroadcastTypeTCP)})) // 发起语音广播
+	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", withDecodedParams(apiServer.OnHangup, &HangupParams{}))                                  // 挂断广播会话
+	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                    // 语音对讲
 	apiServer.router.HandleFunc("/broadcast.html", func(writer http.ResponseWriter, request *http.Request) {
 		http.ServeFile(writer, request, "./broadcast.html")
 	})
@@ -398,20 +419,73 @@ func CloseStream(streamId StreamID) {
 	}
 }
 
-func (api *ApiServer) OnDeviceList(w http.ResponseWriter, r *http.Request) {
-	devices := DeviceManager.AllDevices()
-	httpResponseOK(w, devices)
+func (api *ApiServer) OnDeviceList(v *PageQuery, w http.ResponseWriter, r *http.Request) {
+	if v.PageNumber == nil {
+		var defaultPageNumber = 1
+		v.PageNumber = &defaultPageNumber
+	}
+
+	if v.PageSize == nil {
+		var defaultPageSize = 10
+		v.PageSize = &defaultPageSize
+	}
+
+	devices, total, err := DB.QueryDevices(*v.PageNumber, *v.PageSize)
+	if err != nil {
+		Sugar.Errorf("查询设备列表失败 page number: %d, size: %d err: %s", *v.PageNumber, *v.PageSize, err.Error())
+		httpResponseError(w, err.Error())
+		return
+	}
+
+	query := PageQuery{
+		PageNumber: v.PageNumber,
+		PageSize:   v.PageSize,
+		TotalCount: total,
+		TotalPages: int(math.Ceil(float64(total) / float64(*v.PageSize))),
+		Data:       devices,
+	}
+
+	httpResponseOK(w, query)
+}
+
+func (api *ApiServer) OnChannelList(v *PageQueryChannel, w http.ResponseWriter, r *http.Request) {
+	if v.PageNumber == nil {
+		var defaultPageNumber = 1
+		v.PageNumber = &defaultPageNumber
+	}
+
+	if v.PageSize == nil {
+		var defaultPageSize = 10
+		v.PageSize = &defaultPageSize
+	}
+
+	channels, total, err := DB.QueryChannels(v.DeviceID, *v.PageNumber, *v.PageSize)
+	if err != nil {
+		Sugar.Errorf("查询设备列表失败 device: %s page number: %d, size: %d err: %s", v.DeviceID, *v.PageNumber, *v.PageSize, err.Error())
+		httpResponseError(w, err.Error())
+		return
+	}
+
+	query := PageQuery{
+		PageNumber: v.PageNumber,
+		PageSize:   v.PageSize,
+		TotalCount: total,
+		TotalPages: int(math.Ceil(float64(total) / float64(*v.PageSize))),
+		Data:       channels,
+	}
+
+	httpResponseOK(w, query)
 }
 
 func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, r *http.Request) {
-	device := DeviceManager.Find(v.DeviceId)
+	device := DeviceManager.Find(v.DeviceID)
 	if device == nil {
 		httpResponseError(w, "设备离线")
 		return
 	}
 
 	sn := GetSN()
-	err := device.QueryRecord(v.ChannelId, v.StartTime, v.EndTime, sn, v.Type_)
+	err := device.QueryRecord(v.ChannelID, v.StartTime, v.EndTime, sn, v.Type_)
 	if err != nil {
 		logger.Error("发送查询录像请求失败 err: %s", err.Error())
 		httpResponseError(w, err.Error())
@@ -646,39 +720,53 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 }
 
 func (api *ApiServer) OnPlatformAdd(v *GBPlatformRecord, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("添加级联 %v", *v)
+	Sugar.Infof("添加级联设备 %v", *v)
 
 	var err error
 	// 响应错误消息
 	defer func() {
 		if err != nil {
-			Sugar.Errorf("添加级联失败 err: %s", err.Error())
+			Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
 			httpResponseError(w, err.Error())
 		}
 	}()
 
-	if PlatformManager.ExistPlatform(v.SeverID) {
-		err = fmt.Errorf("id冲突")
+	if v.Username == "" {
+		v.Username = Config.SipId
+		Sugar.Infof("级联设备使用默认的ID")
+	}
+
+	if len(v.Username) != 20 {
+		err = fmt.Errorf("用户名长度必须20位")
 		return
-	} else if PlatformManager.ExistPlatformWithServerAddr(v.ServerAddr) {
-		err = fmt.Errorf("地址冲突")
+	} else if len(v.SeverID) != 20 {
+		err = fmt.Errorf("上级ID长度必须20位")
 		return
 	}
 
-	platform, err := NewGBPlatform(v, SipUA)
-	if err != nil {
-		return
-	} else if !PlatformManager.AddPlatform(platform) {
-		err = fmt.Errorf("已经存在")
-		return
-	}
+	var platform *GBPlatform
+	v.CreateTime = strconv.FormatInt(time.Now().UnixMilli(), 10)
+	v.Status = "OFF"
+	platform, err = NewGBPlatform(v, SipUA)
 
-	platform.Start()
-	httpResponseOK(w, nil)
+	if err == nil {
+		if err = DB.SavePlatform(v); err == nil {
+			utils.Assert(PlatformManager.AddPlatform(platform))
+
+			platform.Start()
+			httpResponseOK(w, nil)
+		}
+	}
 }
 
 func (api *ApiServer) OnPlatformRemove(v *GBPlatformRecord, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("删除级联 %v", *v)
+	Sugar.Infof("删除级联设备 %v", *v)
+
+	if err := DB.DeletePlatform(v); err != nil {
+		Sugar.Errorf("删除级联设备失败 err: %s", err.Error())
+		httpResponseOK(w, err.Error())
+		return
+	}
 
 	platform := PlatformManager.RemovePlatform(v.SeverID)
 	if platform != nil {
@@ -689,48 +777,48 @@ func (api *ApiServer) OnPlatformRemove(v *GBPlatformRecord, w http.ResponseWrite
 }
 
 func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
-	platforms := PlatformManager.Platforms()
+	platforms, err := DB.LoadPlatforms()
+	if err != nil {
+		Sugar.Errorf("查询级联设备列表失败 err: %s", err.Error())
+	}
+
 	httpResponseOK(w, platforms)
 }
 
 func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) {
 	platform := PlatformManager.FindPlatform(v.ServerID)
+
 	if platform == nil {
-		Sugar.Errorf("绑定通道失败, id: %s", v.ServerID)
+		Sugar.Errorf("绑定通道失败, 级联设备不存在 device: %s", v.ServerID)
 		httpResponseError(w, "级联设备不存在")
 		return
 	}
 
-	var channels []*Channel
-	for _, pair := range v.Channels {
-		device := DeviceManager.Find(pair[0])
-		if device == nil {
-			continue
-		}
-
-		channel := device.FindChannel(pair[1])
-		if channel == nil {
-			continue
-		}
-
-		channels = append(channels, channel)
+	// 级联功能，通道号必须唯一
+	channels, err := DB.BindChannels(v.ServerID, v.Channels)
+	if err != nil {
+		Sugar.Errorf("绑定通道失败 err: %s", err.Error())
+		httpResponseError(w, err.Error())
+		return
 	}
 
-	platform.AddChannels(channels)
-	httpResponseOK(w, nil)
+	httpResponseOK(w, channels)
 }
 
 func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) {
 	platform := PlatformManager.FindPlatform(v.ServerID)
 	if platform == nil {
-		Sugar.Errorf("取消绑定通道失败, id: %s", v.ServerID)
+		Sugar.Errorf("解绑通道失败, 级联设备不存在 device: %s", v.ServerID)
 		httpResponseError(w, "级联设备不存在")
 		return
 	}
 
-	for _, pair := range v.Channels {
-		platform.RemoveChannel(pair[1])
+	channels, err := DB.UnbindChannels(v.ServerID, v.Channels)
+	if err != nil {
+		Sugar.Errorf("解绑通道失败 err: %s", err.Error())
+		httpResponseError(w, err.Error())
+		return
 	}
 
-	httpResponseOK(w, nil)
+	httpResponseOK(w, channels)
 }

@@ -10,15 +10,17 @@ import (
 	"strings"
 )
 
-// GBPlatformRecord 国标上级信息持久化结构体
+// GBPlatformRecord 国标级联设备信息持久化结构体
 type GBPlatformRecord struct {
-	Username          string `json:"username"`            //用户名
-	SeverID           string `json:"server_id"`           //上级ID, 必选
-	ServerAddr        string `json:"server_addr"`         //上级地址, 必选
-	Transport         string `json:"transport"`           //上级通信方式, UDP/TCP
-	Password          string `json:"password"`            //密码
-	RegisterExpires   int    `json:"register_expires"`    //注册有效期
-	KeepAliveInterval int    `json:"keep_alive_interval"` //心跳间隔
+	Username          string       `json:"username"`            // 用户名
+	SeverID           string       `json:"server_id"`           // 上级ID, 必选. 作为主键, 不能重复.
+	ServerAddr        string       `json:"server_addr"`         // 上级地址, 必选
+	Transport         string       `json:"transport"`           // 上级通信方式, UDP/TCP
+	Password          string       `json:"password"`            // 密码
+	RegisterExpires   int          `json:"register_expires"`    // 注册有效期
+	KeepAliveInterval int          `json:"keep_alive_interval"` // 心跳间隔
+	CreateTime        string       `json:"create_time"`         // 入库时间
+	Status            OnlineStatus `json:"status"`              // 在线状态
 }
 
 type GBPlatform struct {
@@ -57,20 +59,28 @@ func (g *GBPlatform) CloseStream(id string, bye, ms bool) {
 
 // OnInvite 被上级呼叫
 func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
-	Sugar.Infof("接收到上级预览 上级id: %s 请求通道id: %s sdp: %s", g.SeverId, user, request.Body())
+	Sugar.Infof("收到级联Invite请求 platform: %s channel: %s sdp: %s", g.SeverId, user, request.Body())
 
-	channel := g.FindChannel(user)
+	source := request.Source()
+	platform := PlatformManager.FindPlatformWithServerAddr(source)
+	utils.Assert(platform != nil)
+
+	deviceId, channel, err := DB.QueryPlatformChannel(g.SeverId, user)
+	if err != nil {
+		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverId, user)
+		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
+	}
 
 	// 查找通道对应的设备
-	device := DeviceManager.Find(channel.ParentID)
+	device := DeviceManager.Find(deviceId)
 	if device == nil {
-		Sugar.Errorf("级联转发失败 设备不存在 DeviceID: %s ChannelID: %s", channel.DeviceID, user)
+		Sugar.Errorf("级联转发失败, 设备不存在 device: %s channel: %s", device, user)
 		return CreateResponseWithStatusCode(request, http.StatusNotFound)
 	}
 
 	parse, ssrc, speed, media, offerSetup, answerSetup, err := ParseGBSDP(request.Body())
 	if err != nil {
-		Sugar.Errorf("级联转发失败 解析上级SDP发生错误 err: %s sdp: %s", err.Error(), request.Body())
+		Sugar.Errorf("级联转发失败, 解析上级SDP发生错误 err: %s sdp: %s", err.Error(), request.Body())
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
@@ -110,7 +120,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	ssrcInt, _ := strconv.Atoi(ssrc)
 	ip, port, sinkID, err := AddForwardStreamSink(string(streamId), addr, offerSetup, uint32(ssrcInt))
 	if err != nil {
-		Sugar.Errorf("级联转发失败 向流媒体服务添加转发Sink失败 err: %s", err.Error())
+		Sugar.Errorf("级联转发失败,向流媒体服务添加转发Sink失败 err: %s", err.Error())
 
 		if "play" != parse.Session {
 			CloseStream(streamId)
@@ -136,6 +146,33 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	// 保存与上级的会话
 	g.streams.AddWithCallId(callID.Value(), stream)
 	return response
+}
+
+func (g *GBPlatform) Start() {
+	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.SeverId, g.sipClient.Transport, g.sipClient.Domain)
+	g.sipClient.Start()
+	g.sipClient.SetOnRegisterHandler(g.onlineCB, g.offlineCB)
+}
+
+func (g *GBPlatform) Stop() {
+	g.sipClient.Stop()
+	g.sipClient.SetOnRegisterHandler(nil, nil)
+}
+
+func (g *GBPlatform) Online() {
+	Sugar.Infof("级联设备上线 device: %s", g.SeverId)
+
+	if err := DB.UpdatePlatformStatus(g.SeverId, ON); err != nil {
+		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverId)
+	}
+}
+
+func (g *GBPlatform) Offline() {
+	Sugar.Infof("级联设备离线 device: %s", g.SeverId)
+
+	if err := DB.UpdatePlatformStatus(g.SeverId, OFF); err != nil {
+		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverId)
+	}
 }
 
 func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) {

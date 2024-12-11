@@ -20,6 +20,11 @@ type Config_ struct {
 	MobilePositionExpires  int    `json:"mobile_position_expires"`
 	MediaServer            string `json:"media_server"`
 	Port                   []int  `json:"port"` //语音广播/对讲需要的端口
+
+	Redis struct {
+		Addr     string `json:"addr"`
+		Password string `json:"password"`
+	}
 }
 
 type LogConfig struct {

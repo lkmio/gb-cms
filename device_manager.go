@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// DeviceManager 位于内存中的所有设备和通道
 var DeviceManager *deviceManager
 
 func init() {
@@ -33,16 +34,16 @@ func (s *deviceManager) Find(id string) GBDevice {
 	return nil
 }
 
-func (s *deviceManager) Remove(id string) (GBDevice, error) {
+func (s *deviceManager) Remove(id string) GBDevice {
 	value, loaded := s.m.LoadAndDelete(id)
 	if loaded {
-		return value.(GBDevice), nil
+		return value.(GBDevice)
 	}
 
-	return nil, fmt.Errorf("device with id %s was not find", id)
+	return nil
 }
 
-func (s *deviceManager) AllDevices() []GBDevice {
+func (s *deviceManager) All() []GBDevice {
 	var devices []GBDevice
 	s.m.Range(func(key, value any) bool {
 		devices = append(devices, value.(GBDevice))

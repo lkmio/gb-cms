@@ -6,7 +6,7 @@
   "domain": "192.168.2.148:5060",
   "password": "12345678",
   "listenAddr": "192.168.2.148:15062",
-  "count": 1,
+  "count": 100,
   "?rtp_over_tcp_raw_file_path": "rtp over tcp的推流源文件",
   "rtp_over_tcp_raw_file_path": "./rtp.raw"
 }

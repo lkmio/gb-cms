@@ -110,7 +110,7 @@ func CreateTransport(ip string, port int, setup string, handler transport.Handle
 		tcpClient := &transport.TCPClient{}
 		tcpClient.SetHandler(handler)
 
-		err := tcpClient.Connect(nil, &net.TCPAddr{IP: net.ParseIP(ip), Port: port})
+		_, err := tcpClient.Connect(nil, &net.TCPAddr{IP: net.ParseIP(ip), Port: port})
 		return tcpClient, true, err
 	} else if "active" == setup {
 		tcpServer := &transport.TCPServer{}
@@ -323,6 +323,9 @@ func TestGBClient(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+	DeviceChannelsManager = &DeviceChannels{
+		channels: make(map[string][]*Channel, clientConfig.Count),
+	}
 
 	for i := 0; i < clientConfig.Count; i++ {
 		deviceId := clientConfig.DeviceIDPrefix + fmt.Sprintf("%07d", i+1)
@@ -332,15 +335,15 @@ func TestGBClient(t *testing.T) {
 		device := VirtualDevice{client.(*Client), map[string]*MediaStream{}, &sync.Mutex{}}
 		device.SetDeviceInfo(fmt.Sprintf("测试设备%d", i+1), "lkmio", "lkmio_gb", "dev-0.0.1")
 
-		var channels []*Channel
-		channels = append(channels, &Channel{
+		channel := &Channel{
 			DeviceID: channelId,
 			Name:     "1",
 			ParentID: deviceId,
-		})
+		}
 
 		DeviceManager.Add(device)
-		device.AddChannels(channels)
+		DeviceChannelsManager.AddChannel(deviceId, channel)
+
 		device.Start()
 
 		device.SetOnRegisterHandler(func() {
