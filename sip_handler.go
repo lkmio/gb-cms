@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Handler 处理下级设备的消息
 type Handler interface {
@@ -60,6 +63,7 @@ func (e *EventHandler) OnRegister(id, transport, addr string) (int, GBDevice, bo
 	}
 
 	device.Status = ON
+	device.RegisterTime = time.Now().UnixMilli()
 	if DB != nil {
 		if err := DB.SaveDevice(device); err != nil {
 			Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())

@@ -41,4 +41,12 @@ type GB28181DB interface {
 
 	// QueryPlatformChannel 查询级联设备的某个通道, 返回通道所属设备ID、通道.
 	QueryPlatformChannel(platformId string, channelId string) (string, *Channel, error)
+
+	LoadStreams() (map[string]*Stream, error)
+
+	SaveStream(stream *Stream) error
+
+	DeleteStream(time int64) error
+
+	//QueryStream(pate int, size int)
 }

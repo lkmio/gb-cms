@@ -192,7 +192,7 @@ func startApiServer(addr string) {
 }
 
 func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("播放事件. protocol: %s stream : %s", params.Protocol, params.Stream)
+	Sugar.Infof("播放事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// [注意]: windows上使用cmd/power shell推拉流如果要携带多个参数, 请用双引号将与号引起来("&")
 	// session_id是为了同一个录像文件, 允许同时点播多个.当然如果实时流支持多路预览, 也是可以的.
@@ -206,25 +206,25 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001.session_id_0?setup=passive&stream_type=playback&start_time=2024-06-18T15:20:56&end_time=2024-06-18T15:25:56
 
 	// 跳过非国标拉流
-	split := strings.Split(string(params.Stream), "/")
-	if len(split) != 2 || len(split[0]) != 20 || len(split[1]) < 20 {
-		Sugar.Infof("跳过非国标流的播放事件 stream: %s", params.Stream)
+	sourceStream := strings.Split(string(params.Stream), "/")
+	if len(sourceStream) != 2 || len(sourceStream[0]) != 20 || len(sourceStream[1]) < 20 {
+		Sugar.Infof("跳过非国标拉流 stream: %s", params.Stream)
 		return
 	}
 
 	// 已经存在，累加计数
 	if stream := StreamManager.Find(params.Stream); stream != nil {
-		count := stream.IncreaseSinkCount()
-		Sugar.Infof("拉流计数: %d stream: %s ", count, params.Stream)
+		stream.IncreaseSinkCount()
 		return
 	}
 
-	deviceId := split[0]
-	channelId := split[1]
+	deviceId := sourceStream[0]
+	channelId := sourceStream[1]
 	if len(channelId) > 20 {
 		channelId = channelId[:20]
 	}
 
+	// 发起invite的参数
 	query := r.URL.Query()
 	inviteParams := &InviteParams{
 		DeviceID:  deviceId,
@@ -250,11 +250,9 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 
 	if err != nil {
 		Sugar.Errorf("请求流失败 err: %s", err.Error())
-	}
-
-	if http.StatusOK == code {
-		count := stream.IncreaseSinkCount()
-		Sugar.Infof("拉流计数: %d stream: %s ", count, params.Stream)
+		utils.Assert(http.StatusOK != code)
+	} else if http.StatusOK == code {
+		stream.IncreaseSinkCount()
 	}
 
 	w.WriteHeader(code)
@@ -269,18 +267,17 @@ func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, 
 		return
 	}
 
-	count := stream.DecreaseSinkCount()
-	Sugar.Infof("拉流计数: %d stream: %s ", count, params.Stream)
+	stream.DecreaseSinkCount()
 
-	// 媒体链路与上级断开连接, 向上级发送Bye请求
+	// 级联断开连接, 向上级发送Bye请求
 	if params.Protocol == "gb_stream_forward" {
-		sink := stream.RemoveForwardSink(params.Sink)
-		if sink == nil || sink.dialog == nil {
+		sink := stream.RemoveForwardStreamSink(params.Sink)
+		if sink == nil || sink.Dialog == nil {
 			return
 		}
 
-		if platform := PlatformManager.FindPlatform(sink.platformID); platform != nil {
-			callID, _ := sink.dialog.CallID()
+		if platform := PlatformManager.FindPlatform(sink.ServerID); platform != nil {
+			callID, _ := sink.Dialog.CallID()
 			platform.CloseStream(callID.String(), true, false)
 		}
 	}
@@ -298,7 +295,7 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("推流结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	CloseStream(params.Stream)
+	CloseStream(params.Stream, false)
 }
 
 func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
@@ -307,7 +304,7 @@ func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter,
 	// 非rtmp空闲超时, 返回非200应答, 删除会话
 	if params.Protocol != "rtmp" {
 		w.WriteHeader(http.StatusForbidden)
-		CloseStream(params.Stream)
+		CloseStream(params.Stream, false)
 	}
 }
 
@@ -317,7 +314,7 @@ func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWrit
 	// 非rtmp推流超时, 返回非200应答, 删除会话
 	if params.Protocol != "rtmp" {
 		w.WriteHeader(http.StatusForbidden)
-		CloseStream(params.Stream)
+		CloseStream(params.Stream, false)
 	}
 }
 
@@ -359,7 +356,7 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 	}
 }
 
-// DoInvite 处理Invite请求
+// DoInvite 发起Invite请求
 // @params sync 是否异步等待流媒体的publish事件(确认收到流), 目前请求流分两种方式，流媒体hook和http接口, hook方式同步等待确认收到流再应答, http接口直接应答成功。
 func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync bool, w http.ResponseWriter, r *http.Request) (int, *Stream, error) {
 	device := DeviceManager.Find(params.DeviceID)
@@ -385,15 +382,14 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 		endTimeSeconds = strconv.FormatInt(endTime.Unix(), 10)
 	}
 
-	streamId := params.streamId
-	if streamId == "" {
-		streamId = GenerateStreamId(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
+	if params.streamId == "" {
+		params.streamId = GenerateStreamId(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
 	}
 
 	// 解析回放或下载速度参数
 	speed, _ := strconv.Atoi(params.Speed)
 	speed = int(math.Min(4, float64(speed)))
-	stream, err := device.(*Device).StartStream(inviteType, streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
+	stream, err := device.(*Device).StartStream(inviteType, params.streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
 	if err != nil {
 		return http.StatusInternalServerError, nil, err
 	}
@@ -405,17 +401,17 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 	stream := StreamManager.Find(v.StreamID)
 
 	// 等空闲或收流超时会自动关闭
-	if stream != nil && stream.SinkCount() < 1 {
-		CloseStream(v.StreamID)
+	if stream != nil && stream.GetSinkCount() < 1 {
+		CloseStream(v.StreamID, true)
 	}
 
 	httpResponseOK(w, nil)
 }
 
-func CloseStream(streamId StreamID) {
+func CloseStream(streamId StreamID, ms bool) {
 	stream := StreamManager.Remove(streamId)
 	if stream != nil {
-		stream.Close(true)
+		stream.Close(true, ms)
 	}
 }
 
@@ -536,7 +532,7 @@ func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWri
 
 func (api *ApiServer) OnSeekPlayback(v *SeekParams, w http.ResponseWriter, r *http.Request) {
 	stream := StreamManager.Find(v.StreamId)
-	if stream == nil || stream.DialogRequest == nil {
+	if stream == nil || stream.Dialog == nil {
 		httpResponseError(w, "会话不存在")
 		return
 	}
@@ -715,7 +711,7 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 
 	streams := StreamManager.PopAll()
 	for _, stream := range streams {
-		stream.Close(true)
+		stream.Close(true, false)
 	}
 }
 

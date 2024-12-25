@@ -12,7 +12,7 @@ func init() {
 
 type streamManager struct {
 	streams map[StreamID]*Stream
-	callIds map[string]*Stream // 本SipUA的CallID与Stream的关系
+	callIds map[string]*Stream // CallID关联Stream, 实际推流通道的会话callid和级联转发的callid都会指向Stream
 	lock    sync.RWMutex
 }
 
@@ -69,8 +69,8 @@ func (s *streamManager) Remove(id StreamID) *Stream {
 
 	stream, ok := s.streams[id]
 	delete(s.streams, id)
-	if ok && stream.DialogRequest != nil {
-		callID, _ := stream.DialogRequest.CallID()
+	if ok && stream.Dialog != nil {
+		callID, _ := stream.Dialog.CallID()
 		delete(s.callIds, callID.Value())
 		return stream
 	}
@@ -90,6 +90,18 @@ func (s *streamManager) RemoveWithCallId(id string) *Stream {
 	}
 
 	return nil
+}
+
+func (s *streamManager) All() []*Stream {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	var streams []*Stream
+
+	for _, stream := range s.streams {
+		streams = append(streams, stream)
+	}
+
+	return streams
 }
 
 func (s *streamManager) PopAll() []*Stream {

@@ -37,8 +37,9 @@ func (i *InviteType) SessionName2Type(name string) {
 
 func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, error) {
 	stream := &Stream{
-		ID:           streamId,
-		forwardSinks: map[string]*Sink{},
+		ID:                 streamId,
+		ForwardStreamSinks: map[string]*Sink{},
+		CreateTime:         time.Now().UnixMilli(),
 	}
 
 	// 先添加占位置, 防止重复请求
@@ -52,7 +53,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 		return nil, err
 	}
 
-	stream.DialogRequest = dialog
+	stream.Dialog = dialog
 	callID, _ := dialog.CallID()
 	StreamManager.AddWithCallId(callID.Value(), stream)
 
@@ -61,7 +62,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 		ok := stream.WaitForPublishEvent(10)
 		if !ok {
 			Sugar.Infof("收流超时 发送bye请求...")
-			CloseStream(streamId)
+			CloseStream(streamId, true)
 		}
 		return ok
 	}
@@ -73,6 +74,10 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 	}
 
 	stream.urls = urls
+
+	// 保存到数据库
+	go DB.SaveStream(stream)
+
 	return stream, nil
 }
 
@@ -83,7 +88,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 	defer func() {
 		// 如果失败, 告知流媒体服务释放国标源
 		if err != nil {
-			go CloseGBSource(string(streamId))
+			go CloseSource(string(streamId))
 		}
 	}()
 
@@ -166,7 +171,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 
 		addr := fmt.Sprintf("%s:%d", answer.Addr, answer.Video.Port)
 		if err = ConnectGBSource(string(streamId), addr); err != nil {
-			Sugar.Errorf("设置GB28181连接地址失败 err:%s addr:%s", err.Error(), addr)
+			Sugar.Errorf("设置GB28181连接地址失败 err: %s addr: %s", err.Error(), addr)
 			return nil, nil, err
 		}
 	}

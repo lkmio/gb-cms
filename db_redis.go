@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -15,8 +16,12 @@ const (
 	RedisKeyChannels       = "channels"     // 使用map保存所有通道信息
 	RedisKeyDeviceChannels = "%s_channels"  // 使用zset保存设备下的所有通道ID
 	RedisKeyPlatforms      = "platforms"    // 使用zset有序保存所有级联设备
-	RedisKeyStreams        = "streams"      // 保存所有推流信息, 以便在崩溃后恢复
 	RedisUniqueChannelID   = "%s_%s"        // 通道号的唯一ID, 设备_通道号
+
+	// RedisKeyStreams 保存推拉流信息, 主要目的是程序崩溃重启后，恢复国标流的invite会话. 如果需要统计所有详细的推拉流信息，需要自行实现.
+	RedisKeyStreams     = "streams"  //// 保存所有推流端信息
+	RedisKeySinks       = "sinks"    //// 保存所有拉流端信息
+	RedisKeyStreamSinks = "%s_sinks" //// 某路流下所有的拉流端
 )
 
 type RedisDB struct {
@@ -514,6 +519,54 @@ func (r *RedisDB) QueryPlatformChannel(platformId string, channelId string) (str
 	return deviceId, channel, nil
 }
 
+func (r *RedisDB) LoadStreams() (map[string]*Stream, error) {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
+
+	all, err := executor.Key(RedisKeyStreams).ZRange()
+	if err != nil {
+		return nil, err
+	}
+
+	streams := make(map[string]*Stream, len(all))
+	for _, v := range all {
+		stream := &Stream{}
+		if err := json.Unmarshal([]byte(v[0]), stream); err != nil {
+			Sugar.Errorf("解析stream失败, err: %s value: %s", err.Error(), hex.EncodeToString([]byte(v[0])))
+			continue
+		}
+
+		streams[string(stream.ID)] = stream
+	}
+
+	return streams, nil
+}
+
+func (r *RedisDB) SaveStream(stream *Stream) error {
+	data, err := json.Marshal(stream)
+	if err != nil {
+		return err
+	}
+
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(RedisKeyStreams).ZAddWithNotExists(stream.CreateTime, data)
+}
+
+func (r *RedisDB) DeleteStream(time int64) error {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(RedisKeyStreams).ZDelWithScore(time)
+}
+
 // OnExpires Redis设备ID到期回调
 func (r *RedisDB) OnExpires(db int, id string) {
 	Sugar.Infof("设备心跳过期 device: %s", id)
@@ -524,10 +577,7 @@ func (r *RedisDB) OnExpires(db int, id string) {
 		return
 	}
 
-	device.(*Device).Status = OFF
-	if err := DB.SaveDevice(device.(*Device)); err != nil {
-		Sugar.Errorf("更新设备在线状态失败 err: %s device: %s ", err.Error(), id)
-	}
+	device.Close()
 }
 
 func NewRedisDB(addr, password string) *RedisDB {

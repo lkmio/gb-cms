@@ -60,7 +60,7 @@ func (g *Client) SendMessage(msg interface{}) {
 		panic(err)
 	}
 
-	request, err := BuildMessageRequest(g.sipClient.Username, g.sipClient.ListenAddr, g.sipClient.SeverId, g.sipClient.Domain, g.sipClient.Transport, string(marshal))
+	request, err := BuildMessageRequest(g.sipClient.Username, g.sipClient.ListenAddr, g.sipClient.SeverID, g.sipClient.Domain, g.sipClient.Transport, string(marshal))
 	if err != nil {
 		panic(err)
 	}
@@ -140,7 +140,7 @@ func NewGBClient(username, serverId, serverAddr, transport, password string, reg
 		Password:         password,
 		RegisterExpires:  registerExpires,
 		KeeAliveInterval: keepalive,
-		SeverId:          serverId,
+		SeverID:          serverId,
 		ListenAddr:       ua.ListenAddr(),
 		ua:               ua,
 	}

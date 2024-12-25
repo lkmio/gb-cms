@@ -8,10 +8,28 @@ import (
 	"time"
 )
 
+type SourceDetails struct {
+	ID        string    `json:"id"`
+	Protocol  string    `json:"protocol"`   // 推流协议
+	Time      time.Time `json:"time"`       // 推流时间
+	SinkCount int       `json:"sink_count"` // 播放端计数
+	Bitrate   string    `json:"bitrate"`    // 码率统计
+	Tracks    []string  `json:"tracks"`     // 每路流编码器ID
+	Urls      []string  `json:"urls"`       // 拉流地址
+}
+
+type SinkDetails struct {
+	ID       string    `json:"id"`
+	Protocol string    `json:"protocol"` // 拉流协议
+	Time     time.Time `json:"time"`     // 拉流时间
+	Bitrate  string    `json:"bitrate"`  // 码率统计
+	Tracks   []string  `json:"tracks"`   // 每路流编码器ID
+}
+
 func Send(path string, body interface{}) (*http.Response, error) {
 	url := fmt.Sprintf("http://%s/%s", Config.MediaServer, path)
 
-	marshal, err := json.Marshal(body)
+	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
@@ -20,7 +38,7 @@ func Send(path string, body interface{}) (*http.Response, error) {
 		Timeout: 10 * time.Second,
 	}
 
-	request, err := http.NewRequest("post", url, bytes.NewBuffer(marshal))
+	request, err := http.NewRequest("post", url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +91,14 @@ func ConnectGBSource(id, addr string) error {
 	return err
 }
 
-func CloseGBSource(id string) error {
+func CloseSource(id string) error {
 	v := &struct {
 		Source string `json:"source"`
 	}{
 		Source: id,
 	}
 
-	_, err := Send("api/v1/gb28181/source/close", v)
+	_, err := Send("api/v1/source/close", v)
 	return err
 }
 
@@ -126,4 +144,36 @@ func CloseSink(sourceId string, sinkId string) {
 	}
 
 	_, _ = Send("api/v1/sink/close", v)
+}
+
+func QuerySourceList() ([]*SourceDetails, error) {
+	response, err := Send("api/v1/source/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &Response[[]*SourceDetails]{}
+	if err = DecodeJSONBody(response.Body, data); err != nil {
+		return nil, err
+	}
+
+	return data.Data, err
+}
+
+func QuerySinkList(source string) ([]*SinkDetails, error) {
+	id := struct {
+		Source string `json:"source"`
+	}{source}
+
+	response, err := Send("api/v1/sink/list", id)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &Response[[]*SinkDetails]{}
+	if err = DecodeJSONBody(response.Body, data); err != nil {
+		return nil, err
+	}
+
+	return data.Data, err
 }

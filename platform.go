@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // GBPlatformRecord 国标级联设备信息持久化结构体
@@ -25,7 +26,22 @@ type GBPlatformRecord struct {
 
 type GBPlatform struct {
 	*Client
-	streams *streamManager // 保存与上级的所有级联会话
+	lock    sync.Mutex
+	streams map[string]string // 上级会话的callId关联到实际推流通道的callId
+}
+
+func (g *GBPlatform) AddStream(callId string, channelCallId string) {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	g.streams[callId] = channelCallId
+}
+
+func (g *GBPlatform) removeStream(callId string) string {
+	g.lock.Lock()
+	defer g.lock.Unlock()
+	channelCallId := g.streams[callId]
+	delete(g.streams, callId)
+	return channelCallId
 }
 
 // OnBye 被上级挂断
@@ -35,39 +51,50 @@ func (g *GBPlatform) OnBye(request sip.Request) {
 }
 
 // CloseStream 关闭级联会话
-func (g *GBPlatform) CloseStream(id string, bye, ms bool) {
-	// 删除会话
-	stream := g.streams.RemoveWithCallId(id)
+func (g *GBPlatform) CloseStream(callId string, bye, ms bool) {
+	channelCallId := g.removeStream(callId)
+	stream := StreamManager.FindWithCallId(channelCallId)
 	if stream == nil {
+		Sugar.Errorf("关闭级联转发sink失败, 找不到stream. callid: %s", callId)
 		return
 	}
 
-	// 从国标源中删除当前转发流
-	sink := stream.RemoveForwardSink(id)
-
-	if ms {
-		// 通知媒体服务
-		go CloseSink(string(stream.ID), sink.id)
+	sink := stream.RemoveForwardStreamSink(callId)
+	if sink == nil {
+		Sugar.Errorf("关闭级联转发sink失败, 找不到sink. callid: %s", callId)
+		return
 	}
 
-	// SIP挂断
-	if bye {
-		byeRequest := CreateRequestFromDialog(sink.dialog, sip.BYE)
-		SipUA.SendRequest(byeRequest)
+	sink.Close(bye, ms)
+}
+
+// CloseStreams 关闭所有级联会话
+func (g *GBPlatform) CloseStreams(bye, ms bool) {
+	var callIds []string
+	g.lock.Lock()
+
+	for k := range g.streams {
+		callIds = append(callIds, k)
+	}
+
+	g.lock.Unlock()
+
+	for _, id := range callIds {
+		g.CloseStream(id, bye, ms)
 	}
 }
 
 // OnInvite 被上级呼叫
 func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
-	Sugar.Infof("收到级联Invite请求 platform: %s channel: %s sdp: %s", g.SeverId, user, request.Body())
+	Sugar.Infof("收到级联Invite请求 platform: %s channel: %s sdp: %s", g.SeverID, user, request.Body())
 
 	source := request.Source()
 	platform := PlatformManager.FindPlatformWithServerAddr(source)
 	utils.Assert(platform != nil)
 
-	deviceId, channel, err := DB.QueryPlatformChannel(g.SeverId, user)
+	deviceId, channel, err := DB.QueryPlatformChannel(g.SeverID, user)
 	if err != nil {
-		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverId, user)
+		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
@@ -123,7 +150,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 		Sugar.Errorf("级联转发失败,向流媒体服务添加转发Sink失败 err: %s", err.Error())
 
 		if "play" != parse.Session {
-			CloseStream(streamId)
+			CloseStream(streamId, true)
 		}
 
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
@@ -141,15 +168,18 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 
 	// 添加级联转发流
 	callID, _ := request.CallID()
-	stream.AddForwardSink(callID.Value(), &Sink{sinkID, g.ID, g.CreateDialogRequestFromAnswer(response, true), g.Username})
+	stream.AddForwardStreamSink(callID.Value(), &Sink{
+		ID:       sinkID,
+		Stream:   streamId,
+		ServerID: g.SeverID,
+		Dialog:   g.CreateDialogRequestFromAnswer(response, true)},
+	)
 
-	// 保存与上级的会话
-	g.streams.AddWithCallId(callID.Value(), stream)
 	return response
 }
 
 func (g *GBPlatform) Start() {
-	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.SeverId, g.sipClient.Transport, g.sipClient.Domain)
+	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.SeverID, g.sipClient.Transport, g.sipClient.Domain)
 	g.sipClient.Start()
 	g.sipClient.SetOnRegisterHandler(g.onlineCB, g.offlineCB)
 }
@@ -157,22 +187,28 @@ func (g *GBPlatform) Start() {
 func (g *GBPlatform) Stop() {
 	g.sipClient.Stop()
 	g.sipClient.SetOnRegisterHandler(nil, nil)
+
+	// 释放所有推流
+	g.CloseStreams(true, true)
 }
 
 func (g *GBPlatform) Online() {
-	Sugar.Infof("级联设备上线 device: %s", g.SeverId)
+	Sugar.Infof("级联设备上线 device: %s", g.SeverID)
 
-	if err := DB.UpdatePlatformStatus(g.SeverId, ON); err != nil {
-		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverId)
+	if err := DB.UpdatePlatformStatus(g.SeverID, ON); err != nil {
+		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
 	}
 }
 
 func (g *GBPlatform) Offline() {
-	Sugar.Infof("级联设备离线 device: %s", g.SeverId)
+	Sugar.Infof("级联设备离线 device: %s", g.SeverID)
 
-	if err := DB.UpdatePlatformStatus(g.SeverId, OFF); err != nil {
-		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverId)
+	if err := DB.UpdatePlatformStatus(g.SeverID, OFF); err != nil {
+		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
 	}
+
+	// 释放所有推流
+	g.CloseStreams(true, true)
 }
 
 func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) {
@@ -184,6 +220,6 @@ func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) 
 		return nil, err
 	}
 
-	client := NewGBClient(record.Username, record.SeverID, record.ServerAddr, record.Transport, record.Password, record.RegisterExpires, record.KeepAliveInterval, ua)
-	return &GBPlatform{client.(*Client), NewStreamManager()}, nil
+	gbClient := NewGBClient(record.Username, record.SeverID, record.ServerAddr, record.Transport, record.Password, record.RegisterExpires, record.KeepAliveInterval, ua)
+	return &GBPlatform{Client: gbClient.(*Client), streams: make(map[string]string, 8)}, nil
 }

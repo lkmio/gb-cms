@@ -85,6 +85,8 @@ type GBDevice interface {
 	// 附录P.4.2.2
 	// @Params event ON-上线/OFF-离线/VLOST-视频丢失/DEFECT-故障/ADD-增加/DEL-删除/UPDATE-更新
 	UpdateChannel(id string, event string)
+
+	Close()
 }
 
 type Device struct {
@@ -96,6 +98,7 @@ type Device struct {
 	Manufacturer string       `json:"manufacturer"`
 	Model        string       `json:"model"`
 	Firmware     string       `json:"firmware"`
+	RegisterTime int64        `json:"register_time"`
 
 	ChannelsTotal  int `json:"total_channels"`  // 通道总数
 	ChannelsOnline int `json:"online_channels"` // 通道在线数量
@@ -260,6 +263,27 @@ func (d *Device) BuildPlaybackRequest(channelId, ip string, port uint16, startTi
 
 func (d *Device) BuildDownloadRequest(channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
 	return d.BuildInviteRequest("Download", channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
+}
+
+func (d *Device) Close() {
+	// 更新在数据库中的状态
+	d.Status = OFF
+	if err := DB.SaveDevice(d); err != nil {
+		Sugar.Errorf("更新设备在线状态失败 err: %s device: %s ", err.Error(), d.ID)
+	}
+
+	// 释放所有推流
+	all := StreamManager.All()
+	var streams []*Stream
+	for _, stream := range all {
+		if d.ID == stream.ID.DeviceID() {
+			streams = append(streams, stream)
+		}
+	}
+
+	for _, stream := range streams {
+		stream.Close(true, true)
+	}
 }
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求

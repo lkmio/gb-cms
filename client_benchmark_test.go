@@ -219,7 +219,7 @@ func (v VirtualDevice) OnInvite(request sip.Request, user string) sip.Response {
 
 	// 绑定到StreamManager, bye请求才会找到设备回调
 	streamId := GenerateStreamId(InviteTypeLive, v.sipClient.Username, user, "", "")
-	s := Stream{ID: streamId, DialogRequest: stream.dialog}
+	s := Stream{ID: streamId, Dialog: stream.dialog}
 	StreamManager.Add(&s)
 
 	callID, _ := request.CallID()

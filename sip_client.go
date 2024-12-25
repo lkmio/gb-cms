@@ -46,7 +46,7 @@ type sipClient struct {
 	Password         string //密码
 	RegisterExpires  int    //注册有效期
 	KeeAliveInterval int    //心跳间隔
-	SeverId          string //上级ID
+	SeverID          string //上级ID
 
 	ListenAddr string //UA的监听地址
 	NatAddr    string //Nat地址
@@ -109,7 +109,7 @@ func (g *sipClient) doRegister(request sip.Request) bool {
 }
 
 func (g *sipClient) startNewRegister() bool {
-	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverId, g.Domain, g.Transport)
+	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverID, g.Domain, g.Transport)
 	expires := sip.Expires(g.RegisterExpires)
 	builder.SetExpires(&expires)
 
@@ -167,7 +167,7 @@ func (g *sipClient) doUnregister() {
 
 func (g *sipClient) doKeepalive() bool {
 	body := fmt.Sprintf(KeepAliveBody, time.Now().UnixMilli()/1000, g.Username)
-	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverId, g.Domain, g.Transport, body)
+	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverID, g.Domain, g.Transport, body)
 	if err != nil {
 		panic(err)
 	}

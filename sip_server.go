@@ -90,7 +90,7 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent
 		var expires int
 		expires, device, queryCatalog = s.handler.OnRegister(id, req.Transport(), req.Source())
 		if device != nil {
-			Sugar.Infof("注册成功 Device: %s", id)
+			Sugar.Infof("注册成功 Device: %s addr: %s", id, req.Source())
 			expiresHeader := sip.Expires(expires)
 			response.AppendHeader(&expiresHeader)
 		} else {
@@ -163,7 +163,7 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 	if stream := StreamManager.RemoveWithCallId(id.Value()); stream != nil {
 		// 下级设备挂断, 关闭流
 		deviceId = stream.ID.DeviceID()
-		stream.Close(false)
+		stream.Close(false, true)
 	} else if session := BroadcastManager.RemoveWithCallId(id.Value()); session != nil {
 		// 广播挂断
 		deviceId = session.DeviceID

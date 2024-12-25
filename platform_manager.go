@@ -24,11 +24,11 @@ func (p *platformManager) AddPlatform(platform *GBPlatform) bool {
 	defer p.lock.Unlock()
 
 	// 以上级平台ID作为主键
-	if _, ok := p.addrMap[platform.sipClient.SeverId]; ok {
+	if _, ok := p.addrMap[platform.sipClient.SeverID]; ok {
 		return false
 	}
 
-	p.platforms[platform.sipClient.SeverId] = platform
+	p.platforms[platform.sipClient.SeverID] = platform
 	p.addrMap[platform.sipClient.Domain] = platform
 	return true
 }
