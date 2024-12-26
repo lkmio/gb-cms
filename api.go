@@ -267,7 +267,9 @@ func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, 
 		return
 	}
 
-	stream.DecreaseSinkCount()
+	if 0 == stream.DecreaseSinkCount() && Config.AutoCloseOnIdle {
+		CloseStream(params.Stream, true)
+	}
 
 	// 级联断开连接, 向上级发送Bye请求
 	if params.Protocol == "gb_stream_forward" {
@@ -406,13 +408,6 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 	}
 
 	httpResponseOK(w, nil)
-}
-
-func CloseStream(streamId StreamID, ms bool) {
-	stream := StreamManager.Remove(streamId)
-	if stream != nil {
-		stream.Close(true, ms)
-	}
 }
 
 func (api *ApiServer) OnDeviceList(v *PageQuery, w http.ResponseWriter, r *http.Request) {
