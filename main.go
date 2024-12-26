@@ -126,7 +126,6 @@ func recoverStreams() ([]*Stream, []*Sink) {
 		if !ok {
 			Sugar.Infof("删除过期的推流会话 stream: %s", stream.ID)
 			closedStreams = append(closedStreams, stream)
-			stream.Close(true, false)
 			continue
 		}
 

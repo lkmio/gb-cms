@@ -187,3 +187,10 @@ func CreateRequestFromDialog(dialog sip.Request, method sip.RequestMethod) sip.R
 func (s *Stream) CreateRequestFromDialog(method sip.RequestMethod) sip.Request {
 	return CreateRequestFromDialog(s.Dialog, method)
 }
+
+func CloseStream(streamId StreamID, ms bool) {
+	stream := StreamManager.Remove(streamId)
+	if stream != nil {
+		stream.Close(true, ms)
+	}
+}
