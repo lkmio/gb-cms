@@ -77,8 +77,14 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent
 	var device GBDevice
 	var queryCatalog bool
 
+	fromHeaders := req.GetHeaders("From")
+	if len(fromHeaders) == 0 {
+		Sugar.Errorf("not find From header. message: %s", req.String())
+		return
+	}
+
 	_ = req.GetHeaders("Authorization")
-	fromHeader := req.GetHeaders("From")[0].(*sip.FromHeader)
+	fromHeader := fromHeaders[0].(*sip.FromHeader)
 	expiresHeader := req.GetHeaders("Expires")
 
 	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
