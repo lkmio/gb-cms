@@ -89,7 +89,7 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent
 
 	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
 	id := fromHeader.Address.User().String()
-	if expiresHeader != nil && "0" == expiresHeader[0].Value() {
+	if len(expiresHeader) > 0 && "0" == expiresHeader[0].Value() {
 		Sugar.Infof("设备注销 Device: %s", id)
 		s.handler.OnUnregister(id)
 	} else /*if authorizationHeader == nil*/ {
