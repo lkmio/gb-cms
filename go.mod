@@ -4,8 +4,6 @@ go 1.19
 
 require (
 	github.com/ghettovoice/gosip v0.0.0-20240401112151-56d750b16008
-	github.com/gorilla/mux v1.8.1
-	github.com/gorilla/websocket v1.5.1
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2 // indirect
@@ -34,7 +32,15 @@ require (
 
 require (
 	github.com/gomodule/redigo v1.9.2
+	github.com/gorilla/mux v1.8.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/lkmio/avformat v0.0.0
+	github.com/lkmio/rtp v0.0.0
+	github.com/lkmio/transport v0.0.0
 )
 
 replace github.com/lkmio/avformat => ../avformat
+
+replace github.com/lkmio/rtp => ../rtp
+
+replace github.com/lkmio/transport => ../transport

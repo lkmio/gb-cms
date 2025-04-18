@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/lkmio/avformat/transport"
+	"github.com/lkmio/transport"
 	"net"
 )
 
@@ -20,7 +20,7 @@ type BroadcastSession struct {
 	DeviceID  string
 	ChannelID string
 	RoomId    string
-	Transport transport.ITransport
+	Transport transport.Transport
 	Type      BroadcastType
 
 	RemotePort int

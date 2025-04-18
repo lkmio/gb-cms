@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/lkmio/avformat/librtp"
-	"github.com/lkmio/avformat/transport"
+	"github.com/lkmio/rtp"
+	"github.com/lkmio/transport"
 	"net"
 	"net/http"
 	"os"
@@ -27,7 +27,7 @@ type MediaStream struct {
 	ssrc      uint32
 	tcp       bool
 	conn      net.Conn
-	transport transport.ITransport
+	transport transport.Transport
 	cancel    context.CancelFunc
 	dialog    sip.Request
 	ctx       context.Context
@@ -54,7 +54,7 @@ func (m *MediaStream) write() {
 					break
 				}
 
-				librtp.ModifySSRC(bytes[2:], m.ssrc)
+				rtp.ModifySSRC(bytes[2:], m.ssrc)
 
 				if m.tcp {
 					m.conn.Write(bytes)
@@ -105,7 +105,7 @@ type VirtualDevice struct {
 	lock    sync.Locker
 }
 
-func CreateTransport(ip string, port int, setup string, handler transport.Handler) (transport.ITransport, bool, error) {
+func CreateTransport(ip string, port int, setup string, handler transport.Handler) (transport.Transport, bool, error) {
 	if "passive" == setup {
 		tcpClient := &transport.TCPClient{}
 		tcpClient.SetHandler(handler)

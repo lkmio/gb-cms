@@ -7,8 +7,8 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
-	"github.com/lkmio/avformat/librtp"
 	"github.com/lkmio/avformat/utils"
+	"github.com/lkmio/rtp"
 	"math"
 	"net/http"
 	"strconv"
@@ -563,8 +563,8 @@ func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
 
 	conn.WriteJSON(response)
 
-	rtp := make([]byte, 1500)
-	muxer := librtp.NewMuxer(8, 0, 0xFFFFFFFF)
+	packet := make([]byte, 1500)
+	muxer := rtp.NewMuxer(8, 0, 0xFFFFFFFF)
 
 	for {
 		_, bytes, err := conn.ReadMessage()
@@ -581,10 +581,10 @@ func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
 			offset := i * 320
 			min := int(math.Min(float64(n), 320))
 			muxer.Input(bytes[offset:offset+min], uint32(min), func() []byte {
-				return rtp[2:]
+				return packet[2:]
 			}, func(data []byte) {
-				binary.BigEndian.PutUint16(rtp, uint16(len(data)))
-				room.DispatchRtpPacket(rtp[:2+len(data)])
+				binary.BigEndian.PutUint16(packet, uint16(len(data)))
+				room.DispatchRtpPacket(packet[:2+len(data)])
 			})
 
 			n -= min

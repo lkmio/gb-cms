@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/lkmio/avformat/transport"
+	"github.com/lkmio/transport"
 	"net"
 	"net/http"
 	"strconv"
@@ -82,7 +82,7 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, Config.PublicIP, Config.PublicIP, client.ListenPort(), "RTP/AVP")
 	} else {
 		// TCP广播
-		server, err := TransportManager.NewTCPServer(Config.ListenIP)
+		server, err := TransportManager.NewTCPServer()
 		if err != nil {
 			Sugar.Errorf("创建TCP广播端口失败 session: %s err:%s", session.Id(), err.Error())
 			session.Answer <- http.StatusInternalServerError

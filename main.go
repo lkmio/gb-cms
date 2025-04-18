@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/lkmio/avformat/transport"
 	"github.com/lkmio/avformat/utils"
+	"github.com/lkmio/transport"
 	"go.uber.org/zap/zapcore"
 	"net"
 	"strconv"
@@ -225,7 +225,7 @@ func main() {
 	streams, sinks := recoverStreams()
 
 	// 设置语音广播端口
-	TransportManager = transport.NewTransportManager(uint16(Config.Port[0]), uint16(Config.Port[1]))
+	TransportManager = transport.NewTransportManager(Config.ListenIP, uint16(Config.Port[0]), uint16(Config.Port[1]))
 
 	// 启动sip server
 	server, err := StartSipServer(config.SipId, config.ListenIP, config.PublicIP, config.SipPort)
