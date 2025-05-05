@@ -92,16 +92,9 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 		}
 	}()
 
-	// 生成下发的ssrc
-	if InviteTypeLive != inviteType {
-		ssrc = GetVodSSRC()
-	} else {
-		ssrc = GetLiveSSRC()
-	}
-
 	// 告知流媒体服务创建国标源, 返回收流地址信息
 	ssrcValue, _ := strconv.Atoi(ssrc)
-	ip, port, urls, msErr := CreateGBSource(string(streamId), setup, uint32(ssrcValue))
+	ip, port, urls, ssrc, msErr := CreateGBSource(string(streamId), setup, uint32(ssrcValue), int(inviteType))
 	if msErr != nil {
 		Sugar.Errorf("创建GBSource失败 err: %s", msErr.Error())
 		return nil, nil, msErr
