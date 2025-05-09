@@ -5,24 +5,63 @@ import (
 	"encoding/json"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/parser"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// Stream 国标推流
+type SetupType int
+
+const (
+	SetupTypeUDP SetupType = iota
+	SetupTypePassive
+	SetupTypeActive
+)
+
+var (
+	DefaultSetupType = SetupTypePassive
+)
+
+func (s SetupType) String() string {
+	switch s {
+	case SetupTypeUDP:
+		return "udp"
+	case SetupTypePassive:
+		return "passive"
+	case SetupTypeActive:
+		return "active"
+	}
+
+	panic("invalid setup type")
+}
+
+type StreamWaiting struct {
+	onPublishCb chan int // 等待推流hook的管道
+	cancelFunc  func()   // 取消等待推流hook的ctx
+}
+
+func (s *StreamWaiting) WaitForPublishEvent(seconds int) int {
+	s.onPublishCb = make(chan int, 0)
+	timeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
+	s.cancelFunc = cancelFunc
+	select {
+	case code := <-s.onPublishCb:
+		return code
+	case <-timeout.Done():
+		s.cancelFunc = nil
+		return -1
+	}
+}
+
 type Stream struct {
-	ID         StreamID    `json:"id"`                 // 推流ID
-	Protocol   string      `json:"protocol,omitempty"` // 推流协议
-	Dialog     sip.Request `json:"dialog,omitempty"`   // 国标推流时, 与推流通道的Invite会话
+	ID         StreamID    `json:"id"`                 // 流ID
+	Protocol   string      `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
+	Dialog     sip.Request `json:"dialog,omitempty"`   // 国标流的SipCall会话
 	CreateTime int64       `json:"create_time"`        // 推流时间
 	SinkCount  int32       `json:"sink_count"`         // 拉流端计数(包含级联转发)
+	SetupType  SetupType
 
-	lock               sync.RWMutex
-	ForwardStreamSinks map[string]*Sink // 级联转发Sink, Key为与上级的CallID. 不保存所有的拉流端，查询拉流端列表，从流媒体服务器查询或新建数据库查询。 json序列化, 线程安全?
-	urls               []string         // 从流媒体服务器返回的拉流地址
-	publishEvent       chan byte        // 等待推流hook的管道
-	cancelFunc         func()           // 取消等待推流hook的ctx
+	urls []string // 从流媒体服务器返回的拉流地址
+	StreamWaiting
 }
 
 func (s *Stream) MarshalJSON() ([]byte, error) {
@@ -70,53 +109,6 @@ func (s *Stream) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (s *Stream) AddForwardStreamSink(id string, sink *Sink) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.ForwardStreamSinks[id] = sink
-
-	go DB.SaveStream(s)
-}
-
-func (s *Stream) RemoveForwardStreamSink(id string) *Sink {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	sink, ok := s.ForwardStreamSinks[id]
-	if ok {
-		delete(s.ForwardStreamSinks, id)
-	}
-
-	go DB.SaveStream(s)
-	return sink
-}
-
-func (s *Stream) GetForwardStreamSinks() []*Sink {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	var sinks []*Sink
-	for _, sink := range s.ForwardStreamSinks {
-		sinks = append(sinks, sink)
-	}
-
-	return sinks
-}
-
-func (s *Stream) WaitForPublishEvent(seconds int) bool {
-	s.publishEvent = make(chan byte, 0)
-	timeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
-	s.cancelFunc = cancelFunc
-
-	select {
-	case <-s.publishEvent:
-		return true
-	case <-timeout.Done():
-		s.cancelFunc = nil
-		return false
-	}
-}
-
 func (s *Stream) GetSinkCount() int32 {
 	return atomic.LoadInt32(&s.SinkCount)
 }
@@ -152,21 +144,9 @@ func (s *Stream) Close(bye, ms bool) {
 		go CloseSource(string(s.ID))
 	}
 
-	// 关闭所有级联会话
-	sinks := s.GetForwardStreamSinks()
-	for _, sink := range sinks {
-		id, _ := sink.Dialog.CallID()
+	// 关闭所转发会话
+	CloseStreamSinks(s.ID, bye, ms)
 
-		// 如果级联设备存在, 通过级联设备中删除会话
-		platform := PlatformManager.FindPlatform(sink.ServerID)
-		if platform == nil {
-			continue
-		}
-
-		platform.CloseStream(id.Value(), true, true)
-	}
-
-	s.ForwardStreamSinks = map[string]*Sink{}
 	// 从数据库中删除流记录
 	DB.DeleteStream(s.CreateTime)
 }

@@ -1,152 +1,77 @@
 package main
 
-import (
-	"sync"
-)
+import "sync"
 
-var (
-	BroadcastManager *broadcastManager
-)
-
-func init() {
-	BroadcastManager = &broadcastManager{
-		rooms:    make(map[string]*BroadcastRoom, 12),
-		sessions: make(map[string]*BroadcastSession, 12),
-		callIds:  make(map[string]*BroadcastSession, 12),
-	}
-}
+//var BroadcastManager = &broadcastManager{
+//	streams: make(map[StreamID]*Sink),
+//	callIds: make(map[string]*Sink),
+//}
 
 type broadcastManager struct {
-	rooms    map[string]*BroadcastRoom    //主讲人关联房间
-	sessions map[string]*BroadcastSession //sessionId关联广播会话
-	callIds  map[string]*BroadcastSession //callId关联广播会话
-	lock     sync.RWMutex
+	streams map[StreamID]*Sink // device stream id ->sink
+	callIds map[string]*Sink   // invite call id->sink
+	lock    sync.RWMutex
 }
 
-func FindBroadcastSessionWithSourceID(user string) *BroadcastSession {
-	roomId := user[:10]
-	room := BroadcastManager.FindRoom(roomId)
-	if room != nil {
-		return room.Find(user)
-	}
-
-	return nil
-}
-
-func (b *broadcastManager) CreateRoom(id string) *BroadcastRoom {
+func (b *broadcastManager) Add(id StreamID, sink *Sink) (old *Sink, ok bool) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-
-	if _, ok := b.rooms[id]; ok {
-		panic("system error")
+	old, ok = b.streams[id]
+	if ok {
+		return old, false
 	}
-
-	room := &BroadcastRoom{
-		members: make(map[string]*BroadcastSession, 12),
-	}
-	b.rooms[id] = room
-	return room
+	b.streams[id] = sink
+	return nil, true
 }
 
-func (b *broadcastManager) FindRoom(id string) *BroadcastRoom {
+func (b *broadcastManager) AddWithCallId(id string, sink *Sink) bool {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	if _, ok := b.callIds[id]; ok {
+		return false
+	}
+	b.callIds[id] = sink
+	return true
+}
+
+func (b *broadcastManager) Find(id StreamID) *Sink {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
-
-	session, ok := b.rooms[id]
-	if !ok {
-		return nil
-	}
-
-	return session
+	return b.streams[id]
 }
 
-func (b *broadcastManager) RemoveRoom(roomId string) []*BroadcastSession {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	room, ok := b.rooms[roomId]
-	if !ok {
-		return nil
-	}
-
-	delete(b.rooms, roomId)
-	return room.PopAll()
-}
-
-func (b *broadcastManager) Remove(sessionId string) *BroadcastSession {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	session, ok := b.sessions[sessionId]
-	if !ok {
-		return nil
-	}
-
-	b.RemoveSession(session)
-	return session
-}
-
-func (b *broadcastManager) RemoveSession(session *BroadcastSession) {
-	delete(b.sessions, session.Id())
-
-	if session.ByeRequest != nil {
-		id, _ := session.ByeRequest.CallID()
-		delete(b.callIds, id.Value())
-	}
-
-	if room, ok := b.rooms[session.RoomId]; ok {
-		room.Remove(session.SourceID)
-	}
-}
-
-func (b *broadcastManager) RemoveWithCallId(callId string) *BroadcastSession {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	session, ok := b.callIds[callId]
-	if !ok {
-		return nil
-	}
-
-	b.RemoveSession(session)
-	return session
-}
-
-func (b *broadcastManager) Find(sessionId string) *BroadcastSession {
+func (b *broadcastManager) FindWithCallId(id string) *Sink {
 	b.lock.RLock()
 	defer b.lock.RUnlock()
-
-	if session, ok := b.sessions[sessionId]; ok {
-		return session
-	}
-
-	return nil
+	return b.callIds[id]
 }
 
-func (b *broadcastManager) AddSession(roomId string, session *BroadcastSession) bool {
+func (b *broadcastManager) Remove(id StreamID) *Sink {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-
-	room, ok := b.rooms[roomId]
+	sink, ok := b.streams[id]
 	if !ok {
-		return false
-	} else if _, ok := b.sessions[session.Id()]; ok {
-		return false
-	} else if add := room.Add(session); add {
-		b.sessions[session.Id()] = session
-		return true
+		return nil
 	}
 
-	return false
+	if sink.Dialog != nil {
+		callID, _ := sink.Dialog.CallID()
+		delete(b.callIds, callID.String())
+	}
+
+	delete(b.streams, id)
+	return sink
 }
 
-func (b *broadcastManager) AddSessionWithCallId(callId string, session *BroadcastSession) bool {
+func (b *broadcastManager) RemoveWithCallId(id string) *Sink {
 	b.lock.Lock()
 	defer b.lock.Unlock()
-
-	if _, ok := b.callIds[callId]; !ok {
-		b.callIds[callId] = session
+	sink, ok := b.callIds[id]
+	if !ok {
+		return nil
 	}
 
-	return false
+	delete(b.callIds, id)
+	delete(b.streams, sink.Stream)
+	return sink
 }

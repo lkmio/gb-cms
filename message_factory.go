@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"github.com/ghettovoice/gosip/sip"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
 	"net"
 	"strconv"
 	"strings"
@@ -64,10 +62,11 @@ func BuildMessageRequest(from, fromRealm, to, toAddr, transport, body string) (s
 		body = XmlHeaderGBK + body
 	}
 
-	gbkBody, _, err := transform.String(simplifiedchinese.GBK.NewEncoder(), body)
-	if err != nil {
-		panic(err)
-	}
+	//gbkBody, _, err := transform.String(simplifiedchinese.GBK.NewEncoder(), body)
+	//if err != nil {
+	//	panic(err)
+	//}
+	gbkBody := body
 
 	builder := NewRequestBuilder(sip.MESSAGE, from, fromRealm, to, toAddr, transport)
 	builder.SetContentType(&XmlMessageType)

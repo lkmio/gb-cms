@@ -18,6 +18,7 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
+	github.com/lkmio/transport v0.0.0-20250417030743-a4180637cd01 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
@@ -35,12 +36,6 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/lkmio/avformat v0.0.0
-	github.com/lkmio/rtp v0.0.0
-	github.com/lkmio/transport v0.0.0
 )
 
 replace github.com/lkmio/avformat => ../avformat
-
-replace github.com/lkmio/rtp => ../rtp
-
-replace github.com/lkmio/transport => ../transport

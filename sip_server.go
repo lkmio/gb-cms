@@ -36,6 +36,7 @@ const (
 	CmdRecordInfo     = "RecordInfo"
 	CmdMobilePosition = "MobilePosition"
 	CmdKeepalive      = "Keepalive"
+	CmdBroadcast      = "Broadcast"
 )
 
 func init() {
@@ -117,24 +118,24 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent
 	}
 }
 
-// OnInvite 上级预览/下级广播
+// OnInvite 收到上级预览/下级设备广播请求
 func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent bool) {
 	SendResponse(tx, sip.NewResponseFromRequest("", req, 100, "Trying", ""))
 	user := req.Recipient().User().String()
 
-	if len(user) != 20 {
-		SendResponseWithStatusCode(req, tx, http.StatusNotFound)
-		return
-	}
+	//if len(user) != 20 {
+	//	SendResponseWithStatusCode(req, tx, http.StatusNotFound)
+	//	return
+	//}
 
 	// 查找对应的设备
 	var device GBDevice
 	if parent {
 		// 级联设备
 		device = PlatformManager.FindPlatformWithServerAddr(req.Source())
-	} else if session := FindBroadcastSessionWithSourceID(user); session != nil {
+	} else if session := BroadcastDialogs.Find(user); session != nil {
 		// 语音广播设备
-		device = DeviceManager.Find(session.DeviceID)
+		device = DeviceManager.Find(session.SinkStream.DeviceID())
 	} else {
 		// 根据Subject头域查找设备
 		headers := req.GetHeaders("Subject")
@@ -148,6 +149,8 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent b
 	}
 
 	if device == nil {
+		logger.Error("处理Invite失败, 找不到设备. request: %s", req.String())
+
 		SendResponseWithStatusCode(req, tx, http.StatusNotFound)
 	} else {
 		response := device.OnInvite(req, user)
@@ -170,10 +173,10 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 		// 下级设备挂断, 关闭流
 		deviceId = stream.ID.DeviceID()
 		stream.Close(false, true)
-	} else if session := BroadcastManager.RemoveWithCallId(id.Value()); session != nil {
+	} else if session := StreamManager.RemoveWithCallId(id.Value()); session != nil {
 		// 广播挂断
-		deviceId = session.DeviceID
-		session.Close(false)
+		deviceId = session.ID.DeviceID()
+		session.Close(false, true)
 	}
 
 	if parent {
@@ -232,6 +235,11 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	// 查找设备
 	var device GBDevice
 	deviceId := message.(BaseMessageGetter).GetDeviceID()
+	if CmdBroadcast == cmd {
+		// 广播消息
+		from, _ := req.From()
+		deviceId = from.Address.User().String()
+	}
 	if parent {
 		device = PlatformManager.FindPlatformWithServerAddr(req.Source())
 	} else {
@@ -262,7 +270,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 
 			// 查询出所有通道
 			if DB != nil {
-				result, _, err := DB.QueryChannels(client.GetID(), 1, 0xFFFFFFFF)
+				result, _, err := DB.QueryChannels(client.(*GBPlatform).SeverID, 1, 0xFFFFFFFF)
 				if err != nil {
 					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), client.GetID())
 				}
@@ -390,6 +398,7 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (SipServer, e
 		fmt.Sprintf("%s.%s", XmlNameResponse, CmdRecordInfo):   reflect.TypeOf(QueryRecordInfoResponse{}),
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdKeepalive):      reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdMobilePosition): reflect.TypeOf(BaseMessage{}),
+		fmt.Sprintf("%s.%s", XmlNameResponse, CmdBroadcast):    reflect.TypeOf(BaseMessage{}),
 	}}
 
 	utils.Assert(ua.OnRequest(sip.REGISTER, filterRequest(server.OnRegister)) == nil)

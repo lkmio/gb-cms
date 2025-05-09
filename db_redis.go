@@ -22,6 +22,9 @@ const (
 	RedisKeyStreams     = "streams"  //// 保存所有推流端信息
 	RedisKeySinks       = "sinks"    //// 保存所有拉流端信息
 	RedisKeyStreamSinks = "%s_sinks" //// 某路流下所有的拉流端
+
+	RedisKeyDialogs      = "streams"
+	RedisKeyForwardSinks = "forward_%s"
 )
 
 type RedisDB struct {
@@ -46,6 +49,10 @@ func (c ChannelKey) String() string {
 // DeviceChannelsKey 返回设备通道列表的主键
 func DeviceChannelsKey(id string) string {
 	return fmt.Sprintf(RedisKeyDeviceChannels, id)
+}
+
+func ForwardSinksKey(id string) string {
+	return fmt.Sprintf(RedisKeyForwardSinks, id)
 }
 
 // GenerateChannelKey 使用设备号+通道号作为通道的主键，兼容通道号可能重复的情况
@@ -555,7 +562,8 @@ func (r *RedisDB) SaveStream(stream *Stream) error {
 		return err
 	}
 
-	return executor.Key(RedisKeyStreams).ZAddWithNotExists(stream.CreateTime, data)
+	//	return executor.Key(RedisKeyStreams).ZAddWithNotExists(stream.CreateTime, data)
+	return executor.Key(RedisKeyStreams).ZAdd(stream.CreateTime, data)
 }
 
 func (r *RedisDB) DeleteStream(time int64) error {
@@ -565,6 +573,89 @@ func (r *RedisDB) DeleteStream(time int64) error {
 	}
 
 	return executor.Key(RedisKeyStreams).ZDelWithScore(time)
+}
+
+func (r *RedisDB) QueryForwardSink(stream StreamID, sinkId string) (*Sink, error) {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := executor.Key(ForwardSinksKey(string(stream))).HGet(sinkId)
+	if err != nil {
+		return nil, err
+	}
+
+	sink := &Sink{}
+	if err = json.Unmarshal(data, sink); err != nil {
+		return nil, err
+	}
+
+	return sink, nil
+}
+
+func (r *RedisDB) QueryForwardSinks(stream StreamID) (map[string]*Sink, error) {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := executor.Key(ForwardSinksKey(string(stream))).HGetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var sinks map[string]*Sink
+	if len(entries) > 0 {
+		sinks = make(map[string]*Sink, len(entries))
+	}
+
+	for _, entry := range entries {
+		sink := &Sink{}
+		if err = json.Unmarshal(entry, sink); err != nil {
+			return nil, err
+		}
+
+		sinks[sink.ID] = sink
+	}
+
+	return sinks, nil
+}
+
+func (r *RedisDB) SaveForwardSink(stream StreamID, sink *Sink) error {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(sink)
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(ForwardSinksKey(string(stream))).HSet(sink.ID, data)
+}
+
+func (r *RedisDB) DeleteForwardSink(stream StreamID, sinkId string) error {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(ForwardSinksKey(string(stream))).HDel(sinkId)
+}
+
+func (r *RedisDB) Del(key string) error {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(key).Del()
+}
+
+func (r *RedisDB) DeleteForwardSinks(stream StreamID) error {
+	return r.Del(ForwardSinksKey(string(stream)))
 }
 
 // OnExpires Redis设备ID到期回调

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip/sip"
-	"github.com/lkmio/transport"
 	"net"
 	"net/http"
 	"strconv"
@@ -30,6 +29,32 @@ const (
 		"a=rtpmap:8 PCMA/8000\r\n"
 )
 
+func findSetup(descriptor *sdp.SDP) SetupType {
+	var tcp bool
+	if descriptor.Audio != nil {
+		tcp = strings.Contains(descriptor.Audio.Proto, "TCP")
+	}
+
+	if !tcp && descriptor.Video != nil {
+		tcp = strings.Contains(descriptor.Video.Proto, "TCP")
+	}
+
+	setup := SetupTypeUDP
+	if tcp {
+		for _, attr := range descriptor.Attrs {
+			if "setup" == attr[0] {
+				if SetupTypePassive.String() == attr[1] {
+					setup = SetupTypePassive
+				} else if SetupTypeActive.String() == attr[1] {
+					setup = SetupTypeActive
+				}
+			}
+		}
+	}
+
+	return setup
+}
+
 func (d *Device) DoBroadcast(sourceId, channelId string) error {
 	body := fmt.Sprintf(BroadcastFormat, 1, sourceId, channelId)
 	request := d.BuildMessageRequest(channelId, body)
@@ -38,76 +63,61 @@ func (d *Device) DoBroadcast(sourceId, channelId string) error {
 	return nil
 }
 
-// OnInvite 邀请语音广播
+// OnInvite 语音广播
 func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
-	session := FindBroadcastSessionWithSourceID(user)
-	if session == nil {
+	sink := BroadcastDialogs.Find(user)
+	if sink == nil {
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
 	body := request.Body()
 	offer, err := sdp.Parse(body)
 	if err != nil {
-		Sugar.Infof("解析sdp失败. session: %s err: %s sdp: %s", session.Id(), err.Error(), body)
-		session.Answer <- http.StatusBadRequest
+		Sugar.Infof("广播失败, 解析sdp发生err: %s  sink: %s  sdp: %s", err.Error(), sink.ID, body)
+		sink.onPublishCb <- http.StatusBadRequest
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	} else if offer.Audio == nil {
-		Sugar.Infof("offer中缺少audio字段. session: %s sdp: %s", session.Id(), body)
-		session.Answer <- http.StatusBadRequest
+		Sugar.Infof("广播失败, offer中缺少audio字段. sink: %s sdp: %s", sink.ID, body)
+		sink.onPublishCb <- http.StatusBadRequest
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
+	}
+
+	// 通知流媒体服务器创建answer
+	offerSetup := findSetup(offer)
+	answerSetup := sink.SetupType
+	finalSetup := offerSetup
+	if answerSetup != offerSetup {
+		finalSetup = answerSetup
+	}
+
+	addr := net.JoinHostPort(offer.Addr, strconv.Itoa(int(offer.Audio.Port)))
+	host, port, sinkId, err := CreateAnswer(string(sink.Stream), addr, offerSetup.String(), answerSetup.String(), "", string(InviteTypeBroadcast))
+	if err != nil {
+		Sugar.Errorf("广播失败, 流媒体创建answer发生err: %s  sink: %s ", err.Error(), sink.ID)
+		sink.onPublishCb <- http.StatusInternalServerError
+		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
 	var answerSDP string
-	isTcp := strings.Contains(offer.Audio.Proto, "TCP")
 	// UDP广播
-	if !isTcp && BroadcastTypeUDP == session.Type {
-		var client *transport.UDPClient
-		err := TransportManager.AllocPort(false, func(port uint16) error {
-			client = &transport.UDPClient{}
-			localAddr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort(Config.ListenIP, strconv.Itoa(int(port))))
-			remoteAddr, _ := net.ResolveUDPAddr("udp", net.JoinHostPort(offer.Addr, strconv.Itoa(int(offer.Audio.Port))))
-			return client.Connect(localAddr, remoteAddr)
-		})
-
-		if err == nil {
-			Sugar.Errorf("创建UDP广播端口失败 err:%s", err.Error())
-			session.Answer <- http.StatusInternalServerError
-			return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
-		}
-
-		session.RemoteIP = offer.Addr
-		session.RemotePort = int(offer.Audio.Port)
-		session.Transport = client
-		session.Transport.SetHandler(session)
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, Config.PublicIP, Config.PublicIP, client.ListenPort(), "RTP/AVP")
+	if SetupTypeUDP == finalSetup {
+		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, host, host, port, "RTP/AVP")
 	} else {
 		// TCP广播
-		server, err := TransportManager.NewTCPServer()
-		if err != nil {
-			Sugar.Errorf("创建TCP广播端口失败 session: %s err:%s", session.Id(), err.Error())
-			session.Answer <- http.StatusInternalServerError
-			return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
-		}
-
-		go server.Accept()
-		session.Transport = server
-		session.Transport.SetHandler(session)
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, Config.PublicIP, Config.PublicIP, server.ListenPort(), "TCP/RTP/AVP")
+		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, host, host, port, "TCP/RTP/AVP")
 	}
 
+	// 创建answer和dialog
 	response := CreateResponseWithStatusCode(request, http.StatusOK)
 	setToTag(response)
 
-	session.Successful = true
-	session.ByeRequest = d.CreateDialogRequestFromAnswer(response, true)
-
-	id, _ := request.CallID()
-	BroadcastManager.AddSessionWithCallId(id.Value(), session)
+	sink.ID = sinkId
+	sink.Dialog = d.CreateDialogRequestFromAnswer(response, true)
 
 	response.SetBody(answerSDP, true)
 	response.AppendHeader(&SDPMessageType)
 	response.AppendHeader(GlobalContactAddress.AsContactHeader())
 
-	session.Answer <- http.StatusOK
+	sink.onPublishCb <- http.StatusOK
 	return response
 }

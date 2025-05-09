@@ -8,12 +8,16 @@ import (
 
 // Sink 国标级联转发流
 type Sink struct {
-	ID         string      `json:"id"`                 // 流媒体服务器中的SinkID
-	Stream     StreamID    `json:"stream"`             // 所属的stream id
-	Protocol   string      `json:"protocol,omitempty"` // 拉流协议, 目前只保存"gb_stream_forward"
-	Dialog     sip.Request `json:"dialog,omitempty"`   // 级联时, 与上级的Invite会话
-	ServerID   string      `json:"server_id"`          // 级联设备的上级ID
+	ID         string      `json:"id"`                 // 流媒体服务器中的sink id
+	Stream     StreamID    `json:"stream"`             // 推流ID
+	SinkStream StreamID    `json:"sink_stream"`        // 广播使用, 每个广播设备的唯一ID
+	Protocol   string      `json:"protocol,omitempty"` // 转发流协议, gb_cascaded_forward/gb_talk_forward
+	Dialog     sip.Request `json:"dialog,omitempty"`
+	ServerID   string      `json:"server_id,omitempty"` // 级联设备的上级ID
 	CreateTime int64       `json:"create_time"`
+	SetupType  SetupType   // 转发类型
+
+	StreamWaiting
 }
 
 // Close 关闭级联会话. 是否向上级发送bye请求, 是否通知流媒体服务器发送删除sink

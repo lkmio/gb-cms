@@ -8,16 +8,19 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 	"math"
 	"net"
+	"net/http"
 	"strconv"
 	"time"
 )
 
-type InviteType int
+type InviteType string
 
 const (
-	InviteTypeLive     = InviteType(0)
-	InviteTypePlayback = InviteType(1)
-	InviteTypeDownload = InviteType(2)
+	InviteTypePlay      = InviteType("play")
+	InviteTypePlayback  = InviteType("playback")
+	InviteTypeDownload  = InviteType("download")
+	InviteTypeBroadcast = InviteType("broadcast")
+	InviteTypeTalk      = InviteType("talk")
 )
 
 func (i *InviteType) SessionName2Type(name string) {
@@ -30,16 +33,15 @@ func (i *InviteType) SessionName2Type(name string) {
 		break
 	//case "play":
 	default:
-		*i = InviteTypeLive
+		*i = InviteTypePlay
 		break
 	}
 }
 
 func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, error) {
 	stream := &Stream{
-		ID:                 streamId,
-		ForwardStreamSinks: map[string]*Sink{},
-		CreateTime:         time.Now().UnixMilli(),
+		ID:         streamId,
+		CreateTime: time.Now().UnixMilli(),
 	}
 
 	// 先添加占位置, 防止重复请求
@@ -59,7 +61,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 
 	// 等待流媒体服务发送推流通知
 	wait := func() bool {
-		ok := stream.WaitForPublishEvent(10)
+		ok := http.StatusOK == stream.WaitForPublishEvent(10)
 		if !ok {
 			Sugar.Infof("收流超时 发送bye请求...")
 			CloseStream(streamId, true)
@@ -76,7 +78,9 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 	stream.urls = urls
 
 	// 保存到数据库
-	go DB.SaveStream(stream)
+	if DB != nil {
+		go DB.SaveStream(stream)
+	}
 
 	return stream, nil
 }
@@ -93,8 +97,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 	}()
 
 	// 告知流媒体服务创建国标源, 返回收流地址信息
-	ssrcValue, _ := strconv.Atoi(ssrc)
-	ip, port, urls, ssrc, msErr := CreateGBSource(string(streamId), setup, uint32(ssrcValue), int(inviteType))
+	ip, port, urls, ssrc, msErr := CreateGBSource(string(streamId), setup, "", string(inviteType))
 	if msErr != nil {
 		Sugar.Errorf("创建GBSource失败 err: %s", msErr.Error())
 		return nil, nil, msErr
@@ -172,8 +175,8 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 	return dialogRequest, urls, nil
 }
 
-func (d *Device) Live(streamId StreamID, channelId, setup string) (sip.Request, []string, error) {
-	return d.Invite(InviteTypeLive, streamId, channelId, "", "", setup, 0)
+func (d *Device) Play(streamId StreamID, channelId, setup string) (sip.Request, []string, error) {
+	return d.Invite(InviteTypePlay, streamId, channelId, "", "", setup, 0)
 }
 
 func (d *Device) Playback(streamId StreamID, channelId, startTime, stopTime, setup string) (sip.Request, []string, error) {

@@ -19,7 +19,6 @@ type Config_ struct {
 	MobilePositionInterval int    `json:"mobile_position_interval"`
 	MobilePositionExpires  int    `json:"mobile_position_expires"`
 	MediaServer            string `json:"media_server"`
-	Port                   []int  `json:"port"` //语音广播/对讲需要的端口
 	AutoCloseOnIdle        bool   `json:"auto_close_on_idle"`
 
 	Redis struct {

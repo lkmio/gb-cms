@@ -49,4 +49,18 @@ type GB28181DB interface {
 	DeleteStream(time int64) error
 
 	//QueryStream(pate int, size int)
+
+	// QueryForwardSink 查询转发流Sink
+	QueryForwardSink(stream StreamID, sink string) (*Sink, error)
+
+	QueryForwardSinks(stream StreamID) (map[string]*Sink, error)
+
+	// SaveForwardSink 保存转发流Sink
+	SaveForwardSink(stream StreamID, sink *Sink) error
+
+	DeleteForwardSink(stream StreamID, sink string) error
+
+	DeleteForwardSinks(stream StreamID) error
+
+	Del(key string) error
 }

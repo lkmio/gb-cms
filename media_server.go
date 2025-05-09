@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -24,6 +26,24 @@ type SinkDetails struct {
 	Time     time.Time `json:"time"`     // 拉流时间
 	Bitrate  string    `json:"bitrate"`  // 码率统计
 	Tracks   []string  `json:"tracks"`   // 每路流编码器ID
+}
+
+type SDP struct {
+	SessionName string `json:"session_name,omitempty"` // play/download/playback/talk/broadcast
+	Addr        string `json:"addr,omitempty"`         // 连接地址
+	SSRC        string `json:"ssrc,omitempty"`
+	Setup       string `json:"setup,omitempty"`     // active/passive
+	Transport   string `json:"transport,omitempty"` // tcp/udp
+}
+
+type SourceSDP struct {
+	Source string `json:"source"` // GetSourceID
+	SDP
+}
+
+type GBOffer struct {
+	SourceSDP
+	AnswerSetup string `json:"answer_setup,omitempty"` // 希望应答的连接方式
 }
 
 func Send(path string, body interface{}) (*http.Response, error) {
@@ -47,29 +67,24 @@ func Send(path string, body interface{}) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func CreateGBSource(id, setup string, ssrc uint32, inviteType int) (string, uint16, []string, string, error) {
-	v := &struct {
-		Source string `json:"source"`
-		Setup  string `json:"setup"`
-		SSRC   uint32 `json:"ssrc"`
-		Type   int    `json:"type"`
-	}{
+func CreateGBSource(id, setup string, ssrc string, sessionName string) (string, uint16, []string, string, error) {
+	v := &SourceSDP{
 		Source: id,
-		Setup:  setup,
-		SSRC:   ssrc,
-		Type:   inviteType,
+		SDP: SDP{
+			Setup:       setup,
+			SSRC:        ssrc,
+			SessionName: sessionName,
+		},
 	}
 
-	response, err := Send("api/v1/gb28181/source/create", v)
+	response, err := Send("api/v1/gb28181/offer/create", v)
 	if err != nil {
 		return "", 0, nil, "", err
 	}
 
 	data := &Response[struct {
-		IP   string   `json:"ip"`
-		Port uint16   `json:"port,omitempty"`
+		SDP
 		Urls []string `json:"urls"`
-		SSRC string   `json:"ssrc,omitempty"`
 	}]{}
 
 	if err = DecodeJSONBody(response.Body, data); err != nil {
@@ -78,19 +93,24 @@ func CreateGBSource(id, setup string, ssrc uint32, inviteType int) (string, uint
 		return "", 0, nil, "", fmt.Errorf(data.Msg)
 	}
 
-	return data.Data.IP, data.Data.Port, data.Data.Urls, data.Data.SSRC, nil
+	host, p, err := net.SplitHostPort(data.Data.Addr)
+	if err != nil {
+		return "", 0, nil, "", err
+	}
+
+	port, err := strconv.Atoi(p)
+	return host, uint16(port), data.Data.Urls, data.Data.SSRC, err
 }
 
 func ConnectGBSource(id, addr string) error {
-	v := &struct {
-		Source     string `json:"source"` //SourceID
-		RemoteAddr string `json:"remote_addr"`
-	}{
-		Source:     id,
-		RemoteAddr: addr,
+	v := &SourceSDP{
+		Source: id,
+		SDP: SDP{
+			Addr: addr,
+		},
 	}
 
-	_, err := Send("api/v1/gb28181/source/connect", v)
+	_, err := Send("api/v1/gb28181/answer/set", v)
 	return err
 }
 
@@ -105,28 +125,28 @@ func CloseSource(id string) error {
 	return err
 }
 
-func AddForwardStreamSink(id, serverAddr, setup string, ssrc uint32) (ip string, port uint16, sinkId string, err error) {
-	v := struct {
-		Source string `json:"source"`
-		Addr   string `json:"addr"`
-		Setup  string `json:"setup"`
-		SSRC   uint32 `json:"ssrc"`
-	}{
-		Source: id,
-		Addr:   serverAddr,
-		Setup:  setup,
-		SSRC:   ssrc,
+func CreateAnswer(id, addr, offerSetup, answerSetup, ssrc, sessionName string) (string, uint16, string, error) {
+	offer := &GBOffer{
+		SourceSDP: SourceSDP{
+			Source: id,
+			SDP: SDP{
+				Addr:        addr,
+				Setup:       offerSetup,
+				SSRC:        ssrc,
+				SessionName: sessionName,
+			},
+		},
+		AnswerSetup: answerSetup,
 	}
 
-	response, err := Send("api/v1/gb28181/forward", v)
+	response, err := Send("api/v1/gb28181/answer/create", offer)
 	if err != nil {
 		return "", 0, "", err
 	}
 
 	data := &Response[struct {
 		Sink string `json:"sink"`
-		IP   string `json:"ip"`
-		Port uint16 `json:"port"`
+		Addr string `json:"addr"`
 	}]{}
 
 	if err = DecodeJSONBody(response.Body, data); err != nil {
@@ -135,7 +155,13 @@ func AddForwardStreamSink(id, serverAddr, setup string, ssrc uint32) (ip string,
 		return "", 0, "", fmt.Errorf(data.Msg)
 	}
 
-	return data.Data.IP, data.Data.Port, data.Data.Sink, nil
+	host, p, err := net.SplitHostPort(data.Data.Addr)
+	if err != nil {
+		return "", 0, "", err
+	}
+
+	port, _ := strconv.Atoi(p)
+	return host, uint16(port), data.Data.Sink, nil
 }
 
 func CloseSink(sourceId string, sinkId string) {

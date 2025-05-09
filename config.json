@@ -10,8 +10,6 @@
   "mobile_position_interval": 10,
 
   "media_server": "0.0.0.0:8080",
-  "port": [20030,20050],
-
 
   "?auto_close_on_idle": "拉流空闲时, 立即关闭流",
   "auto_close_on_idle": true,

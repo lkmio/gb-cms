@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lkmio/avformat/utils"
-	"github.com/lkmio/rtp"
 	"math"
 	"net/http"
 	"strconv"
@@ -67,16 +65,10 @@ type PlatformChannel struct {
 }
 
 type BroadcastParams struct {
-	DeviceID  string `json:"device_id"`
-	ChannelID string `json:"channel_id"`
-	RoomID    string `json:"room_id"`
-	Type      int    `json:"type"`
-}
-
-type HangupParams struct {
-	DeviceID  string `json:"device_id"`
-	ChannelID string `json:"channel_id"`
-	RoomID    string `json:"room_id"`
+	DeviceID  string     `json:"device_id"`
+	ChannelID string     `json:"channel_id"`
+	StreamId  StreamID   `json:"stream_id"`
+	Setup     *SetupType `json:"setup"`
 }
 
 type RecordParams struct {
@@ -163,16 +155,9 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", withDecodedParams(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
 	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", withDecodedParams(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联解绑通道
 
-	apiServer.router.HandleFunc("/ws/v1/talk", apiServer.OnWSTalk)                                                                                   // 语音广播/对讲, 主讲音频传输链路
-	apiServer.router.HandleFunc("/api/v1/broadcast/invite", withDecodedParams(apiServer.OnBroadcast, &BroadcastParams{Type: int(BroadcastTypeTCP)})) // 发起语音广播
-	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", withDecodedParams(apiServer.OnHangup, &HangupParams{}))                                  // 挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                    // 语音对讲
-	apiServer.router.HandleFunc("/broadcast.html", func(writer http.ResponseWriter, request *http.Request) {
-		http.ServeFile(writer, request, "./broadcast.html")
-	})
-	apiServer.router.HandleFunc("/g711.js", func(writer http.ResponseWriter, request *http.Request) {
-		http.ServeFile(writer, request, "./g711.js")
-	})
+	apiServer.router.HandleFunc("/api/v1/broadcast/invite", withDecodedParams(apiServer.OnBroadcast, &BroadcastParams{Setup: &DefaultSetupType})) // 发起语音广播
+	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", withDecodedParams(apiServer.OnHangup, &BroadcastParams{}))                            // 挂断广播会话
+	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                 // 语音对讲
 
 	http.Handle("/", apiServer.router)
 
@@ -241,11 +226,11 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	var err error
 	streamType := strings.ToLower(query.Get("stream_type"))
 	if "playback" == streamType {
-		code, stream, err = api.DoInvite(InviteTypeLive, inviteParams, false, w, r)
+		code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
 	} else if "download" == streamType {
 		code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false, w, r)
 	} else {
-		code, stream, err = api.DoInvite(InviteTypeLive, inviteParams, false, w, r)
+		code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
 	}
 
 	if err != nil {
@@ -261,28 +246,37 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	stream := StreamManager.Find(params.Stream)
-	if stream == nil {
-		Sugar.Errorf("处理播放结束事件失败, stream不存在. id: %s", params.Stream)
+	//stream := StreamManager.Find(params.Stream)
+	//if stream == nil {
+	//	Sugar.Errorf("处理播放结束事件失败, stream不存在. id: %s", params.Stream)
+	//	return
+	//}
+
+	//if 0 == stream.DecreaseSinkCount() && Config.AutoCloseOnIdle {
+	//	CloseStream(params.Stream, true)
+	//}
+
+	if !strings.HasPrefix(params.Protocol, "gb") {
 		return
 	}
 
-	if 0 == stream.DecreaseSinkCount() && Config.AutoCloseOnIdle {
-		CloseStream(params.Stream, true)
+	sink := RemoveForwardSink(params.Stream, params.Sink)
+	if sink == nil {
+		Sugar.Errorf("处理转发结束事件失败, 找不到sink. stream: %s sink: %s", params.Stream, params.Sink)
+		return
 	}
 
 	// 级联断开连接, 向上级发送Bye请求
-	if params.Protocol == "gb_stream_forward" {
-		sink := stream.RemoveForwardStreamSink(params.Sink)
-		if sink == nil || sink.Dialog == nil {
-			return
-		}
-
+	if params.Protocol == "gb_cascaded_forward" {
 		if platform := PlatformManager.FindPlatform(sink.ServerID); platform != nil {
 			callID, _ := sink.Dialog.CallID()
 			platform.CloseStream(callID.String(), true, false)
 		}
+	} else if params.Protocol == "gb_talk_forward" {
+		// 对讲设备断开连接
 	}
+
+	sink.Close(true, false)
 }
 
 func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *http.Request) {
@@ -290,7 +284,30 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 
 	stream := StreamManager.Find(params.Stream)
 	if stream != nil {
-		stream.publishEvent <- 0
+		stream.onPublishCb <- 200
+	}
+
+	// 对讲websocket已连接
+	// 创建stream
+	if "gb_talk" == params.Protocol {
+		Sugar.Infof("对讲websocket已连接, stream: %s", params.Stream)
+
+		s := &Stream{
+			ID:         params.Stream,
+			Protocol:   params.Protocol,
+			CreateTime: time.Now().Unix(),
+		}
+
+		_, ok := StreamManager.Add(s)
+		if !ok {
+			Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		if DB != nil {
+			go DB.SaveStream(s)
+		}
 	}
 }
 
@@ -298,6 +315,10 @@ func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter,
 	Sugar.Infof("推流结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	CloseStream(params.Stream, false)
+	// 对讲websocket断开连接
+	if "gb_talk" == params.Protocol {
+
+	}
 }
 
 func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
@@ -336,7 +357,7 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 	} else if "download" == action {
 		code, stream, err = apiServer.DoInvite(InviteTypeDownload, v, true, w, r)
 	} else if "live" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypeLive, v, true, w, r)
+		code, stream, err = apiServer.DoInvite(InviteTypePlay, v, true, w, r)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -369,7 +390,7 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	// 解析回放或下载的时间范围参数
 	var startTimeSeconds string
 	var endTimeSeconds string
-	if InviteTypeLive != inviteType {
+	if InviteTypePlay != inviteType {
 		startTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.StartTime, time.Local)
 		if err != nil {
 			return http.StatusBadRequest, nil, err
@@ -385,7 +406,7 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	}
 
 	if params.streamId == "" {
-		params.streamId = GenerateStreamId(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
+		params.streamId = GenerateStreamID(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
 	}
 
 	// 解析回放或下载速度参数
@@ -547,75 +568,36 @@ func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (api *ApiServer) OnWSTalk(w http.ResponseWriter, r *http.Request) {
-	conn, err := api.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		Sugar.Errorf("websocket头检查失败 err: %s", err.Error())
-		w.WriteHeader(http.StatusBadRequest)
-		return
+func (api *ApiServer) OnHangup(v *BroadcastParams, w http.ResponseWriter, r *http.Request) {
+	Sugar.Infof("广播挂断 %v", *v)
+
+	id := GenerateStreamID(InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
+	if sink := RemoveForwardSinkWithSinkStreamId(id); sink != nil {
+		sink.Close(true, true)
 	}
-
-	roomId := utils.RandStringBytes(10)
-	room := BroadcastManager.CreateRoom(roomId)
-	response := MalformedRequest{200, "ok", map[string]string{
-		"room_id": roomId,
-	}}
-
-	conn.WriteJSON(response)
-
-	packet := make([]byte, 1500)
-	muxer := rtp.NewMuxer(8, 0, 0xFFFFFFFF)
-
-	for {
-		_, bytes, err := conn.ReadMessage()
-		n := len(bytes)
-		if err != nil {
-			Sugar.Infof("语音断开连接")
-			break
-		} else if n < 1 {
-			continue
-		}
-
-		count := (n-1)/320 + 1
-		for i := 0; i < count; i++ {
-			offset := i * 320
-			min := int(math.Min(float64(n), 320))
-			muxer.Input(bytes[offset:offset+min], uint32(min), func() []byte {
-				return packet[2:]
-			}, func(data []byte) {
-				binary.BigEndian.PutUint16(packet, uint16(len(data)))
-				room.DispatchRtpPacket(packet[:2+len(data)])
-			})
-
-			n -= min
-		}
-	}
-
-	Sugar.Infof("主讲websocket断开连接 room: %s", roomId)
-
-	sessions := BroadcastManager.RemoveRoom(roomId)
-	for _, session := range sessions {
-		session.Close(true)
-	}
-}
-
-func (api *ApiServer) OnHangup(v *HangupParams, w http.ResponseWriter, r *http.Request) {
-	if session := BroadcastManager.Remove(GenerateSessionId(v.DeviceID, v.ChannelID)); session != nil {
-		session.Close(true)
-	}
-
 	httpResponseOK(w, nil)
 }
 
 func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("语音广播 %v", *v)
+	Sugar.Infof("广播邀请 %v", *v)
 
+	var sinkStreamId StreamID
+	var InviteSourceId string
+	var ok bool
 	var err error
 	// 响应错误消息
 	defer func() {
 		if err != nil {
 			Sugar.Errorf("广播失败 err: %s", err.Error())
 			httpResponseError(w, err.Error())
+
+			if InviteSourceId != "" {
+				BroadcastDialogs.Remove(InviteSourceId)
+			}
+
+			if sinkStreamId != "" {
+				SinkManager.RemoveWithSinkStreamId(sinkStreamId)
+			}
 		}
 	}()
 
@@ -625,40 +607,48 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 		return
 	}
 
-	broadcastRoom := BroadcastManager.FindRoom(v.RoomID)
-	if broadcastRoom == nil {
-		//err := fmt.Errorf("the room with id '%s' is not found", v.RoomID)
-		err = fmt.Errorf("广播房间找不到. room: %s", v.RoomID)
+	// 主讲人id
+	source := StreamManager.Find(v.StreamId)
+	if source == nil {
+		//err := fmt.Errorf("the room with id '%s' is not found", v.Source)
+		err = fmt.Errorf("房间找不到. room: %s", v.StreamId)
 		return
 	}
 
+	// 生成下级设备Invite请求携带的user
+	// server用于区分是哪个设备的广播
+
+	InviteSourceId = string(v.StreamId) + utils.RandStringBytes(10)
 	// 每个设备的广播唯一ID
-	sessionId := GenerateSessionId(v.DeviceID, v.ChannelID)
-	if BroadcastManager.Find(sessionId) != nil {
-		err = fmt.Errorf("设备正在广播中. session: %s", sessionId)
+	sinkStreamId = GenerateStreamID(InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
+
+	setupType := SetupTypePassive
+	if v.Setup != nil && *v.Setup >= SetupTypeUDP && *v.Setup <= SetupTypeActive {
+		setupType = *v.Setup
+	}
+
+	sink := &Sink{
+		Stream:     v.StreamId,
+		SinkStream: sinkStreamId,
+		Protocol:   "gb_talk_forward",
+		CreateTime: time.Now().Unix(),
+		SetupType:  setupType,
+	}
+
+	if ok = SinkManager.AddWithSinkStreamId(sink); !ok {
+		err = fmt.Errorf("设备正在广播中. session: %s", sinkStreamId)
+		return
+	} else if _, ok = BroadcastDialogs.Add(InviteSourceId, sink); !ok {
+		err = fmt.Errorf("source id 冲突. session: %s", InviteSourceId)
 		return
 	}
 
-	// 生成让下级应答时携带的ID
-	sourceId := v.RoomID + utils.RandStringBytes(10)
-	session := &BroadcastSession{
-		SourceID:  sourceId,
-		DeviceID:  v.DeviceID,
-		ChannelID: v.ChannelID,
-		RoomId:    v.RoomID,
-		Type:      BroadcastType(v.Type),
-	}
-
-	if !BroadcastManager.AddSession(v.RoomID, session) {
-		err = fmt.Errorf("设备正在广播中. session: %s", sessionId)
-		return
-	}
-
+	ok = false
 	cancel := r.Context()
-	transaction := device.Broadcast(sourceId, v.ChannelID)
+	transaction := device.Broadcast(InviteSourceId, v.ChannelID)
 	responses := transaction.Responses()
-	var ok bool
 	select {
+	// 等待message broadcast的应答
 	case response := <-responses:
 		if response == nil {
 			err = fmt.Errorf("信令超时")
@@ -670,31 +660,24 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 			break
 		}
 
-		// 不等下级的广播请求, 直接等Invite
-		timeout, _ := context.WithTimeout(r.Context(), 10*time.Second)
-		select {
-		case <-timeout.Done():
-			err = fmt.Errorf("invite超时. session: %s", session.Id())
-			break
-		case code := <-session.Answer:
-			if http.StatusOK != code {
-				err = fmt.Errorf("bad status code %d", code)
-			} else {
-				ok = true
-			}
-			break
+		// 等待下级设备的Invite请求
+		code := sink.WaitForPublishEvent(10)
+		if code == -1 {
+			err = fmt.Errorf("等待invite超时. session: %s", sinkStreamId)
+		} else if http.StatusOK != code {
+			err = fmt.Errorf("bad status code %d", code)
+		} else {
+			ok = AddForwardSink(v.StreamId, sink)
 		}
 		break
 	case <-cancel.Done():
-		// 取消http请求
-		Sugar.Warnf("广播失败, 取消http请求. session: %s", session.Id())
+		// http请求取消
+		Sugar.Warnf("广播失败, http请求取消. session: %s", sinkStreamId)
 		break
 	}
 
 	if ok {
 		httpResponseOK(w, nil)
-	} else {
-		BroadcastManager.Remove(sessionId)
 	}
 }
 
@@ -777,6 +760,8 @@ func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) {
+	Sugar.Infof("级联绑定通道 %v", *v)
+
 	platform := PlatformManager.FindPlatform(v.ServerID)
 
 	if platform == nil {

@@ -6,7 +6,6 @@ import (
 	"github.com/lkmio/avformat/utils"
 	"net/http"
 	"net/netip"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -26,22 +25,22 @@ type GBPlatformRecord struct {
 
 type GBPlatform struct {
 	*Client
-	lock    sync.Mutex
-	streams map[string]string // 上级会话的callId关联到实际推流通道的callId
+	lock  sync.Mutex
+	sinks map[string]StreamID // 保存级联转发的sink, 方便离线的时候关闭sink
 }
 
-func (g *GBPlatform) AddStream(callId string, channelCallId string) {
+func (g *GBPlatform) addSink(callId string, stream StreamID) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	g.streams[callId] = channelCallId
+	g.sinks[callId] = stream
 }
 
-func (g *GBPlatform) removeStream(callId string) string {
+func (g *GBPlatform) removeSink(callId string) StreamID {
 	g.lock.Lock()
 	defer g.lock.Unlock()
-	channelCallId := g.streams[callId]
-	delete(g.streams, callId)
-	return channelCallId
+	stream := g.sinks[callId]
+	delete(g.sinks, callId)
+	return stream
 }
 
 // OnBye 被上级挂断
@@ -52,14 +51,8 @@ func (g *GBPlatform) OnBye(request sip.Request) {
 
 // CloseStream 关闭级联会话
 func (g *GBPlatform) CloseStream(callId string, bye, ms bool) {
-	channelCallId := g.removeStream(callId)
-	stream := StreamManager.FindWithCallId(channelCallId)
-	if stream == nil {
-		Sugar.Errorf("关闭级联转发sink失败, 找不到stream. callid: %s", callId)
-		return
-	}
-
-	sink := stream.RemoveForwardStreamSink(callId)
+	_ = g.removeSink(callId)
+	sink := RemoveForwardSinkWithCallId(callId)
 	if sink == nil {
 		Sugar.Errorf("关闭级联转发sink失败, 找不到sink. callid: %s", callId)
 		return
@@ -73,10 +66,11 @@ func (g *GBPlatform) CloseStreams(bye, ms bool) {
 	var callIds []string
 	g.lock.Lock()
 
-	for k := range g.streams {
+	for k := range g.sinks {
 		callIds = append(callIds, k)
 	}
 
+	g.sinks = make(map[string]StreamID)
 	g.lock.Unlock()
 
 	for _, id := range callIds {
@@ -122,15 +116,15 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	var inviteType InviteType
 	inviteType.SessionName2Type(strings.ToLower(parse.Session))
 	switch inviteType {
-	case InviteTypeLive:
-		streamId = GenerateStreamId(InviteTypeLive, channel.ParentID, user, "", "")
+	case InviteTypePlay:
+		streamId = GenerateStreamID(InviteTypePlay, channel.ParentID, user, "", "")
 		break
 	case InviteTypePlayback:
 		// 级联下载和回放不限制路数，也不共享流
-		streamId = GenerateStreamId(InviteTypePlayback, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
+		streamId = GenerateStreamID(InviteTypePlayback, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
 		break
 	case InviteTypeDownload:
-		streamId = GenerateStreamId(InviteTypeDownload, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
+		streamId = GenerateStreamID(InviteTypeDownload, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
 		break
 	}
 
@@ -144,8 +138,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 		}
 	}
 
-	ssrcInt, _ := strconv.Atoi(ssrc)
-	ip, port, sinkID, err := AddForwardStreamSink(string(streamId), addr, offerSetup, uint32(ssrcInt))
+	ip, port, sinkID, err := CreateAnswer(string(streamId), addr, offerSetup, answerSetup, ssrc, string(inviteType))
 	if err != nil {
 		Sugar.Errorf("级联转发失败,向流媒体服务添加转发Sink失败 err: %s", err.Error())
 
@@ -166,14 +159,12 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 
 	setToTag(response)
 
-	// 添加级联转发流
-	callID, _ := request.CallID()
-	stream.AddForwardStreamSink(callID.Value(), &Sink{
+	AddForwardSink(streamId, &Sink{
 		ID:       sinkID,
 		Stream:   streamId,
 		ServerID: g.SeverID,
-		Dialog:   g.CreateDialogRequestFromAnswer(response, true)},
-	)
+		Protocol: "gb_cascaded_forward",
+		Dialog:   g.CreateDialogRequestFromAnswer(response, true)})
 
 	return response
 }
@@ -221,5 +212,5 @@ func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) 
 	}
 
 	gbClient := NewGBClient(record.Username, record.SeverID, record.ServerAddr, record.Transport, record.Password, record.RegisterExpires, record.KeepAliveInterval, ua)
-	return &GBPlatform{Client: gbClient.(*Client), streams: make(map[string]string, 8)}, nil
+	return &GBPlatform{Client: gbClient.(*Client), sinks: make(map[string]StreamID, 8)}, nil
 }
