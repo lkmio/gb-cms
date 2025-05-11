@@ -10,19 +10,6 @@ import (
 	"sync"
 )
 
-// GBPlatformRecord 国标级联设备信息持久化结构体
-type GBPlatformRecord struct {
-	Username          string       `json:"username"`            // 用户名
-	SeverID           string       `json:"server_id"`           // 上级ID, 必选. 作为主键, 不能重复.
-	ServerAddr        string       `json:"server_addr"`         // 上级地址, 必选
-	Transport         string       `json:"transport"`           // 上级通信方式, UDP/TCP
-	Password          string       `json:"password"`            // 密码
-	RegisterExpires   int          `json:"register_expires"`    // 注册有效期
-	KeepAliveInterval int          `json:"keep_alive_interval"` // 心跳间隔
-	CreateTime        string       `json:"create_time"`         // 入库时间
-	Status            OnlineStatus `json:"status"`              // 在线状态
-}
-
 type GBPlatform struct {
 	*Client
 	lock  sync.Mutex
@@ -83,7 +70,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	Sugar.Infof("收到级联Invite请求 platform: %s channel: %s sdp: %s", g.SeverID, user, request.Body())
 
 	source := request.Source()
-	platform := PlatformManager.FindPlatformWithServerAddr(source)
+	platform := PlatformManager.Find(source)
 	utils.Assert(platform != nil)
 
 	deviceId, channel, err := DB.QueryPlatformChannel(g.SeverID, user)
@@ -160,17 +147,17 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	setToTag(response)
 
 	AddForwardSink(streamId, &Sink{
-		ID:       sinkID,
-		Stream:   streamId,
-		ServerID: g.SeverID,
-		Protocol: "gb_cascaded_forward",
-		Dialog:   g.CreateDialogRequestFromAnswer(response, true)})
+		ID:         sinkID,
+		Stream:     streamId,
+		ServerAddr: g.ServerAddr,
+		Protocol:   "gb_cascaded_forward",
+		Dialog:     g.CreateDialogRequestFromAnswer(response, true)})
 
 	return response
 }
 
 func (g *GBPlatform) Start() {
-	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.SeverID, g.sipClient.Transport, g.sipClient.Domain)
+	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.Username, g.sipClient.Transport, g.sipClient.ServerAddr)
 	g.sipClient.Start()
 	g.sipClient.SetOnRegisterHandler(g.onlineCB, g.offlineCB)
 }
@@ -202,7 +189,7 @@ func (g *GBPlatform) Offline() {
 	g.CloseStreams(true, true)
 }
 
-func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) {
+func NewGBPlatform(record *SIPUAParams, ua SipServer) (*GBPlatform, error) {
 	if len(record.SeverID) != 20 {
 		return nil, fmt.Errorf("SeverID must be exactly 20 characters long")
 	}
@@ -211,6 +198,6 @@ func NewGBPlatform(record *GBPlatformRecord, ua SipServer) (*GBPlatform, error) 
 		return nil, err
 	}
 
-	gbClient := NewGBClient(record.Username, record.SeverID, record.ServerAddr, record.Transport, record.Password, record.RegisterExpires, record.KeepAliveInterval, ua)
+	gbClient := NewGBClient(record, ua)
 	return &GBPlatform{Client: gbClient.(*Client), sinks: make(map[string]StreamID, 8)}, nil
 }

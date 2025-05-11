@@ -36,7 +36,6 @@ func main() {
 	indent, _ := json.MarshalIndent(Config, "", "\t")
 	Sugar.Infof("server config:\r\n%s", indent)
 
-	// 如果不想依赖数据库, 注释掉, 使用内存管理会话, 重启后会话会丢失
 	DB = NewRedisDB(Config.Redis.Addr, Config.Redis.Password)
 
 	// 从数据库中恢复会话
@@ -51,7 +50,7 @@ func main() {
 	}
 
 	// 启动sip server
-	server, err := StartSipServer(config.SipId, config.ListenIP, config.PublicIP, config.SipPort)
+	server, err := StartSipServer(config.SipID, config.ListenIP, config.PublicIP, config.SipPort)
 	if err != nil {
 		panic(err)
 	}

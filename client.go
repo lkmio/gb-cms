@@ -60,7 +60,7 @@ func (g *Client) SendMessage(msg interface{}) {
 		panic(err)
 	}
 
-	request, err := BuildMessageRequest(g.sipClient.Username, g.sipClient.ListenAddr, g.sipClient.SeverID, g.sipClient.Domain, g.sipClient.Transport, string(marshal))
+	request, err := BuildMessageRequest(g.sipClient.Username, g.sipClient.ListenAddr, g.sipClient.SeverID, g.sipClient.ServerAddr, g.sipClient.Transport, string(marshal))
 	if err != nil {
 		panic(err)
 	}
@@ -132,19 +132,13 @@ func ParseGBSDP(body string) (offer *sdp.SDP, ssrc string, speed int, media *sdp
 	return
 }
 
-func NewGBClient(username, serverId, serverAddr, transport, password string, registerExpires, keepalive int, ua SipServer) GBClient {
+func NewGBClient(params *SIPUAParams, ua SipServer) GBClient {
 	sip := &sipClient{
-		Username:         username,
-		Domain:           serverAddr,
-		Transport:        transport,
-		Password:         password,
-		RegisterExpires:  registerExpires,
-		KeeAliveInterval: keepalive,
-		SeverID:          serverId,
-		ListenAddr:       ua.ListenAddr(),
-		ua:               ua,
+		SIPUAParams: *params,
+		ListenAddr:  ua.ListenAddr(),
+		ua:          ua,
 	}
 
-	client := &Client{sip, Device{ID: username}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
+	client := &Client{sip, Device{ID: params.Username}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: params.Username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
 	return client
 }

@@ -39,14 +39,20 @@ type SipClient interface {
 	SetOnRegisterHandler(online, offline func())
 }
 
+type SIPUAParams struct {
+	Username          string       `json:"username"`            // 用户名
+	SeverID           string       `json:"server_id"`           // 上级ID, 必选. 作为主键, 不能重复.
+	ServerAddr        string       `json:"server_addr"`         // 上级地址, 必选
+	Transport         string       `json:"transport"`           // 上级通信方式, UDP/TCP
+	Password          string       `json:"password"`            // 密码
+	RegisterExpires   int          `json:"register_expires"`    // 注册有效期
+	KeepAliveInterval int          `json:"keep_alive_interval"` // 心跳间隔
+	CreateTime        string       `json:"create_time"`         // 入库时间
+	Status            OnlineStatus `json:"status"`              // 在线状态
+}
+
 type sipClient struct {
-	Username         string
-	Domain           string //注册域
-	Transport        string
-	Password         string //密码
-	RegisterExpires  int    //注册有效期
-	KeeAliveInterval int    //心跳间隔
-	SeverID          string //上级ID
+	SIPUAParams
 
 	ListenAddr string //UA的监听地址
 	NatAddr    string //Nat地址
@@ -109,7 +115,7 @@ func (g *sipClient) doRegister(request sip.Request) bool {
 }
 
 func (g *sipClient) startNewRegister() bool {
-	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverID, g.Domain, g.Transport)
+	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport)
 	expires := sip.Expires(g.RegisterExpires)
 	builder.SetExpires(&expires)
 
@@ -167,7 +173,7 @@ func (g *sipClient) doUnregister() {
 
 func (g *sipClient) doKeepalive() bool {
 	body := fmt.Sprintf(KeepAliveBody, time.Now().UnixMilli()/1000, g.Username)
-	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverID, g.Domain, g.Transport, body)
+	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport, body)
 	if err != nil {
 		panic(err)
 	}
@@ -243,7 +249,7 @@ func (g *sipClient) Refresh() time.Duration {
 	}
 
 	// 信令正常, 休眠心跳间隔时长
-	return time.Duration(g.KeeAliveInterval) * time.Second
+	return time.Duration(g.KeepAliveInterval) * time.Second
 }
 
 func (g *sipClient) Start() {

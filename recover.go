@@ -15,9 +15,9 @@ func startPlatformDevices() {
 		platform, err := NewGBPlatform(record, SipUA)
 		// 都入库了不允许失败, 程序有BUG, 及时修复
 		utils.Assert(err == nil)
-		utils.Assert(PlatformManager.AddPlatform(platform))
+		utils.Assert(PlatformManager.Add(platform))
 
-		if err := DB.UpdatePlatformStatus(record.SeverID, OFF); err != nil {
+		if err := DB.UpdatePlatformStatus(record.ServerAddr, OFF); err != nil {
 			Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.SeverID)
 		}
 

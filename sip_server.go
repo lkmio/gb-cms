@@ -132,7 +132,7 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent b
 	var device GBDevice
 	if parent {
 		// 级联设备
-		device = PlatformManager.FindPlatformWithServerAddr(req.Source())
+		device = PlatformManager.Find(req.Source())
 	} else if session := BroadcastDialogs.Find(user); session != nil {
 		// 语音广播设备
 		device = DeviceManager.Find(session.SinkStream.DeviceID())
@@ -181,7 +181,7 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 
 	if parent {
 		// 上级设备挂断
-		if platform := PlatformManager.FindPlatformWithServerAddr(req.Source()); platform != nil {
+		if platform := PlatformManager.Find(req.Source()); platform != nil {
 			platform.OnBye(req)
 		}
 	} else if device := DeviceManager.Find(deviceId); device != nil {
@@ -241,7 +241,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 		deviceId = from.Address.User().String()
 	}
 	if parent {
-		device = PlatformManager.FindPlatformWithServerAddr(req.Source())
+		device = PlatformManager.Find(req.Source())
 	} else {
 		device = DeviceManager.Find(deviceId)
 	}
@@ -270,7 +270,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 
 			// 查询出所有通道
 			if DB != nil {
-				result, _, err := DB.QueryChannels(client.(*GBPlatform).SeverID, 1, 0xFFFFFFFF)
+				result, _, err := DB.QueryChannels(client.(*GBPlatform).ServerAddr, 1, 0xFFFFFFFF)
 				if err != nil {
 					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), client.GetID())
 				}
@@ -352,7 +352,7 @@ func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool
 	return func(req sip.Request, tx sip.ServerTransaction) {
 
 		source := req.Source()
-		platform := PlatformManager.FindPlatformWithServerAddr(source)
+		platform := PlatformManager.Find(source)
 		switch req.Method() {
 		case sip.SUBSCRIBE, sip.INFO:
 			if platform == nil {

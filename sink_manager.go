@@ -226,7 +226,7 @@ func closeSink(sink *Sink, bye, ms bool) {
 		callId = callId_.Value()
 	}
 
-	platform := PlatformManager.FindPlatform(sink.ServerID)
+	platform := PlatformManager.Find(sink.ServerAddr)
 	if platform != nil {
 		platform.CloseStream(callId, bye, ms)
 	} else {

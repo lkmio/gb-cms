@@ -113,7 +113,7 @@ func (d *Device) Online() bool {
 }
 
 func (d *Device) BuildMessageRequest(to, body string) sip.Request {
-	request, err := BuildMessageRequest(Config.SipId, net.JoinHostPort(GlobalContactAddress.Uri.Host(), GlobalContactAddress.Uri.Port().String()), to, d.RemoteAddr, d.Transport, body)
+	request, err := BuildMessageRequest(Config.SipID, net.JoinHostPort(GlobalContactAddress.Uri.Host(), GlobalContactAddress.Uri.Port().String()), to, d.RemoteAddr, d.Transport, body)
 	if err != nil {
 		panic(err)
 	}
@@ -150,7 +150,7 @@ func (d *Device) SubscribePosition(channelId string) error {
 	}
 
 	//暂时不考虑级联
-	builder := d.NewRequestBuilder(sip.SUBSCRIBE, Config.SipId, Config.SipContactAddr, channelId)
+	builder := d.NewRequestBuilder(sip.SUBSCRIBE, Config.SipID, Config.SipContactAddr, channelId)
 	body := fmt.Sprintf(MobilePositionMessageFormat, "1", channelId, Config.MobilePositionInterval)
 
 	expiresHeader := sip.Expires(Config.MobilePositionExpires)
@@ -237,8 +237,8 @@ func (d *Device) NewRequestBuilder(method sip.RequestMethod, fromUser, realm, to
 }
 
 func (d *Device) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
-	builder := d.NewRequestBuilder(sip.INVITE, Config.SipId, Config.SipContactAddr, channelId)
-	sdp := BuildSDP(Config.SipId, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
+	builder := d.NewRequestBuilder(sip.INVITE, Config.SipID, Config.SipContactAddr, channelId)
+	sdp := BuildSDP(Config.SipID, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(GlobalContactAddress)
 	builder.SetBody(sdp)
@@ -247,7 +247,7 @@ func (d *Device) BuildInviteRequest(sessionName, channelId, ip string, port uint
 		return nil, err
 	}
 
-	var subjectHeader = Subject(channelId + ":" + d.ID + "," + Config.SipId + ":" + ssrc)
+	var subjectHeader = Subject(channelId + ":" + d.ID + "," + Config.SipID + ":" + ssrc)
 	request.AppendHeader(subjectHeader)
 
 	return request, err

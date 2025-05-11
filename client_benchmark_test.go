@@ -256,7 +256,7 @@ package main
 //type ClientConfig struct {
 //	DeviceIDPrefix  string `json:"device_id_prefix"`
 //	ChannelIDPrefix string `json:"channel_id_prefix"`
-//	ServerID        string `json:"server_id"`
+//	ServerAddr        string `json:"server_id"`
 //	Domain          string `json:"domain"`
 //	Password        string `json:"password"`
 //	ListenAddr      string `json:"listenAddr"`
@@ -331,7 +331,7 @@ package main
 //	for i := 0; i < clientConfig.Count; i++ {
 //		deviceId := clientConfig.DeviceIDPrefix + fmt.Sprintf("%07d", i+1)
 //		channelId := clientConfig.ChannelIDPrefix + fmt.Sprintf("%07d", i+1)
-//		client := NewGBClient(deviceId, clientConfig.ServerID, clientConfig.Domain, "UDP", clientConfig.Password, 500, 40, server)
+//		client := NewGBClient(deviceId, clientConfig.ServerAddr, clientConfig.Domain, "UDP", clientConfig.Password, 500, 40, server)
 //
 //		device := VirtualDevice{client.(*Client), map[string]*MediaStream{}, &sync.Mutex{}}
 //		device.SetDeviceInfo(fmt.Sprintf("测试设备%d", i+1), "lkmio", "lkmio_gb", "dev-0.0.1")

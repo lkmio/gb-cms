@@ -101,10 +101,10 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	var answerSDP string
 	// UDP广播
 	if SetupTypeUDP == finalSetup {
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, host, host, port, "RTP/AVP")
+		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipID, host, host, port, "RTP/AVP")
 	} else {
 		// TCP广播
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipId, host, host, port, "TCP/RTP/AVP")
+		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipID, host, host, port, "TCP/RTP/AVP")
 	}
 
 	// 创建answer和dialog

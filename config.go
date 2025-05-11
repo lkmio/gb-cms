@@ -11,7 +11,7 @@ type Config_ struct {
 	ListenIP string `json:"listen_ip"`
 	PublicIP string `json:"public_ip"`
 
-	SipId          string `json:"sip_id"`
+	SipID          string `json:"sip_id"`
 	Password       string `json:"password"`
 	SipContactAddr string
 

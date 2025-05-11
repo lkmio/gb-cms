@@ -9,6 +9,8 @@ type GB28181DB interface {
 
 	SaveChannel(deviceId string, channel *Channel) error
 
+	SaveDeviceChannel(dstDevice, srcDevice, channel string) error
+
 	UpdateDeviceStatus(deviceId string, status OnlineStatus) error
 
 	UpdateChannelStatus(channelId, status string) error
@@ -23,21 +25,21 @@ type GB28181DB interface {
 
 	QueryChannels(deviceId string, page, size int) ([]*Channel, int, error)
 
-	LoadPlatforms() ([]*GBPlatformRecord, error)
+	LoadPlatforms() ([]*SIPUAParams, error)
 
-	QueryPlatform(id string) (*GBPlatformRecord, error)
+	QueryPlatform(addr string) (*SIPUAParams, error)
 
-	SavePlatform(platform *GBPlatformRecord) error
+	SavePlatform(platform *SIPUAParams) error
 
-	DeletePlatform(platform *GBPlatformRecord) error
+	DeletePlatform(addr string) error
 
-	UpdatePlatform(platform *GBPlatformRecord) error
+	UpdatePlatform(platform *SIPUAParams) error
 
-	UpdatePlatformStatus(serverId string, status OnlineStatus) error
+	UpdatePlatformStatus(addr string, status OnlineStatus) error
 
-	BindChannels(id string, channels [][2]string) ([][2]string, error)
+	BindChannels(addr string, channels [][2]string) ([][2]string, error)
 
-	UnbindChannels(id string, channels [][2]string) ([][2]string, error)
+	UnbindChannels(addr string, channels [][2]string) ([][2]string, error)
 
 	// QueryPlatformChannel 查询级联设备的某个通道, 返回通道所属设备ID、通道.
 	QueryPlatformChannel(platformId string, channelId string) (string, *Channel, error)

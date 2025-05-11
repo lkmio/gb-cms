@@ -37,12 +37,6 @@ func (e *EventHandler) OnUnregister(id string) {
 }
 
 func (e *EventHandler) OnRegister(id, transport, addr string) (int, GBDevice, bool) {
-	// 不能和级联设备的上级ID冲突
-	if PlatformManager.FindPlatform(id) != nil {
-		Sugar.Errorf("注册失败, ID与级联设备冲突. device: %s", id)
-		return -1, nil, false
-	}
-
 	var device *Device
 	old := DeviceManager.Find(id)
 

@@ -31,7 +31,7 @@ func (d *Device) DoSubscribePosition(channelId string) error {
 	}
 
 	//暂时不考虑级联
-	builder := d.NewRequestBuilder(sip.SUBSCRIBE, Config.SipId, Config.SipContactAddr, channelId)
+	builder := d.NewRequestBuilder(sip.SUBSCRIBE, Config.SipID, Config.SipContactAddr, channelId)
 	body := fmt.Sprintf(MobilePositionMessageFormat, "1", channelId, Config.MobilePositionInterval)
 
 	expiresHeader := sip.Expires(Config.MobilePositionExpires)

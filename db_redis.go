@@ -55,8 +55,8 @@ func ForwardSinksKey(id string) string {
 	return fmt.Sprintf(RedisKeyForwardSinks, id)
 }
 
-// GenerateChannelKey 使用设备号+通道号作为通道的主键，兼容通道号可能重复的情况
-func GenerateChannelKey(device, channel string) ChannelKey {
+// UniqueChannelKey 使用设备号+通道号作为通道的主键，兼容通道号可能重复的情况
+func UniqueChannelKey(device, channel string) ChannelKey {
 	return ChannelKey(fmt.Sprintf(RedisUniqueChannelID, device, channel))
 }
 
@@ -156,13 +156,24 @@ func (r *RedisDB) SaveDevice(device *Device) error {
 	return r.UpdateDeviceStatus(device.ID, device.Status)
 }
 
+func (r *RedisDB) SaveDeviceChannel(dstDevice, srcDevice, channel string) error {
+	key := DeviceChannelsKey(dstDevice)
+	channelKey := UniqueChannelKey(srcDevice, channel)
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return err
+	}
+
+	return executor.Key(key).ZAddWithNotExists(float64(time.Now().UnixMilli()), channelKey)
+}
+
 func (r *RedisDB) SaveChannel(deviceId string, channel *Channel) error {
 	data, err := json.Marshal(channel)
 	if err != nil {
 		return err
 	}
 
-	channelKey := GenerateChannelKey(deviceId, channel.DeviceID)
+	channelKey := UniqueChannelKey(deviceId, channel.DeviceID)
 	executor, err := r.utils.CreateExecutor()
 	if err != nil {
 		return err
@@ -170,7 +181,7 @@ func (r *RedisDB) SaveChannel(deviceId string, channel *Channel) error {
 	} else if err = executor.Key(RedisKeyChannels).HSet(channelKey.String(), string(data)); err != nil {
 		return err
 		// 通道关联到Device
-	} else if err = executor.Key(fmt.Sprintf(RedisKeyDeviceChannels, deviceId)).ZAddWithNotExists(float64(time.Now().UnixMilli()), channelKey); err != nil {
+	} else if err = r.SaveDeviceChannel(deviceId, deviceId, channel.DeviceID); err != nil {
 		return err
 	}
 
@@ -264,7 +275,7 @@ func (r *RedisDB) QueryChannel(deviceId string, channelId string) (*Channel, err
 	}
 
 	executor.Key(RedisKeyChannels)
-	return r.findChannel(GenerateChannelKey(deviceId, channelId), executor)
+	return r.findChannel(UniqueChannelKey(deviceId, channelId), executor)
 }
 
 func (r *RedisDB) QueryChannels(deviceId string, page, size int) ([]*Channel, int, error) {
@@ -301,17 +312,17 @@ func (r *RedisDB) QueryChannels(deviceId string, page, size int) ([]*Channel, in
 	return channels, total, nil
 }
 
-func (r *RedisDB) LoadPlatforms() ([]*GBPlatformRecord, error) {
+func (r *RedisDB) LoadPlatforms() ([]*SIPUAParams, error) {
 	executor, err := r.utils.CreateExecutor()
 	if err != nil {
 		return nil, err
 	}
 
-	var platforms []*GBPlatformRecord
+	var platforms []*SIPUAParams
 	pairs, err := executor.Key(RedisKeyPlatforms).ZRange()
 	if err == nil {
 		for _, pair := range pairs {
-			platform := &GBPlatformRecord{}
+			platform := &SIPUAParams{}
 			if err := json.Unmarshal([]byte(pair[0]), platform); err != nil {
 				continue
 			}
@@ -324,14 +335,14 @@ func (r *RedisDB) LoadPlatforms() ([]*GBPlatformRecord, error) {
 	return platforms, err
 }
 
-func (r *RedisDB) findPlatformWithServerID(id string) (*GBPlatformRecord, error) {
+func (r *RedisDB) findPlatformWithServerAddr(addr string) (*SIPUAParams, error) {
 	platforms, err := r.LoadPlatforms()
 	if err != nil {
 		return nil, err
 	}
 
 	for _, platform := range platforms {
-		if platform.SeverID == id {
+		if platform.ServerAddr == addr {
 			return platform, nil
 		}
 	}
@@ -339,11 +350,11 @@ func (r *RedisDB) findPlatformWithServerID(id string) (*GBPlatformRecord, error)
 	return nil, err
 }
 
-func (r *RedisDB) QueryPlatform(id string) (*GBPlatformRecord, error) {
-	return r.findPlatformWithServerID(id)
+func (r *RedisDB) QueryPlatform(addr string) (*SIPUAParams, error) {
+	return r.findPlatformWithServerAddr(addr)
 }
 
-func (r *RedisDB) SavePlatform(platform *GBPlatformRecord) error {
+func (r *RedisDB) SavePlatform(platform *SIPUAParams) error {
 	r.platformsLock.Lock()
 	defer r.platformsLock.Unlock()
 
@@ -354,9 +365,7 @@ func (r *RedisDB) SavePlatform(platform *GBPlatformRecord) error {
 
 	platforms, _ := r.LoadPlatforms()
 	for _, old := range platforms {
-		if old.SeverID == platform.SeverID {
-			return fmt.Errorf("id冲突")
-		} else if old.ServerAddr == platform.ServerAddr {
+		if old.ServerAddr == platform.ServerAddr {
 			return fmt.Errorf("地址冲突")
 		}
 	}
@@ -369,7 +378,7 @@ func (r *RedisDB) SavePlatform(platform *GBPlatformRecord) error {
 	return executor.Key(RedisKeyPlatforms).ZAddWithNotExists(platform.CreateTime, data)
 }
 
-func (r *RedisDB) DeletePlatform(v *GBPlatformRecord) error {
+func (r *RedisDB) DeletePlatform(addr string) error {
 	r.platformsLock.Lock()
 	defer r.platformsLock.Unlock()
 
@@ -378,20 +387,22 @@ func (r *RedisDB) DeletePlatform(v *GBPlatformRecord) error {
 		return err
 	}
 
-	platform, _ := r.findPlatformWithServerID(v.SeverID)
-	if platform == nil {
-		return fmt.Errorf("platform with ID %s not find", v.SeverID)
+	platform, err := r.findPlatformWithServerAddr(addr)
+	if err != nil {
+		return err
+	} else if platform == nil {
+		return fmt.Errorf("platform with addr %s not find", addr)
 	}
 
 	// 删除所有通道, 没有事务
-	if err = executor.Key(fmt.Sprintf(RedisKeyDeviceChannels, platform.SeverID)).Del(); err != nil {
+	if err = executor.Key(DeviceChannelsKey(addr)).Del(); err != nil {
 		return err
 	}
 
 	return executor.Key(RedisKeyPlatforms).ZDelWithScore(platform.CreateTime)
 }
 
-func (r *RedisDB) UpdatePlatform(platform *GBPlatformRecord) error {
+func (r *RedisDB) UpdatePlatform(platform *SIPUAParams) error {
 	r.platformsLock.Lock()
 	defer r.platformsLock.Unlock()
 
@@ -400,7 +411,7 @@ func (r *RedisDB) UpdatePlatform(platform *GBPlatformRecord) error {
 		return err
 	}
 
-	oldPlatform, _ := r.findPlatformWithServerID(platform.SeverID)
+	oldPlatform, _ := r.findPlatformWithServerAddr(platform.SeverID)
 	if oldPlatform == nil {
 		return fmt.Errorf("platform with ID %s not find", platform.SeverID)
 	}
@@ -422,7 +433,7 @@ func (r *RedisDB) UpdatePlatformStatus(serverId string, status OnlineStatus) err
 		return err
 	}
 
-	oldPlatform, _ := r.findPlatformWithServerID(serverId)
+	oldPlatform, _ := r.findPlatformWithServerAddr(serverId)
 	if oldPlatform == nil {
 		return fmt.Errorf("platform with ID %s not find", serverId)
 	}
@@ -436,15 +447,15 @@ func (r *RedisDB) UpdatePlatformStatus(serverId string, status OnlineStatus) err
 	return executor.ZAdd(oldPlatform.CreateTime, data)
 }
 
-func (r *RedisDB) BindChannels(id string, channels [][2]string) ([][2]string, error) {
+func (r *RedisDB) BindChannels(addr string, channels [][2]string) ([][2]string, error) {
 	r.platformsLock.Lock()
 	defer r.platformsLock.Unlock()
 
-	platform, err := r.QueryPlatform(id)
+	platform, err := r.QueryPlatform(addr)
 	if err != nil {
 		return nil, err
 	} else if platform == nil {
-		return nil, fmt.Errorf("platform with ID %s not find", platform.SeverID)
+		return nil, fmt.Errorf("platform with addr %s not find", addr)
 	}
 
 	executor, err := r.utils.CreateExecutor()
@@ -458,16 +469,16 @@ func (r *RedisDB) BindChannels(id string, channels [][2]string) ([][2]string, er
 		deviceId := v[0]
 		channelId := v[1]
 
-		channelKey := GenerateChannelKey(deviceId, channelId)
+		channelKey := UniqueChannelKey(deviceId, channelId)
 		// 检查通道是否存在, 以及通道是否冲突
 		channel, err := r.findChannel(channelKey, executor.Key(RedisKeyChannels))
 		if err != nil {
 			Sugar.Errorf("添加通道失败, err: %s device: %s channel: %s", err.Error(), deviceId, channelId)
 		} else if channel == nil {
 			Sugar.Errorf("添加通道失败, 通道不存在. device: %s channel: %s", deviceId, channelId)
-		} else if score, _ := executor.Key(DeviceChannelsKey(id)).ZGetScore(channelKey); score != nil {
+		} else if score, _ := executor.Key(DeviceChannelsKey(addr)).ZGetScore(channelKey); score != nil {
 			Sugar.Errorf("添加通道失败, 通道冲突. device: %s channel: %s", deviceId, channelId)
-		} else if err = executor.Key(DeviceChannelsKey(id)).ZAddWithNotExists(time.Now().UnixMilli(), channelKey); err != nil {
+		} else if err = r.SaveDeviceChannel(addr, deviceId, channelId); err != nil {
 			Sugar.Errorf("添加通道失败, err: %s device: %s channel: %s", err.Error(), deviceId, channelId)
 		} else {
 			result = append(result, v)
@@ -496,7 +507,7 @@ func (r *RedisDB) UnbindChannels(id string, channels [][2]string) ([][2]string, 
 	// 返回成功的设备通道号
 	var result [][2]string
 	for _, v := range channels {
-		if err := executor.Key(DeviceChannelsKey(id)).ZDel(GenerateChannelKey(v[0], v[1])); err != nil {
+		if err := executor.Key(DeviceChannelsKey(id)).ZDel(UniqueChannelKey(v[0], v[1])); err != nil {
 			continue
 		}
 
@@ -518,7 +529,7 @@ func (r *RedisDB) QueryPlatformChannel(platformId string, channelId string) (str
 	}
 
 	deviceId := score.(string)
-	channel, err := r.findChannel(GenerateChannelKey(deviceId, channelId), executor.Key(RedisKeyChannels))
+	channel, err := r.findChannel(UniqueChannelKey(deviceId, channelId), executor.Key(RedisKeyChannels))
 	if err != nil {
 		return "", nil, err
 	}

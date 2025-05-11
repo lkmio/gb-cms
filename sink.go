@@ -13,7 +13,7 @@ type Sink struct {
 	SinkStream StreamID    `json:"sink_stream"`        // 广播使用, 每个广播设备的唯一ID
 	Protocol   string      `json:"protocol,omitempty"` // 转发流协议, gb_cascaded_forward/gb_talk_forward
 	Dialog     sip.Request `json:"dialog,omitempty"`
-	ServerID   string      `json:"server_id,omitempty"` // 级联设备的上级ID
+	ServerAddr string      `json:"server_addr,omitempty"` // 级联上级地址
 	CreateTime int64       `json:"create_time"`
 	SetupType  SetupType   // 转发类型
 
