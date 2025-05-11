@@ -156,18 +156,16 @@ func (r *RedisDB) SaveDevice(device *Device) error {
 	return r.UpdateDeviceStatus(device.ID, device.Status)
 }
 
-func (r *RedisDB) SaveDeviceChannel(dstDevice, srcDevice, channel string) error {
-	key := DeviceChannelsKey(dstDevice)
-	channelKey := UniqueChannelKey(srcDevice, channel)
-	executor, err := r.utils.CreateExecutor()
+func (r *RedisDB) SaveChannel(deviceId string, channel *Channel) error {
+	setup := SetupTypePassive
+	oldChannel, err := r.QueryChannel(deviceId, channel.DeviceID)
 	if err != nil {
 		return err
+	} else if oldChannel != nil {
+		setup = oldChannel.SetupType
 	}
 
-	return executor.Key(key).ZAddWithNotExists(float64(time.Now().UnixMilli()), channelKey)
-}
-
-func (r *RedisDB) SaveChannel(deviceId string, channel *Channel) error {
+	channel.SetupType = setup
 	data, err := json.Marshal(channel)
 	if err != nil {
 		return err
@@ -181,7 +179,7 @@ func (r *RedisDB) SaveChannel(deviceId string, channel *Channel) error {
 	} else if err = executor.Key(RedisKeyChannels).HSet(channelKey.String(), string(data)); err != nil {
 		return err
 		// 通道关联到Device
-	} else if err = r.SaveDeviceChannel(deviceId, deviceId, channel.DeviceID); err != nil {
+	} else if err = executor.Key(DeviceChannelsKey(deviceId)).ZAddWithNotExists(float64(time.Now().UnixMilli()), channelKey); err != nil {
 		return err
 	}
 
@@ -476,9 +474,9 @@ func (r *RedisDB) BindChannels(addr string, channels [][2]string) ([][2]string, 
 			Sugar.Errorf("添加通道失败, err: %s device: %s channel: %s", err.Error(), deviceId, channelId)
 		} else if channel == nil {
 			Sugar.Errorf("添加通道失败, 通道不存在. device: %s channel: %s", deviceId, channelId)
-		} else if score, _ := executor.Key(DeviceChannelsKey(addr)).ZGetScore(channelKey); score != nil {
+		} else if device, err := executor.Key(DeviceChannelsKey(addr)).HGet(channelId); err != nil || device != nil {
 			Sugar.Errorf("添加通道失败, 通道冲突. device: %s channel: %s", deviceId, channelId)
-		} else if err = r.SaveDeviceChannel(addr, deviceId, channelId); err != nil {
+		} else if err = executor.Key(DeviceChannelsKey(addr)).HSet(channelId, deviceId); err != nil {
 			Sugar.Errorf("添加通道失败, err: %s device: %s channel: %s", err.Error(), deviceId, channelId)
 		} else {
 			result = append(result, v)
@@ -507,7 +505,7 @@ func (r *RedisDB) UnbindChannels(id string, channels [][2]string) ([][2]string, 
 	// 返回成功的设备通道号
 	var result [][2]string
 	for _, v := range channels {
-		if err := executor.Key(DeviceChannelsKey(id)).ZDel(UniqueChannelKey(v[0], v[1])); err != nil {
+		if err := executor.Key(DeviceChannelsKey(id)).HDel(v[1]); err != nil {
 			continue
 		}
 
@@ -523,18 +521,41 @@ func (r *RedisDB) QueryPlatformChannel(platformId string, channelId string) (str
 		return "", nil, err
 	}
 
-	score, err := executor.Key(DeviceChannelsKey(platformId)).ZGetScore(channelId)
+	deviceId, err := executor.Key(DeviceChannelsKey(platformId)).HGet(channelId)
 	if err != nil {
 		return "", nil, err
 	}
 
-	deviceId := score.(string)
-	channel, err := r.findChannel(UniqueChannelKey(deviceId, channelId), executor.Key(RedisKeyChannels))
+	channel, err := r.findChannel(UniqueChannelKey(string(deviceId), channelId), executor.Key(RedisKeyChannels))
 	if err != nil {
 		return "", nil, err
 	}
 
-	return deviceId, channel, nil
+	return string(deviceId), channel, nil
+}
+
+func (r *RedisDB) QueryPlatformChannels(serverAddr string) ([]*Channel, error) {
+	executor, err := r.utils.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err := executor.Key(DeviceChannelsKey(serverAddr)).HGetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var channels []*Channel
+	for channelId, deviceId := range keys {
+		channel, err := r.findChannel(UniqueChannelKey(string(deviceId), channelId), executor.Key(RedisKeyChannels))
+		if err != nil {
+			continue
+		}
+
+		channels = append(channels, channel)
+	}
+
+	return channels, nil
 }
 
 func (r *RedisDB) LoadStreams() (map[string]*Stream, error) {

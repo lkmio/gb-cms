@@ -270,7 +270,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 
 			// 查询出所有通道
 			if DB != nil {
-				result, _, err := DB.QueryChannels(client.(*GBPlatform).ServerAddr, 1, 0xFFFFFFFF)
+				result, err := DB.QueryPlatformChannels(client.(*GBPlatform).ServerAddr)
 				if err != nil {
 					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), client.GetID())
 				}

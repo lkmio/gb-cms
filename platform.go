@@ -73,7 +73,7 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	platform := PlatformManager.Find(source)
 	utils.Assert(platform != nil)
 
-	deviceId, channel, err := DB.QueryPlatformChannel(g.SeverID, user)
+	deviceId, channel, err := DB.QueryPlatformChannel(g.ServerAddr, user)
 	if err != nil {
 		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
@@ -118,7 +118,9 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	stream := StreamManager.Find(streamId)
 	addr := fmt.Sprintf("%s:%d", parse.Addr, media.Port)
 	if stream == nil {
-		stream, err = device.(*Device).StartStream(inviteType, streamId, user, time[0], time[1], offerSetup, 0, true)
+		s := channel.SetupType.String()
+		println(s)
+		stream, err = device.(*Device).StartStream(inviteType, streamId, user, time[0], time[1], channel.SetupType.String(), 0, true)
 		if err != nil {
 			Sugar.Errorf("级联转发失败 err: %s stream: %s", err.Error(), streamId)
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)

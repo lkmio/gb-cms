@@ -26,6 +26,7 @@ type Channel struct {
 	Status       OnlineStatus `xml:"Status,omitempty"`
 	Longitude    string       `xml:"Longitude,omitempty"`
 	Latitude     string       `xml:"Latitude,omitempty"`
+	SetupType    SetupType    `json:"setup_type,omitempty"`
 }
 
 func (d *Channel) Online() bool {

@@ -9,8 +9,6 @@ type GB28181DB interface {
 
 	SaveChannel(deviceId string, channel *Channel) error
 
-	SaveDeviceChannel(dstDevice, srcDevice, channel string) error
-
 	UpdateDeviceStatus(deviceId string, status OnlineStatus) error
 
 	UpdateChannelStatus(channelId, status string) error
@@ -42,7 +40,9 @@ type GB28181DB interface {
 	UnbindChannels(addr string, channels [][2]string) ([][2]string, error)
 
 	// QueryPlatformChannel 查询级联设备的某个通道, 返回通道所属设备ID、通道.
-	QueryPlatformChannel(platformId string, channelId string) (string, *Channel, error)
+	QueryPlatformChannel(addr string, channelId string) (string, *Channel, error)
+
+	QueryPlatformChannels(addr string) ([]*Channel, error)
 
 	LoadStreams() (map[string]*Stream, error)
 
