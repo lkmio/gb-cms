@@ -157,6 +157,9 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 
 	if err != nil {
 		return nil, nil, err
+	} else if dialogRequest == nil {
+		// invite 没有收到任何应答
+		return nil, nil, fmt.Errorf("invite request timeout")
 	} else if "active" == setup {
 		// 如果是TCP主动拉流, 还需要将拉流地址告知给流媒体服务
 		var answer *sdp.SDP

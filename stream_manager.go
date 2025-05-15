@@ -72,10 +72,9 @@ func (s *streamManager) Remove(id StreamID) *Stream {
 	if ok && stream.Dialog != nil {
 		callID, _ := stream.Dialog.CallID()
 		delete(s.callIds, callID.Value())
-		return stream
 	}
 
-	return nil
+	return stream
 }
 
 func (s *streamManager) RemoveWithCallId(id string) *Stream {
