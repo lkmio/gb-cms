@@ -133,9 +133,9 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent b
 	if parent {
 		// 级联设备
 		device = PlatformManager.Find(req.Source())
-	} else if session := BroadcastDialogs.Find(user); session != nil {
+	} else if session := Dialogs.Find(user); session != nil {
 		// 语音广播设备
-		device = DeviceManager.Find(session.SinkStream.DeviceID())
+		device, _ = DeviceDao.QueryDevice(session.data.(*Sink).SinkStreamID.DeviceID())
 	} else {
 		// 根据Subject头域查找设备
 		headers := req.GetHeaders("Subject")
@@ -143,7 +143,7 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent b
 			subject := headers[0].(*sip.GenericHeader)
 			split := strings.Split(strings.Split(subject.Value(), ",")[0], ":")
 			if len(split) > 1 {
-				device = DeviceManager.Find(split[1])
+				device, _ = DeviceDao.QueryDevice(split[1])
 			}
 		}
 	}
@@ -169,14 +169,12 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 	id, _ := req.CallID()
 	var deviceId string
 
-	if stream := StreamManager.RemoveWithCallId(id.Value()); stream != nil {
+	if stream, _ := StreamDao.DeleteStreamByCallID(id.Value()); stream != nil {
 		// 下级设备挂断, 关闭流
-		deviceId = stream.ID.DeviceID()
+		deviceId = stream.StreamID.DeviceID()
 		stream.Close(false, true)
-	} else if session := StreamManager.RemoveWithCallId(id.Value()); session != nil {
-		// 广播挂断
-		deviceId = session.ID.DeviceID()
-		session.Close(false, true)
+	} else if sink, _ := SinkDao.DeleteForwardSinkByCallID(id.Value()); sink != nil {
+		sink.Close(false, true)
 	}
 
 	if parent {
@@ -184,7 +182,7 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 		if platform := PlatformManager.Find(req.Source()); platform != nil {
 			platform.OnBye(req)
 		}
-	} else if device := DeviceManager.Find(deviceId); device != nil {
+	} else if device, _ := DeviceDao.QueryDevice(deviceId); device != nil {
 		device.OnBye(req)
 	}
 }
@@ -199,9 +197,7 @@ func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction, parent b
 		return
 	}
 
-	if device := DeviceManager.Find(mobilePosition.DeviceID); device != nil {
-		s.handler.OnNotifyPosition(&mobilePosition)
-	}
+	s.handler.OnNotifyPosition(&mobilePosition)
 }
 
 func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent bool) {
@@ -233,22 +229,11 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	}
 
 	// 查找设备
-	var device GBDevice
 	deviceId := message.(BaseMessageGetter).GetDeviceID()
 	if CmdBroadcast == cmd {
 		// 广播消息
 		from, _ := req.From()
 		deviceId = from.Address.User().String()
-	}
-	if parent {
-		device = PlatformManager.Find(req.Source())
-	} else {
-		device = DeviceManager.Find(deviceId)
-	}
-
-	if ok = device != nil; !ok {
-		Sugar.Errorf("处理XML消息失败, 设备离线: %s request: %s", deviceId, req.String())
-		return
 	}
 
 	switch xmlName {
@@ -256,39 +241,38 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 		break
 	case XmlNameQuery:
 		// 被上级查询
-		var client GBClient
-		client, ok = device.(GBClient)
-		if !ok {
-			Sugar.Errorf("处理XML消息失败, 类型转换失败. request: %s", req.String())
+		device := PlatformManager.Find(req.Source())
+		if ok = device != nil; !ok {
+			Sugar.Errorf("处理上级请求消息失败, 找不到级联设备 addr: %s request: %s", req.Source(), req.String())
 			return
 		}
 
 		if CmdDeviceInfo == cmd {
-			client.OnQueryDeviceInfo(message.(*BaseMessage).SN)
+			device.OnQueryDeviceInfo(message.(*BaseMessage).SN)
 		} else if CmdCatalog == cmd {
 			var channels []*Channel
 
 			// 查询出所有通道
-			if DB != nil {
-				result, err := DB.QueryPlatformChannels(client.(*GBPlatform).ServerAddr)
+			if PlatformDao != nil {
+				result, err := PlatformDao.QueryPlatformChannels(device.ServerAddr)
 				if err != nil {
-					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), client.GetID())
+					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), device.GetID())
 				}
 
 				channels = result
 			} else {
 				// 从模拟多个国标客户端中查找
-				channels = DeviceChannelsManager.FindChannels(client.GetID())
+				channels = DeviceChannelsManager.FindChannels(device.GetID())
 			}
 
-			client.OnQueryCatalog(message.(*BaseMessage).SN, channels)
+			device.OnQueryCatalog(message.(*BaseMessage).SN, channels)
 		}
 
 		break
 	case XmlNameNotify:
 		if CmdKeepalive == cmd {
 			// 下级设备心跳通知
-			ok = s.handler.OnKeepAlive(deviceId)
+			ok = s.handler.OnKeepAlive(deviceId, req.Source())
 		}
 
 		break
@@ -296,11 +280,11 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	case XmlNameResponse:
 		// 查询下级的应答
 		if CmdCatalog == cmd {
-			go s.handler.OnCatalog(device, message.(*CatalogResponse))
+			s.handler.OnCatalog(deviceId, message.(*CatalogResponse))
 		} else if CmdRecordInfo == cmd {
-			go s.handler.OnRecord(device, message.(*QueryRecordInfoResponse))
+			s.handler.OnRecord(deviceId, message.(*QueryRecordInfoResponse))
 		} else if CmdDeviceInfo == cmd {
-			go s.handler.OnDeviceInfo(device, message.(*DeviceInfoResponse))
+			s.handler.OnDeviceInfo(deviceId, message.(*DeviceInfoResponse))
 		}
 
 		break

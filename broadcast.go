@@ -65,20 +65,21 @@ func (d *Device) DoBroadcast(sourceId, channelId string) error {
 
 // OnInvite 语音广播
 func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
-	sink := BroadcastDialogs.Find(user)
-	if sink == nil {
+	streamWaiting := Dialogs.Find(user)
+	if streamWaiting == nil {
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
+	sink := streamWaiting.data.(*Sink)
 	body := request.Body()
 	offer, err := sdp.Parse(body)
 	if err != nil {
-		Sugar.Infof("广播失败, 解析sdp发生err: %s  sink: %s  sdp: %s", err.Error(), sink.ID, body)
-		sink.onPublishCb <- http.StatusBadRequest
+		Sugar.Infof("广播失败, 解析sdp发生err: %s  sink: %s  sdp: %s", err.Error(), sink.SinkID, body)
+		streamWaiting.Put(http.StatusBadRequest)
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	} else if offer.Audio == nil {
-		Sugar.Infof("广播失败, offer中缺少audio字段. sink: %s sdp: %s", sink.ID, body)
-		sink.onPublishCb <- http.StatusBadRequest
+		Sugar.Infof("广播失败, offer中缺少audio字段. sink: %s sdp: %s", sink.SinkID, body)
+		streamWaiting.Put(http.StatusBadRequest)
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
@@ -91,10 +92,10 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	}
 
 	addr := net.JoinHostPort(offer.Addr, strconv.Itoa(int(offer.Audio.Port)))
-	host, port, sinkId, err := CreateAnswer(string(sink.Stream), addr, offerSetup.String(), answerSetup.String(), "", string(InviteTypeBroadcast))
+	host, port, sinkId, err := CreateAnswer(string(sink.StreamID), addr, offerSetup.String(), answerSetup.String(), "", string(InviteTypeBroadcast))
 	if err != nil {
-		Sugar.Errorf("广播失败, 流媒体创建answer发生err: %s  sink: %s ", err.Error(), sink.ID)
-		sink.onPublishCb <- http.StatusInternalServerError
+		Sugar.Errorf("广播失败, 流媒体创建answer发生err: %s  sink: %s ", err.Error(), sink.SinkID)
+		streamWaiting.Put(http.StatusInternalServerError)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
@@ -111,13 +112,13 @@ func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	response := CreateResponseWithStatusCode(request, http.StatusOK)
 	setToTag(response)
 
-	sink.ID = sinkId
-	sink.Dialog = d.CreateDialogRequestFromAnswer(response, true)
+	sink.SinkID = sinkId
+	sink.SetDialog(d.CreateDialogRequestFromAnswer(response, true))
 
 	response.SetBody(answerSDP, true)
 	response.AppendHeader(&SDPMessageType)
 	response.AppendHeader(GlobalContactAddress.AsContactHeader())
 
-	sink.onPublishCb <- http.StatusOK
+	streamWaiting.Put(http.StatusOK)
 	return response
 }

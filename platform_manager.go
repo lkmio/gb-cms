@@ -67,23 +67,19 @@ func AddPlatform(platform *GBPlatform) error {
 		return fmt.Errorf("平台添加失败, 地址冲突. addr: %s", platform.sipClient.ServerAddr)
 	}
 
-	if DB != nil {
-		err := DB.SavePlatform(&platform.SIPUAParams)
-		if err != nil {
-			PlatformManager.Remove(platform.sipClient.ServerAddr)
-			return fmt.Errorf("平台保存到数据库失败, err: %s", err.Error())
-		}
+	err := PlatformDao.SavePlatform(&platform.SIPUAParams)
+	if err != nil {
+		PlatformManager.Remove(platform.sipClient.ServerAddr)
+		return fmt.Errorf("平台保存到数据库失败, err: %s", err.Error())
 	}
 
 	return nil
 }
 
 func RemovePlatform(addr string) (*GBPlatform, error) {
-	if DB != nil {
-		err := DB.DeletePlatform(addr)
-		if err != nil {
-			return nil, err
-		}
+	err := PlatformDao.DeletePlatform(addr)
+	if err != nil {
+		return nil, err
 	}
 
 	platform := PlatformManager.Remove(addr)
@@ -113,12 +109,10 @@ func UpdatePlatformStatus(addr string, status OnlineStatus) error {
 	//old := platform.Device.Status
 	platform.Device.Status = status
 
-	if DB != nil {
-		err := DB.UpdatePlatformStatus(addr, status)
-		// platform.Device.Status = old
-		if err != nil {
-			return err
-		}
+	err := PlatformDao.UpdatePlatformStatus(addr, status)
+	// platform.Device.Status = old
+	if err != nil {
+		return err
 	}
 
 	return nil

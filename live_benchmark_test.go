@@ -94,7 +94,7 @@ func startLiveAll(setup string) {
 	//max := 50
 	//for _, device := range devices {
 	//	for _, channel := range device.Channels {
-	//		go startLive(device.ID, channel.DeviceID, setup)
+	//		go startLive(device.DeviceID, channel.DeviceID, setup)
 	//		max--
 	//		if max < 1 {
 	//			return

@@ -8,28 +8,27 @@ import (
 
 // Sink 国标级联转发流
 type Sink struct {
-	ID         string      `json:"id"`                 // 流媒体服务器中的sink id
-	Stream     StreamID    `json:"stream"`             // 推流ID
-	SinkStream StreamID    `json:"sink_stream"`        // 广播使用, 每个广播设备的唯一ID
-	Protocol   string      `json:"protocol,omitempty"` // 转发流协议, gb_cascaded_forward/gb_talk_forward
-	Dialog     sip.Request `json:"dialog,omitempty"`
-	ServerAddr string      `json:"server_addr,omitempty"` // 级联上级地址
-	CreateTime int64       `json:"create_time"`
-	SetupType  SetupType   // 转发类型
-
-	StreamWaiting
+	GBModel
+	SinkID       string          `json:"sink_id"`            // 流媒体服务器中的sink id
+	StreamID     StreamID        `json:"stream_id"`          // 推流ID
+	SinkStreamID StreamID        `json:"sink_stream_id"`     // 广播使用, 每个广播设备的唯一ID
+	Protocol     string          `json:"protocol,omitempty"` // 转发流协议, gb_cascaded_forward/gb_talk_forward
+	Dialog       *RequestWrapper `json:"dialog,omitempty"`
+	CallID       string          `json:"call_id,omitempty"`
+	ServerAddr   string          `json:"server_addr,omitempty"` // 级联上级地址
+	CreateTime   int64           `json:"create_time"`
+	SetupType    SetupType       // 转发类型
 }
 
 // Close 关闭级联会话. 是否向上级发送bye请求, 是否通知流媒体服务器发送删除sink
 func (s *Sink) Close(bye, ms bool) {
 	// 挂断与上级的sip会话
-	if bye && s.Dialog != nil {
-		byeRequest := CreateRequestFromDialog(s.Dialog, sip.BYE)
-		go SipUA.SendRequest(byeRequest)
+	if bye {
+		s.Bye()
 	}
 
 	if ms {
-		go CloseSink(string(s.Stream), s.ID)
+		go CloseSink(string(s.StreamID), s.SinkID)
 	}
 }
 
@@ -47,6 +46,13 @@ func (s *Sink) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(v)
+}
+
+func (s *Sink) Bye() {
+	if s.Dialog != nil && s.Dialog.Request != nil {
+		byeRequest := CreateRequestFromDialog(s.Dialog.Request, sip.BYE)
+		go SipUA.SendRequest(byeRequest)
+	}
 }
 
 func (s *Sink) UnmarshalJSON(data []byte) error {
@@ -71,9 +77,15 @@ func (s *Sink) UnmarshalJSON(data []byte) error {
 			Sugar.Errorf("json解析dialog失败, err: %s value: %s", err.Error(), v.Dialog)
 		} else {
 			request := message.(sip.Request)
-			s.Dialog = request
+			s.SetDialog(request)
 		}
 	}
 
 	return nil
+}
+
+func (s *Sink) SetDialog(dialog sip.Request) {
+	s.Dialog = &RequestWrapper{dialog}
+	id, _ := dialog.CallID()
+	s.CallID = id.Value()
 }

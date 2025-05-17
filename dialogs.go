@@ -1,16 +1,43 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/parser"
 	"sync"
+	"time"
 )
+
+var (
+	Dialogs = NewDialogManager[*StreamWaiting]()
+)
+
+type StreamWaiting struct {
+	onPublishCb chan int // 等待推流hook的管道
+	cancelFunc  func()   // 取消等待推流hook的ctx
+	data        interface{}
+}
+
+func (s *StreamWaiting) Receive(seconds int) int {
+	s.onPublishCb = make(chan int, 0)
+	timeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
+	s.cancelFunc = cancelFunc
+	select {
+	case code := <-s.onPublishCb:
+		return code
+	case <-timeout.Done():
+		s.cancelFunc = nil
+		return -1
+	}
+}
+func (s *StreamWaiting) Put(code int) {
+	s.onPublishCb <- code
+}
 
 type DialogManager[T any] struct {
 	lock    sync.RWMutex
 	dialogs map[string]T
-	callIds map[string]T
 }
 
 func (d *DialogManager[T]) Add(id string, dialog T) (T, bool) {
@@ -27,27 +54,10 @@ func (d *DialogManager[T]) Add(id string, dialog T) (T, bool) {
 	return old, true
 }
 
-func (d *DialogManager[T]) AddWithCallId(id string, dialog T) bool {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	if _, ok := d.callIds[id]; ok {
-		return false
-	}
-
-	d.callIds[id] = dialog
-	return true
-}
-
 func (d *DialogManager[T]) Find(id string) T {
 	d.lock.RLock()
 	defer d.lock.RUnlock()
 	return d.dialogs[id]
-}
-
-func (d *DialogManager[T]) FindWithCallId(id string) T {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-	return d.callIds[id]
 }
 
 func (d *DialogManager[T]) Remove(id string) T {
@@ -56,36 +66,6 @@ func (d *DialogManager[T]) Remove(id string) T {
 	dialog := d.dialogs[id]
 	delete(d.dialogs, id)
 	return dialog
-}
-
-func (d *DialogManager[T]) RemoveWithCallId(id string) T {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	dialog := d.callIds[id]
-	delete(d.callIds, id)
-	return dialog
-}
-
-func (d *DialogManager[T]) All() []T {
-	d.lock.RLock()
-	defer d.lock.RUnlock()
-	var result []T
-	for _, v := range d.dialogs {
-		result = append(result, v)
-	}
-	return result
-}
-
-func (d *DialogManager[T]) PopAll() []T {
-	d.lock.Lock()
-	defer d.lock.Unlock()
-	var result []T
-	for _, v := range d.dialogs {
-		result = append(result, v)
-	}
-
-	d.dialogs = make(map[string]T)
-	return result
 }
 
 func UnmarshalDialog(dialog string) (sip.Request, error) {
@@ -103,6 +83,5 @@ func UnmarshalDialog(dialog string) (sip.Request, error) {
 func NewDialogManager[T any]() *DialogManager[T] {
 	return &DialogManager[T]{
 		dialogs: make(map[string]T),
-		callIds: make(map[string]T),
 	}
 }

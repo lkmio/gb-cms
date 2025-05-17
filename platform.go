@@ -73,14 +73,14 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 	platform := PlatformManager.Find(source)
 	utils.Assert(platform != nil)
 
-	deviceId, channel, err := DB.QueryPlatformChannel(g.ServerAddr, user)
+	deviceId, channel, err := PlatformDao.QueryPlatformChannel(g.ServerAddr, user)
 	if err != nil {
 		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
 	// 查找通道对应的设备
-	device := DeviceManager.Find(deviceId)
+	device, _ := DeviceDao.QueryDevice(deviceId)
 	if device == nil {
 		Sugar.Errorf("级联转发失败, 设备不存在 device: %s channel: %s", device, user)
 		return CreateResponseWithStatusCode(request, http.StatusNotFound)
@@ -115,12 +115,12 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 		break
 	}
 
-	stream := StreamManager.Find(streamId)
+	stream, _ := StreamDao.QueryStream(streamId)
 	addr := fmt.Sprintf("%s:%d", parse.Addr, media.Port)
 	if stream == nil {
 		s := channel.SetupType.String()
 		println(s)
-		stream, err = device.(*Device).StartStream(inviteType, streamId, user, time[0], time[1], channel.SetupType.String(), 0, true)
+		stream, err = device.StartStream(inviteType, streamId, user, time[0], time[1], channel.SetupType.String(), 0, true)
 		if err != nil {
 			Sugar.Errorf("级联转发失败 err: %s stream: %s", err.Error(), streamId)
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)
@@ -148,13 +148,14 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 
 	setToTag(response)
 
-	AddForwardSink(streamId, &Sink{
-		ID:         sinkID,
-		Stream:     streamId,
+	sink := &Sink{
+		SinkID:     sinkID,
+		StreamID:   streamId,
 		ServerAddr: g.ServerAddr,
-		Protocol:   "gb_cascaded_forward",
-		Dialog:     g.CreateDialogRequestFromAnswer(response, true)})
+		Protocol:   "gb_cascaded_forward"}
+	sink.SetDialog(g.CreateDialogRequestFromAnswer(response, true))
 
+	AddForwardSink(streamId, sink)
 	return response
 }
 
@@ -175,7 +176,7 @@ func (g *GBPlatform) Stop() {
 func (g *GBPlatform) Online() {
 	Sugar.Infof("级联设备上线 device: %s", g.SeverID)
 
-	if err := DB.UpdatePlatformStatus(g.SeverID, ON); err != nil {
+	if err := PlatformDao.UpdatePlatformStatus(g.SeverID, ON); err != nil {
 		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
 	}
 }
@@ -183,7 +184,7 @@ func (g *GBPlatform) Online() {
 func (g *GBPlatform) Offline() {
 	Sugar.Infof("级联设备离线 device: %s", g.SeverID)
 
-	if err := DB.UpdatePlatformStatus(g.SeverID, OFF); err != nil {
+	if err := PlatformDao.UpdatePlatformStatus(g.SeverID, OFF); err != nil {
 		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
 	}
 

@@ -40,15 +40,19 @@ type SipClient interface {
 }
 
 type SIPUAParams struct {
-	Username          string       `json:"username"`            // 用户名
-	SeverID           string       `json:"server_id"`           // 上级ID, 必选. 作为主键, 不能重复.
-	ServerAddr        string       `json:"server_addr"`         // 上级地址, 必选
-	Transport         string       `json:"transport"`           // 上级通信方式, UDP/TCP
-	Password          string       `json:"password"`            // 密码
-	RegisterExpires   int          `json:"register_expires"`    // 注册有效期
-	KeepAliveInterval int          `json:"keep_alive_interval"` // 心跳间隔
-	CreateTime        string       `json:"create_time"`         // 入库时间
-	Status            OnlineStatus `json:"status"`              // 在线状态
+	GBModel
+	Username          string       `json:"username"`           // 用户名
+	SeverID           string       `json:"server_id"`          // 上级ID, 必选. 作为主键, 不能重复.
+	ServerAddr        string       `json:"server_addr"`        // 上级地址, 必选
+	Transport         string       `json:"transport"`          // 上级通信方式, UDP/TCP
+	Password          string       `json:"password"`           // 密码
+	RegisterExpires   int          `json:"register_expires"`   // 注册有效期
+	KeepaliveInterval int          `json:"keepalive_interval"` // 心跳间隔
+	Status            OnlineStatus `json:"status"`             // 在线状态
+}
+
+func (g *SIPUAParams) TableName() string {
+	return "lkm_virtual_device"
 }
 
 type sipClient struct {
@@ -249,7 +253,7 @@ func (g *sipClient) Refresh() time.Duration {
 	}
 
 	// 信令正常, 休眠心跳间隔时长
-	return time.Duration(g.KeepAliveInterval) * time.Second
+	return time.Duration(g.KeepaliveInterval) * time.Second
 }
 
 func (g *sipClient) Start() {

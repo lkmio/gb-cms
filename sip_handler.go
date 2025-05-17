@@ -13,11 +13,11 @@ type Handler interface {
 
 	OnKeepAlive(id string) bool
 
-	OnCatalog(device GBDevice, response *CatalogResponse)
+	OnCatalog(device string, response *CatalogResponse)
 
-	OnRecord(device GBDevice, response *QueryRecordInfoResponse)
+	OnRecord(device string, response *QueryRecordInfoResponse)
 
-	OnDeviceInfo(device GBDevice, response *DeviceInfoResponse)
+	OnDeviceInfo(device string, response *DeviceInfoResponse)
 
 	OnNotifyPosition(notify *MobilePositionNotify)
 }
@@ -26,73 +26,40 @@ type EventHandler struct {
 }
 
 func (e *EventHandler) OnUnregister(id string) {
-	device := DeviceManager.Find(id)
-	if device != nil {
-		device.(*Device).Status = OFF
-	}
-
-	if DB != nil {
-		_ = DB.SaveDevice(device.(*Device))
-	}
+	_ = DeviceDao.UpdateDeviceStatus(id, OFF)
 }
 
 func (e *EventHandler) OnRegister(id, transport, addr string) (int, GBDevice, bool) {
-	var device *Device
-	old := DeviceManager.Find(id)
-
-	if old != nil {
-		old.(*Device).ID = id
-		old.(*Device).Transport = transport
-		old.(*Device).RemoteAddr = addr
-
-		device = old.(*Device)
-	} else {
-		device = &Device{
-			ID:         id,
-			Transport:  transport,
-			RemoteAddr: addr,
-		}
-
-		DeviceManager.Add(device)
+	now := time.Now()
+	device := &Device{
+		DeviceID:      id,
+		Transport:     transport,
+		RemoteAddr:    addr,
+		Status:        ON,
+		RegisterTime:  now,
+		LastHeartbeat: now,
 	}
 
-	device.Status = ON
-	device.RegisterTime = time.Now().UnixMilli()
-	if DB != nil {
-		if err := DB.SaveDevice(device); err != nil {
-			Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
-		}
+	if err := DeviceDao.SaveDevice(device); err != nil {
+		Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
 	}
 
-	return 3600, device, device.ChannelsTotal < 1
+	count, _ := ChannelDao.QueryChanelCount(id)
+	return 3600, device, count < 1
 }
 
-func (e *EventHandler) OnKeepAlive(id string) bool {
-	device := DeviceManager.Find(id)
-	if device == nil {
-		Sugar.Errorf("更新心跳失败, 设备不存在. device: %s", id)
+func (e *EventHandler) OnKeepAlive(id string, addr string) bool {
+	now := time.Now()
+	if err := DeviceDao.RefreshHeartbeat(id, now, addr); err != nil {
+		Sugar.Errorf("更新有效期失败. device: %s err: %s", id, err.Error())
 		return false
 	}
 
-	if !device.(*Device).Online() {
-		Sugar.Errorf("更新心跳失败, 设备离线. device: %s", id)
-	}
-
-	if DB != nil {
-		if err := DB.RefreshHeartbeat(id); err != nil {
-			Sugar.Errorf("更新有效期失败. device: %s err: %s", id, err.Error())
-		}
-	}
-
+	OnlineDeviceManager.Add(id, now)
 	return true
 }
 
-func (e *EventHandler) OnCatalog(device GBDevice, response *CatalogResponse) {
-	if DB == nil {
-		return
-	}
-
-	id := device.GetID()
+func (e *EventHandler) OnCatalog(device string, response *CatalogResponse) {
 	for _, channel := range response.DeviceList.Devices {
 		// 状态转为大写
 		channel.Status = OnlineStatus(strings.ToUpper(channel.Status.String()))
@@ -102,34 +69,13 @@ func (e *EventHandler) OnCatalog(device GBDevice, response *CatalogResponse) {
 			channel.Status = ON
 		}
 
-		// 判断之前是否已经存在通道, 如果不存在累加总数
-		old, _ := DB.QueryChannel(id, channel.DeviceID)
-
-		if err := DB.SaveChannel(id, channel); err != nil {
+		if err := ChannelDao.SaveChannel(device, channel); err != nil {
 			Sugar.Infof("保存通道到数据库失败 err: %s", err.Error())
-		}
-
-		if old == nil {
-			device.(*Device).ChannelsTotal++
-			device.(*Device).ChannelsOnline++
-		} else if old.Status != channel.Status {
-			// 保留处理其他状态
-			if ON == channel.Status {
-				device.(*Device).ChannelsOnline++
-			} else if OFF == channel.Status {
-				device.(*Device).ChannelsOnline--
-			} else {
-				return
-			}
-		}
-
-		if err := DB.SaveDevice(device.(*Device)); err != nil {
-			Sugar.Errorf("更新设备在线数失败 err: %s", err.Error())
 		}
 	}
 }
 
-func (e *EventHandler) OnRecord(device GBDevice, response *QueryRecordInfoResponse) {
+func (e *EventHandler) OnRecord(device string, response *QueryRecordInfoResponse) {
 	event := SNManager.FindEvent(response.SN)
 	if event == nil {
 		Sugar.Errorf("处理录像查询响应失败 SN: %d", response.SN)
@@ -139,16 +85,14 @@ func (e *EventHandler) OnRecord(device GBDevice, response *QueryRecordInfoRespon
 	event(response)
 }
 
-func (e *EventHandler) OnDeviceInfo(device GBDevice, response *DeviceInfoResponse) {
-	device.(*Device).Manufacturer = response.Manufacturer
-	device.(*Device).Model = response.Model
-	device.(*Device).Firmware = response.Firmware
-	device.(*Device).Name = response.DeviceName
-
-	if DB != nil {
-		if err := DB.SaveDevice(device.(*Device)); err != nil {
-			Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", device.GetID(), err.Error())
-		}
+func (e *EventHandler) OnDeviceInfo(device string, response *DeviceInfoResponse) {
+	if err := DeviceDao.UpdateDeviceInfo(device, &Device{
+		Manufacturer: response.Manufacturer,
+		Model:        response.Model,
+		Firmware:     response.Firmware,
+		Name:         response.DeviceName,
+	}); err != nil {
+		Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", device, err.Error())
 	}
 }
 

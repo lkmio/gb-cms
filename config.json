@@ -14,11 +14,6 @@
   "?auto_close_on_idle": "拉流空闲时, 立即关闭流",
   "auto_close_on_idle": true,
 
-  "redis": {
-    "addr": "0.0.0.0:6379",
-    "password": ""
-  },
-
   "hooks": {
     "?online": "设备上线通知",
     "online": "",

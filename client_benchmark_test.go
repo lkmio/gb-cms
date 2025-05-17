@@ -220,7 +220,7 @@ package main
 //
 //	// 绑定到StreamManager, bye请求才会找到设备回调
 //	streamId := GenerateStreamID(InviteTypePlay, v.sipClient.Username, user, "", "")
-//	s := Stream{ID: streamId, Dialog: stream.dialog}
+//	s := StreamID{StreamID: streamId, Dialog: stream.dialog}
 //	StreamManager.Add(&s)
 //
 //	callID, _ := request.CallID()

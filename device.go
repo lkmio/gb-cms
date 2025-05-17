@@ -5,6 +5,7 @@ import (
 	"github.com/ghettovoice/gosip/sip"
 	"net"
 	"strconv"
+	"time"
 )
 
 const (
@@ -90,22 +91,24 @@ type GBDevice interface {
 }
 
 type Device struct {
-	ID           string       `json:"id"`
-	Name         string       `json:"name"`
-	RemoteAddr   string       `json:"remote_addr"`
-	Transport    string       `json:"transport"`
-	Status       OnlineStatus `json:"status"` //在线状态 ON-在线/OFF-离线
-	Manufacturer string       `json:"manufacturer"`
-	Model        string       `json:"model"`
-	Firmware     string       `json:"firmware"`
-	RegisterTime int64        `json:"register_time"`
+	GBModel
+	DeviceID      string       `json:"device_id" gorm:"uniqueIndex"`
+	Name          string       `json:"name"`
+	RemoteAddr    string       `json:"remote_addr"`
+	Transport     string       `json:"transport"`
+	Status        OnlineStatus `json:"status"` //在线状态 ON-在线/OFF-离线
+	Manufacturer  string       `json:"manufacturer"`
+	Model         string       `json:"model"`
+	Firmware      string       `json:"firmware"`
+	RegisterTime  time.Time    `json:"register_time"`
+	LastHeartbeat time.Time    `json:"last_heartbeat"`
 
 	ChannelsTotal  int `json:"total_channels"`  // 通道总数
 	ChannelsOnline int `json:"online_channels"` // 通道在线数量
 }
 
 func (d *Device) GetID() string {
-	return d.ID
+	return d.DeviceID
 }
 
 func (d *Device) Online() bool {
@@ -122,14 +125,14 @@ func (d *Device) BuildMessageRequest(to, body string) sip.Request {
 }
 
 func (d *Device) QueryDeviceInfo() {
-	body := fmt.Sprintf(DeviceInfoFormat, "1", d.ID)
-	request := d.BuildMessageRequest(d.ID, body)
+	body := fmt.Sprintf(DeviceInfoFormat, "1", d.DeviceID)
+	request := d.BuildMessageRequest(d.DeviceID, body)
 	SipUA.SendRequest(request)
 }
 
 func (d *Device) QueryCatalog() {
-	body := fmt.Sprintf(CatalogFormat, "1", d.ID)
-	request := d.BuildMessageRequest(d.ID, body)
+	body := fmt.Sprintf(CatalogFormat, "1", d.DeviceID)
+	request := d.BuildMessageRequest(d.DeviceID, body)
 	SipUA.SendRequest(request)
 }
 
@@ -146,7 +149,7 @@ func (d *Device) OnBye(request sip.Request) {
 
 func (d *Device) SubscribePosition(channelId string) error {
 	if channelId == "" {
-		channelId = d.ID
+		channelId = d.DeviceID
 	}
 
 	//暂时不考虑级联
@@ -189,8 +192,8 @@ func (d *Device) UpdateChannel(id string, event string) {
 }
 
 func (d *Device) BuildCatalogRequest() (sip.Request, error) {
-	body := fmt.Sprintf(CatalogFormat, "1", d.ID)
-	request := d.BuildMessageRequest(d.ID, body)
+	body := fmt.Sprintf(CatalogFormat, "1", d.DeviceID)
+	request := d.BuildMessageRequest(d.DeviceID, body)
 	return request, nil
 }
 
@@ -247,7 +250,7 @@ func (d *Device) BuildInviteRequest(sessionName, channelId, ip string, port uint
 		return nil, err
 	}
 
-	var subjectHeader = Subject(channelId + ":" + d.ID + "," + Config.SipID + ":" + ssrc)
+	var subjectHeader = Subject(channelId + ":" + d.DeviceID + "," + Config.SipID + ":" + ssrc)
 	request.AppendHeader(subjectHeader)
 
 	return request, err
@@ -268,22 +271,20 @@ func (d *Device) BuildDownloadRequest(channelId, ip string, port uint16, startTi
 func (d *Device) Close() {
 	// 更新在数据库中的状态
 	d.Status = OFF
-	if err := DB.SaveDevice(d); err != nil {
-		Sugar.Errorf("更新设备在线状态失败 err: %s device: %s ", err.Error(), d.ID)
-	}
+	_ = DeviceDao.UpdateDeviceStatus(d.DeviceID, OFF)
 
 	// 释放所有推流
-	all := StreamManager.All()
-	var streams []*Stream
-	for _, stream := range all {
-		if d.ID == stream.ID.DeviceID() {
-			streams = append(streams, stream)
-		}
-	}
-
-	for _, stream := range streams {
-		stream.Close(true, true)
-	}
+	//all := StreamManager.All()
+	//var streams []*Stream
+	//for _, stream := range all {
+	//	if d.DeviceID == stream.StreamID.DeviceID() {
+	//		streams = append(streams, stream)
+	//	}
+	//}
+	//
+	//for _, stream := range streams {
+	//	stream.Close(true, true)
+	//}
 }
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求

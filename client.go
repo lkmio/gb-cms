@@ -139,6 +139,6 @@ func NewGBClient(params *SIPUAParams, ua SipServer) GBClient {
 		ua:          ua,
 	}
 
-	client := &Client{sip, Device{ID: params.Username}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: params.Username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
+	client := &Client{sip, Device{DeviceID: params.Username}, &DeviceInfoResponse{BaseResponse: BaseResponse{BaseMessage: BaseMessage{DeviceID: params.Username, CmdType: CmdDeviceInfo}, Result: "OK"}}}
 	return client
 }

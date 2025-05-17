@@ -40,28 +40,34 @@ func (i *InviteType) SessionName2Type(name string) {
 
 func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, error) {
 	stream := &Stream{
-		ID:         streamId,
-		CreateTime: time.Now().UnixMilli(),
+		StreamID: streamId,
+		Protocol: "28181",
 	}
 
 	// 先添加占位置, 防止重复请求
-	if oldStream, b := StreamManager.Add(stream); !b {
+	oldStream, b := StreamDao.SaveStream(stream)
+	if !b {
+		if oldStream == nil {
+			return nil, fmt.Errorf("stream already exists")
+		}
 		return oldStream, nil
 	}
 
 	dialog, urls, err := d.Invite(inviteType, streamId, channelId, startTime, stopTime, setup, speed)
 	if err != nil {
-		StreamManager.Remove(streamId)
+		_, _ = StreamDao.DeleteStream(streamId)
 		return nil, err
 	}
 
-	stream.Dialog = dialog
-	callID, _ := dialog.CallID()
-	StreamManager.AddWithCallId(callID.Value(), stream)
+	stream.SetDialog(dialog)
 
 	// 等待流媒体服务发送推流通知
 	wait := func() bool {
-		ok := http.StatusOK == stream.WaitForPublishEvent(10)
+		waiting := StreamWaiting{}
+		_, _ = Dialogs.Add(string(streamId), &waiting)
+		defer Dialogs.Remove(string(streamId))
+
+		ok := http.StatusOK == waiting.Receive(10)
 		if !ok {
 			Sugar.Infof("收流超时 发送bye请求...")
 			CloseStream(streamId, true)
@@ -78,10 +84,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 	stream.urls = urls
 
 	// 保存到数据库
-	if DB != nil {
-		go DB.SaveStream(stream)
-	}
-
+	_ = StreamDao.UpdateStream(stream)
 	return stream, nil
 }
 

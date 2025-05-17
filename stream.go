@@ -1,12 +1,12 @@
 package main
 
 import (
-	"context"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/parser"
 	"sync/atomic"
-	"time"
 )
 
 type SetupType int
@@ -34,34 +34,50 @@ func (s SetupType) String() string {
 	panic("invalid setup type")
 }
 
-type StreamWaiting struct {
-	onPublishCb chan int // 等待推流hook的管道
-	cancelFunc  func()   // 取消等待推流hook的ctx
+// RequestWrapper sql序列化
+type RequestWrapper struct {
+	sip.Request
 }
 
-func (s *StreamWaiting) WaitForPublishEvent(seconds int) int {
-	s.onPublishCb = make(chan int, 0)
-	timeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
-	s.cancelFunc = cancelFunc
-	select {
-	case code := <-s.onPublishCb:
-		return code
-	case <-timeout.Done():
-		s.cancelFunc = nil
-		return -1
+func (r *RequestWrapper) Value() (driver.Value, error) {
+	if r == nil || r.Request == nil {
+		return "", nil
 	}
+
+	return r.Request.String(), nil
+}
+
+func (r *RequestWrapper) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+
+	data, ok := value.(string)
+	if !ok {
+		return errors.New("invalid type for RequestWrapper")
+	} else if data == "" {
+		return nil
+	}
+
+	dialog, err := UnmarshalDialog(data)
+	if err != nil {
+		return err
+	}
+
+	*r = RequestWrapper{dialog}
+	return nil
 }
 
 type Stream struct {
-	ID         StreamID    `json:"id"`                 // 流ID
-	Protocol   string      `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
-	Dialog     sip.Request `json:"dialog,omitempty"`   // 国标流的SipCall会话
-	CreateTime int64       `json:"create_time"`        // 推流时间
-	SinkCount  int32       `json:"sink_count"`         // 拉流端计数(包含级联转发)
-	SetupType  SetupType
+	GBModel
+	StreamID  StreamID        `json:"stream_id"`          // 流ID
+	Protocol  string          `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
+	Dialog    *RequestWrapper `json:"dialog,omitempty"`   // 国标流的SipCall会话
+	SinkCount int32           `json:"sink_count"`         // 拉流端计数(包含级联转发)
+	SetupType SetupType
+	CallID    string `json:"call_id"`
 
 	urls []string // 从流媒体服务器返回的拉流地址
-	StreamWaiting
 }
 
 func (s *Stream) MarshalJSON() ([]byte, error) {
@@ -102,11 +118,17 @@ func (s *Stream) UnmarshalJSON(data []byte) error {
 			Sugar.Errorf("json解析dialog失败, err: %s value: %s", err.Error(), v.Dialog)
 		} else {
 			request := message.(sip.Request)
-			s.Dialog = request
+			s.SetDialog(request)
 		}
 	}
 
 	return nil
+}
+
+func (s *Stream) SetDialog(dialog sip.Request) {
+	s.Dialog = &RequestWrapper{dialog}
+	id, _ := dialog.CallID()
+	s.CallID = id.Value()
 }
 
 func (s *Stream) GetSinkCount() int32 {
@@ -115,40 +137,42 @@ func (s *Stream) GetSinkCount() int32 {
 
 func (s *Stream) IncreaseSinkCount() int32 {
 	value := atomic.AddInt32(&s.SinkCount, 1)
-	Sugar.Infof("拉流计数: %d stream: %s ", value, s.ID)
+	//Sugar.Infof("拉流计数: %d stream: %s ", value, s.StreamID)
 	// 启动协程去更新拉流计数, 可能会不一致
-	go DB.SaveStream(s)
+	//go StreamDao.SaveStream(s)
 	return value
 }
 
 func (s *Stream) DecreaseSinkCount() int32 {
 	value := atomic.AddInt32(&s.SinkCount, -1)
-	Sugar.Infof("拉流计数: %d stream: %s ", value, s.ID)
-	go DB.SaveStream(s)
+	//Sugar.Infof("拉流计数: %d stream: %s ", value, s.StreamID)
+	//go StreamDao.SaveStream(s)
 	return value
 }
 
 func (s *Stream) Close(bye, ms bool) {
-	if s.cancelFunc != nil {
-		s.cancelFunc()
-	}
-
 	// 断开与推流通道的sip会话
-	if bye && s.Dialog != nil {
-		go SipUA.SendRequest(s.CreateRequestFromDialog(sip.BYE))
-		s.Dialog = nil
+	if bye {
+		s.Bye()
 	}
 
 	if ms {
 		// 告知媒体服务释放source
-		go CloseSource(string(s.ID))
+		go CloseSource(string(s.StreamID))
 	}
 
 	// 关闭所转发会话
-	CloseStreamSinks(s.ID, bye, ms)
+	CloseStreamSinks(s.StreamID, bye, ms)
 
 	// 从数据库中删除流记录
-	DB.DeleteStream(s.CreateTime)
+	_, _ = StreamDao.DeleteStream(s.StreamID)
+}
+
+func (s *Stream) Bye() {
+	if s.Dialog != nil && s.Dialog.Request != nil {
+		go SipUA.SendRequest(s.CreateRequestFromDialog(sip.BYE))
+		s.Dialog = nil
+	}
 }
 
 func CreateRequestFromDialog(dialog sip.Request, method sip.RequestMethod) sip.Request {
@@ -169,8 +193,8 @@ func (s *Stream) CreateRequestFromDialog(method sip.RequestMethod) sip.Request {
 }
 
 func CloseStream(streamId StreamID, ms bool) {
-	stream := StreamManager.Remove(streamId)
-	if stream != nil {
-		stream.Close(true, ms)
+	deleteStream, err := StreamDao.DeleteStream(streamId)
+	if err == nil {
+		deleteStream.Close(true, ms)
 	}
 }

@@ -27,7 +27,7 @@ type MobilePositionNotify struct {
 
 func (d *Device) DoSubscribePosition(channelId string) error {
 	if channelId == "" {
-		channelId = d.ID
+		channelId = d.DeviceID
 	}
 
 	//暂时不考虑级联
@@ -60,5 +60,5 @@ func (d *Device) DoSubscribePosition(channelId string) error {
 }
 
 func (d *Device) OnMobilePositionNotify(notify *MobilePositionNotify) {
-	Sugar.Infof("收到位置信息 device:%s data:%v", d.ID, notify)
+	Sugar.Infof("收到位置信息 device:%s data:%v", d.DeviceID, notify)
 }

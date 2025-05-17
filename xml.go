@@ -1,31 +1,43 @@
 package main
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"time"
+)
+
+// GBModel 解决与Device和Channel的Model变量名冲突
+type GBModel struct {
+	//gorm.Model
+	ID        uint      `gorm:"primarykey"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"-"`
+}
 
 type Channel struct {
-	DeviceID     string       `xml:"DeviceID"`
-	Name         string       `xml:"Name,omitempty"`
-	Manufacturer string       `xml:"Manufacturer,omitempty"`
-	Model        string       `xml:"Model,omitempty"`
-	Owner        string       `xml:"Owner,omitempty"`
-	CivilCode    string       `xml:"CivilCode,omitempty"`
-	Block        string       `xml:"Block,omitempty"`
-	Address      string       `xml:"Address,omitempty"`
-	Parental     string       `xml:"Parental,omitempty"`
-	ParentID     string       `xml:"ParentID,omitempty"`
-	SafetyWay    string       `xml:"SafetyWay,omitempty"`
-	RegisterWay  string       `xml:"RegisterWay,omitempty"`
-	CertNum      string       `xml:"CertNum,omitempty"`
-	Certifiable  string       `xml:"Certifiable,omitempty"`
-	ErrCode      string       `xml:"ErrCode,omitempty"`
-	EndTime      string       `xml:"EndTime,omitempty"`
-	Secrecy      string       `xml:"Secrecy,omitempty"`
-	IPAddress    string       `xml:"IPAddress,omitempty"`
-	Port         string       `xml:"Port,omitempty"`
-	Password     string       `xml:"Password,omitempty"`
-	Status       OnlineStatus `xml:"Status,omitempty"`
-	Longitude    string       `xml:"Longitude,omitempty"`
-	Latitude     string       `xml:"Latitude,omitempty"`
+	GBModel
+	DeviceID     string       `json:"device_id" xml:"DeviceID" gorm:"index"`
+	Name         string       `json:"name" xml:"Name,omitempty"`
+	Manufacturer string       `json:"manufacturer" xml:"Manufacturer,omitempty"`
+	Model        string       `json:"model" xml:"Model,omitempty"`
+	Owner        string       `json:"owner" xml:"Owner,omitempty"`
+	CivilCode    string       `json:"civil_code" xml:"CivilCode,omitempty"`
+	Block        string       `json:"block" xml:"Block,omitempty"`
+	Address      string       `json:"address" xml:"Address,omitempty"`
+	Parental     string       `json:"parental" xml:"Parental,omitempty"`
+	ParentID     string       `json:"parent_id" xml:"ParentID,omitempty" gorm:"index"`
+	SafetyWay    string       `json:"safety_way" xml:"SafetyWay,omitempty"`
+	RegisterWay  string       `json:"register_way" xml:"RegisterWay,omitempty"`
+	CertNum      string       `json:"cert_num" xml:"CertNum,omitempty"`
+	Certifiable  string       `json:"certifiable" xml:"Certifiable,omitempty"`
+	ErrCode      string       `json:"err_code" xml:"ErrCode,omitempty"`
+	EndTime      string       `json:"end_time" xml:"EndTime,omitempty"`
+	Secrecy      string       `json:"secrecy" xml:"Secrecy,omitempty"`
+	IPAddress    string       `json:"ip_address" xml:"IPAddress,omitempty"`
+	Port         string       `json:"port" xml:"Port,omitempty"`
+	Password     string       `json:"password" xml:"Password,omitempty"`
+	Status       OnlineStatus `json:"status" xml:"Status,omitempty"`
+	Longitude    string       `json:"longitude" xml:"Longitude,omitempty"`
+	Latitude     string       `json:"latitude" xml:"Latitude,omitempty"`
 	SetupType    SetupType    `json:"setup_type,omitempty"`
 }
 
