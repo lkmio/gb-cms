@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/lkmio/avformat/utils"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -60,6 +62,7 @@ func (e *EventHandler) OnKeepAlive(id string, addr string) bool {
 }
 
 func (e *EventHandler) OnCatalog(device string, response *CatalogResponse) {
+	utils.Assert(device == response.DeviceID)
 	for _, channel := range response.DeviceList.Devices {
 		// 状态转为大写
 		channel.Status = OnlineStatus(strings.ToUpper(channel.Status.String()))
@@ -69,7 +72,33 @@ func (e *EventHandler) OnCatalog(device string, response *CatalogResponse) {
 			channel.Status = ON
 		}
 
-		if err := ChannelDao.SaveChannel(device, channel); err != nil {
+		// 下级设备的系统ID, 更新DeviceInfo
+		if channel.DeviceID == device && DeviceDao.ExistDevice(device) {
+			_ = DeviceDao.UpdateDeviceInfo(device, &Device{
+				Manufacturer: channel.Manufacturer,
+				Model:        channel.Model,
+				Name:         channel.Name,
+			})
+		}
+
+		typeCode := GetTypeCode(channel.DeviceID)
+		if typeCode == "" {
+			Sugar.Errorf("保存通道时, 获取设备类型失败 device: %s", channel.DeviceID)
+		}
+
+		var groupId string
+		if channel.ParentID != "" {
+			layers := strings.Split(channel.ParentID, "/")
+			groupId = layers[len(layers)-1]
+		} else if channel.BusinessGroupID != "" {
+			groupId = channel.BusinessGroupID
+		}
+
+		code, _ := strconv.Atoi(typeCode)
+		channel.RootID = device
+		channel.TypeCode = code
+		channel.GroupID = groupId
+		if err := ChannelDao.SaveChannel(channel); err != nil {
 			Sugar.Infof("保存通道到数据库失败 err: %s", err.Error())
 		}
 	}

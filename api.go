@@ -91,6 +91,7 @@ type PageQuery struct {
 type PageQueryChannel struct {
 	PageQuery
 	DeviceID string `json:"device_id"`
+	GroupID  string `json:"group_id"`
 }
 
 var apiServer *ApiServer
@@ -483,7 +484,7 @@ func (api *ApiServer) OnChannelList(v *PageQueryChannel, w http.ResponseWriter, 
 		v.PageSize = &defaultPageSize
 	}
 
-	channels, total, err := ChannelDao.QueryChannels(v.DeviceID, *v.PageNumber, *v.PageSize)
+	channels, total, err := ChannelDao.QueryChannels(v.DeviceID, v.GroupID, *v.PageNumber, *v.PageSize)
 	if err != nil {
 		Sugar.Errorf("查询通道列表失败 err: %s", err.Error())
 		return nil, err

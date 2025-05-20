@@ -15,30 +15,40 @@ type GBModel struct {
 
 type Channel struct {
 	GBModel
-	DeviceID     string       `json:"device_id" xml:"DeviceID" gorm:"index"`
-	Name         string       `json:"name" xml:"Name,omitempty"`
-	Manufacturer string       `json:"manufacturer" xml:"Manufacturer,omitempty"`
-	Model        string       `json:"model" xml:"Model,omitempty"`
-	Owner        string       `json:"owner" xml:"Owner,omitempty"`
-	CivilCode    string       `json:"civil_code" xml:"CivilCode,omitempty"`
-	Block        string       `json:"block" xml:"Block,omitempty"`
-	Address      string       `json:"address" xml:"Address,omitempty"`
-	Parental     string       `json:"parental" xml:"Parental,omitempty"`
-	ParentID     string       `json:"parent_id" xml:"ParentID,omitempty" gorm:"index"`
-	SafetyWay    string       `json:"safety_way" xml:"SafetyWay,omitempty"`
-	RegisterWay  string       `json:"register_way" xml:"RegisterWay,omitempty"`
-	CertNum      string       `json:"cert_num" xml:"CertNum,omitempty"`
-	Certifiable  string       `json:"certifiable" xml:"Certifiable,omitempty"`
-	ErrCode      string       `json:"err_code" xml:"ErrCode,omitempty"`
-	EndTime      string       `json:"end_time" xml:"EndTime,omitempty"`
-	Secrecy      string       `json:"secrecy" xml:"Secrecy,omitempty"`
-	IPAddress    string       `json:"ip_address" xml:"IPAddress,omitempty"`
-	Port         string       `json:"port" xml:"Port,omitempty"`
-	Password     string       `json:"password" xml:"Password,omitempty"`
-	Status       OnlineStatus `json:"status" xml:"Status,omitempty"`
-	Longitude    string       `json:"longitude" xml:"Longitude,omitempty"`
-	Latitude     string       `json:"latitude" xml:"Latitude,omitempty"`
-	SetupType    SetupType    `json:"setup_type,omitempty"`
+
+	// RootID 是设备的根ID, 用于查询设备的所有通道.
+	RootID   string `json:"-" xml:"-" gorm:"index"` // 根设备ID
+	TypeCode int    `json:"-" xml:"-" gorm:"index"` // 设备类型编码
+
+	// 所在组ID. 扩展的数据库字段, 方便查询某个目录下的设备列表.
+	// 如果ParentID不为空, ParentID作为组ID, 如果ParentID为空, BusinessGroupID作为组ID.
+	GroupID string `json:"-" xml:"-" gorm:"index"`
+
+	DeviceID        string       `json:"device_id" xml:"DeviceID" gorm:"index"`
+	Name            string       `json:"name" xml:"Name,omitempty"`
+	Manufacturer    string       `json:"manufacturer" xml:"Manufacturer,omitempty"`
+	Model           string       `json:"model" xml:"Model,omitempty"`
+	Owner           string       `json:"owner" xml:"Owner,omitempty"`
+	CivilCode       string       `json:"civil_code" xml:"CivilCode,omitempty"`
+	Block           string       `json:"block" xml:"Block,omitempty"`
+	Address         string       `json:"address" xml:"Address,omitempty"`
+	Parental        string       `json:"parental" xml:"Parental,omitempty"`
+	ParentID        string       `json:"parent_id" xml:"ParentID,omitempty" gorm:"index"` // 父设备ID/系统ID/虚拟目录ID
+	BusinessGroupID string       `json:"-" xml:"BusinessGroupID,omitempty" gorm:"index"`
+	SafetyWay       string       `json:"safety_way" xml:"SafetyWay,omitempty"`
+	RegisterWay     string       `json:"register_way" xml:"RegisterWay,omitempty"`
+	CertNum         string       `json:"cert_num" xml:"CertNum,omitempty"`
+	Certifiable     string       `json:"certifiable" xml:"Certifiable,omitempty"`
+	ErrCode         string       `json:"err_code" xml:"ErrCode,omitempty"`
+	EndTime         string       `json:"end_time" xml:"EndTime,omitempty"`
+	Secrecy         string       `json:"secrecy" xml:"Secrecy,omitempty"`
+	IPAddress       string       `json:"ip_address" xml:"IPAddress,omitempty"`
+	Port            string       `json:"port" xml:"Port,omitempty"`
+	Password        string       `json:"password" xml:"Password,omitempty"`
+	Status          OnlineStatus `json:"status" xml:"Status,omitempty"`
+	Longitude       string       `json:"longitude" xml:"Longitude,omitempty"`
+	Latitude        string       `json:"latitude" xml:"Latitude,omitempty"`
+	SetupType       SetupType    `json:"setup_type,omitempty"`
 }
 
 func (d *Channel) Online() bool {

@@ -23,6 +23,8 @@ type DaoDevice interface {
 	UpdateDeviceInfo(deviceId string, device *Device) error
 
 	UpdateOfflineDevices(deviceIds []string) error
+
+	ExistDevice(deviceId string) bool
 }
 
 type daoDevice struct {
@@ -66,7 +68,20 @@ func (d *daoDevice) SaveDevice(device *Device) error {
 
 func (d *daoDevice) UpdateDeviceInfo(deviceId string, device *Device) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		return tx.Model(&Device{}).Select("Manufacturer", "Model", "Firmware", "Name").Where("device_id =?", deviceId).Updates(*device).Error
+		var condition = make(map[string]interface{})
+		if device.Manufacturer != "" {
+			condition["manufacturer"] = device.Manufacturer
+		}
+		if device.Model != "" {
+			condition["model"] = device.Model
+		}
+		if device.Firmware != "" {
+			condition["firmware"] = device.Firmware
+		}
+		if device.Name != "" {
+			condition["name"] = device.Name
+		}
+		return tx.Model(&Device{}).Where("device_id =?", deviceId).Updates(condition).Error
 	})
 }
 
@@ -126,4 +141,14 @@ func (d *daoDevice) UpdateOfflineDevices(deviceIds []string) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&Device{}).Where("device_id in ?", deviceIds).Update("status", OFF).Error
 	})
+}
+
+func (d *daoDevice) ExistDevice(deviceId string) bool {
+	var device Device
+	tx := db.Select("id").Where("device_id =?", deviceId).Take(&device)
+	if tx.Error != nil {
+		return false
+	}
+
+	return true
 }
