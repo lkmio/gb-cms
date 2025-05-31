@@ -6,18 +6,18 @@ import (
 	"github.com/ghettovoice/gosip/sip/parser"
 )
 
-// Sink 国标级联转发流
+// Sink 级联/对讲/网关转发流Sink
 type Sink struct {
 	GBModel
 	SinkID       string          `json:"sink_id"`            // 流媒体服务器中的sink id
 	StreamID     StreamID        `json:"stream_id"`          // 推流ID
 	SinkStreamID StreamID        `json:"sink_stream_id"`     // 广播使用, 每个广播设备的唯一ID
-	Protocol     string          `json:"protocol,omitempty"` // 转发流协议, gb_cascaded_forward/gb_talk_forward
+	Protocol     string          `json:"protocol,omitempty"` // 转发流协议, gb_cascaded/gb_talk/gb_gateway
 	Dialog       *RequestWrapper `json:"dialog,omitempty"`
 	CallID       string          `json:"call_id,omitempty"`
 	ServerAddr   string          `json:"server_addr,omitempty"` // 级联上级地址
 	CreateTime   int64           `json:"create_time"`
-	SetupType    SetupType       // 转发类型
+	SetupType    SetupType       // 流转发类型
 }
 
 // Close 关闭级联会话. 是否向上级发送bye请求, 是否通知流媒体服务器发送删除sink
@@ -28,7 +28,7 @@ func (s *Sink) Close(bye, ms bool) {
 	}
 
 	if ms {
-		go CloseSink(string(s.StreamID), s.SinkID)
+		go MSCloseSink(string(s.StreamID), s.SinkID)
 	}
 }
 
@@ -51,7 +51,7 @@ func (s *Sink) MarshalJSON() ([]byte, error) {
 func (s *Sink) Bye() {
 	if s.Dialog != nil && s.Dialog.Request != nil {
 		byeRequest := CreateRequestFromDialog(s.Dialog.Request, sip.BYE)
-		go SipUA.SendRequest(byeRequest)
+		go SipStack.SendRequest(byeRequest)
 	}
 }
 

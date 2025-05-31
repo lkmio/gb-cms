@@ -17,8 +17,8 @@ type Channel struct {
 	GBModel
 
 	// RootID 是设备的根ID, 用于查询设备的所有通道.
-	RootID   string `json:"-" xml:"-" gorm:"index"` // 根设备ID
-	TypeCode int    `json:"-" xml:"-" gorm:"index"` // 设备类型编码
+	RootID   string `json:"root_id" xml:"-" gorm:"index"` // 根设备ID
+	TypeCode int    `json:"-" xml:"-" gorm:"index"`       // 设备类型编码
 
 	// 所在组ID. 扩展的数据库字段, 方便查询某个目录下的设备列表.
 	// 如果ParentID不为空, ParentID作为组ID, 如果ParentID为空, BusinessGroupID作为组ID.
@@ -49,6 +49,7 @@ type Channel struct {
 	Longitude       string       `json:"longitude" xml:"Longitude,omitempty"`
 	Latitude        string       `json:"latitude" xml:"Latitude,omitempty"`
 	SetupType       SetupType    `json:"setup_type,omitempty"`
+	ChannelNumber   int          `json:"channel_number" xml:"-"` // 对应1078的通道号
 }
 
 func (d *Channel) Online() bool {

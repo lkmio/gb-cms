@@ -25,6 +25,13 @@ type Config_ struct {
 		Addr     string `json:"addr"`
 		Password string `json:"password"`
 	}
+
+	Hooks struct {
+		Online   string `json:"online"`
+		Offline  string `json:"offline"`
+		Position string `json:"position"`
+		OnInvite string `json:"on_invite"`
+	}
 }
 
 type LogConfig struct {

@@ -6,8 +6,27 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
+)
+
+const (
+	TransStreamRtmp       = iota + 1
+	TransStreamFlv        = 2
+	TransStreamRtsp       = 3
+	TransStreamHls        = 4
+	TransStreamRtc        = 5
+	TransStreamGBCascaded = 6 // 国标级联转发
+	TransStreamGBTalk     = 7 // 国标广播/对讲转发
+	TransStreamGBGateway  = 8 // 国标网关
+)
+
+const (
+	SourceTypeRtmp = iota + 1
+	SourceType28181
+	SourceType1078
+	SourceTypeGBTalk
 )
 
 type SourceDetails struct {
@@ -43,10 +62,22 @@ type SourceSDP struct {
 
 type GBOffer struct {
 	SourceSDP
-	AnswerSetup string `json:"answer_setup,omitempty"` // 希望应答的连接方式
+	AnswerSetup         string `json:"answer_setup,omitempty"` // 希望应答的连接方式
+	TransStreamProtocol int    `json:"trans_stream_protocol,omitempty"`
 }
 
 func Send(path string, body interface{}) (*http.Response, error) {
+	return SendWithUrlParams(path, body, nil)
+}
+
+func SendWithUrlParams(path string, body interface{}, values url.Values) (*http.Response, error) {
+	if values != nil {
+		params := values.Encode()
+		if len(params) > 0 {
+			path = fmt.Sprintf("%s?%s", path, params)
+		}
+	}
+
 	url := fmt.Sprintf("http://%s/%s", Config.MediaServer, path)
 
 	data, err := json.Marshal(body)
@@ -67,7 +98,7 @@ func Send(path string, body interface{}) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func CreateGBSource(id, setup string, ssrc string, sessionName string) (string, uint16, []string, string, error) {
+func MSCreateGBSource(id, setup string, ssrc string, sessionName string) (string, uint16, []string, string, error) {
 	v := &SourceSDP{
 		Source: id,
 		SDP: SDP{
@@ -102,7 +133,7 @@ func CreateGBSource(id, setup string, ssrc string, sessionName string) (string, 
 	return host, uint16(port), data.Data.Urls, data.Data.SSRC, err
 }
 
-func ConnectGBSource(id, addr string) error {
+func MSConnectGBSource(id, addr string) error {
 	v := &SourceSDP{
 		Source: id,
 		SDP: SDP{
@@ -114,7 +145,7 @@ func ConnectGBSource(id, addr string) error {
 	return err
 }
 
-func CloseSource(id string) error {
+func MSCloseSource(id string) error {
 	v := &struct {
 		Source string `json:"source"`
 	}{
@@ -125,10 +156,53 @@ func CloseSource(id string) error {
 	return err
 }
 
-func CreateAnswer(id, addr, offerSetup, answerSetup, ssrc, sessionName string) (string, uint16, string, error) {
+func MSCloseSink(sourceId string, sinkId string) {
+	v := struct {
+		SourceID string `json:"source"`
+		SinkID   string `json:"sink"` // sink id
+	}{
+		sourceId, sinkId,
+	}
+
+	_, _ = Send("api/v1/sink/close", v)
+}
+
+func MSQuerySourceList() ([]*SourceDetails, error) {
+	response, err := Send("api/v1/source/list", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &Response[[]*SourceDetails]{}
+	if err = DecodeJSONBody(response.Body, data); err != nil {
+		return nil, err
+	}
+
+	return data.Data, err
+}
+
+func MSQuerySinkList(source string) ([]*SinkDetails, error) {
+	id := struct {
+		Source string `json:"source"`
+	}{source}
+
+	response, err := Send("api/v1/sink/list", id)
+	if err != nil {
+		return nil, err
+	}
+
+	data := &Response[[]*SinkDetails]{}
+	if err = DecodeJSONBody(response.Body, data); err != nil {
+		return nil, err
+	}
+
+	return data.Data, err
+}
+
+func MSAddForwardSink(protocol int, source, addr, offerSetup, answerSetup, ssrc, sessionName string, values url.Values) (string, uint16, string, error) {
 	offer := &GBOffer{
 		SourceSDP: SourceSDP{
-			Source: id,
+			Source: source,
 			SDP: SDP{
 				Addr:        addr,
 				Setup:       offerSetup,
@@ -136,10 +210,12 @@ func CreateAnswer(id, addr, offerSetup, answerSetup, ssrc, sessionName string) (
 				SessionName: sessionName,
 			},
 		},
-		AnswerSetup: answerSetup,
+		AnswerSetup:         answerSetup,
+		TransStreamProtocol: protocol,
 	}
 
-	response, err := Send("api/v1/gb28181/answer/create", offer)
+	var err error
+	response, err := SendWithUrlParams("api/v1/sink/add", offer, values)
 	if err != nil {
 		return "", 0, "", err
 	}
@@ -162,47 +238,4 @@ func CreateAnswer(id, addr, offerSetup, answerSetup, ssrc, sessionName string) (
 
 	port, _ := strconv.Atoi(p)
 	return host, uint16(port), data.Data.Sink, nil
-}
-
-func CloseSink(sourceId string, sinkId string) {
-	v := struct {
-		SourceID string `json:"source"`
-		SinkID   string `json:"sink"` // sink id
-	}{
-		sourceId, sinkId,
-	}
-
-	_, _ = Send("api/v1/sink/close", v)
-}
-
-func QuerySourceList() ([]*SourceDetails, error) {
-	response, err := Send("api/v1/source/list", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	data := &Response[[]*SourceDetails]{}
-	if err = DecodeJSONBody(response.Body, data); err != nil {
-		return nil, err
-	}
-
-	return data.Data, err
-}
-
-func QuerySinkList(source string) ([]*SinkDetails, error) {
-	id := struct {
-		Source string `json:"source"`
-	}{source}
-
-	response, err := Send("api/v1/sink/list", id)
-	if err != nil {
-		return nil, err
-	}
-
-	data := &Response[[]*SinkDetails]{}
-	if err = DecodeJSONBody(response.Body, data); err != nil {
-		return nil, err
-	}
-
-	return data.Data, err
 }

@@ -14,31 +14,37 @@ func startPlatformDevices() {
 	}
 
 	for _, record := range platforms {
-		platform, err := NewGBPlatform(record, SipUA)
+		platform, err := NewPlatform(&record.SIPUAOptions, SipStack)
 		// 都入库了不允许失败, 程序有BUG, 及时修复
 		utils.Assert(err == nil)
-		utils.Assert(PlatformManager.Add(platform))
+		utils.Assert(PlatformManager.Add(platform.ServerAddr, platform))
 
-		if err := PlatformDao.UpdatePlatformStatus(record.ServerAddr, OFF); err != nil {
+		if err := PlatformDao.UpdateOnlineStatus(OFF, record.ServerAddr); err != nil {
 			Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.SeverID)
 		}
 
-		// 恢复级联会话
-		// 不删会话能正常通信
-		//for _, stream := range streams {
-		//	sinks := stream.GetForwardStreamSinks()
-		//	for _, sink := range sinks {
-		//		if sink.DeviceID != record.SeverID {
-		//			continue
-		//		}
-		//
-		//		callId, _ := sink.Dialog.CallID()
-		//		channelCallId, _ := stream.Dialog.CallID()
-		//		platform.addSink(callId.Value(), channelCallId.Value())
-		//	}
-		//}
-
 		platform.Start()
+	}
+}
+
+// 启动1078设备
+func startJTDevices() {
+	devices, err := JTDeviceDao.LoadDevices()
+	if err != nil {
+		Sugar.Errorf("查询1078设备失败 err: %s", err.Error())
+		return
+	}
+
+	for _, record := range devices {
+		// 都入库了不允许失败, 程序有BUG, 及时修复
+		device, err := NewJTDevice(record, SipStack)
+		utils.Assert(err == nil)
+		utils.Assert(JTDeviceManager.Add(device.Username, device))
+
+		if err := JTDeviceDao.UpdateOnlineStatus(OFF, device.Username); err != nil {
+			Sugar.Infof("更新1078设备状态失败 err: %s device: %s", err.Error(), record.SeverID)
+		}
+		device.Start()
 	}
 }
 
@@ -55,10 +61,10 @@ func recoverStreams() (map[string]*Stream, map[string]*Sink) {
 	dbSinks, _ := SinkDao.LoadForwardSinks()
 
 	// 查询流媒体服务器中的推流源列表
-	msSources, err := QuerySourceList()
+	msSources, err := MSQuerySourceList()
 	if err != nil {
 		// 流媒体服务器崩了, 存在的所有记录都无效, 全部删除
-		Sugar.Warnf("恢复推流失败, 查询推流源列表发生错误, 删除数据库中的所有记录. err: %s", err.Error())
+		Sugar.Warnf("恢复推流失败, 查询推流源列表发生错误, 删除所有推流记录. err: %s", err.Error())
 	}
 
 	// 查询推流源下所有的转发sink列表
@@ -70,7 +76,7 @@ func recoverStreams() (map[string]*Stream, map[string]*Sink) {
 		}
 
 		// 查询转发sink
-		sinks, err := QuerySinkList(source.ID)
+		sinks, err := MSQuerySinkList(source.ID)
 		if err != nil {
 			Sugar.Warnf("查询拉流列表发生 err: %s", err.Error())
 			continue

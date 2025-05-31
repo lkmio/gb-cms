@@ -127,19 +127,19 @@ func (d *Device) BuildMessageRequest(to, body string) sip.Request {
 func (d *Device) QueryDeviceInfo() {
 	body := fmt.Sprintf(DeviceInfoFormat, "1", d.DeviceID)
 	request := d.BuildMessageRequest(d.DeviceID, body)
-	SipUA.SendRequest(request)
+	SipStack.SendRequest(request)
 }
 
 func (d *Device) QueryCatalog() {
 	body := fmt.Sprintf(CatalogFormat, "1", d.DeviceID)
 	request := d.BuildMessageRequest(d.DeviceID, body)
-	SipUA.SendRequest(request)
+	SipStack.SendRequest(request)
 }
 
 func (d *Device) QueryRecord(channelId, startTime, endTime string, sn int, type_ string) error {
 	body := fmt.Sprintf(QueryRecordFormat, sn, channelId, startTime, endTime, type_)
 	request := d.BuildMessageRequest(channelId, body)
-	SipUA.SendRequest(request)
+	SipStack.SendRequest(request)
 	return nil
 }
 
@@ -169,7 +169,7 @@ func (d *Device) SubscribePosition(channelId string) error {
 
 	event := Event("Catalog;id=2")
 	request.AppendHeader(&event)
-	response, err := SipUA.SendRequestWithTimeout(5, request)
+	response, err := SipStack.SendRequestWithTimeout(5, request)
 	if err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func (d *Device) SubscribePosition(channelId string) error {
 func (d *Device) Broadcast(sourceId, channelId string) sip.ClientTransaction {
 	body := fmt.Sprintf(BroadcastFormat, 1, sourceId, channelId)
 	request := d.BuildMessageRequest(channelId, body)
-	return SipUA.SendRequest(request)
+	return SipStack.SendRequest(request)
 }
 
 func (d *Device) UpdateChannel(id string, event string) {
@@ -241,7 +241,7 @@ func (d *Device) NewRequestBuilder(method sip.RequestMethod, fromUser, realm, to
 
 func (d *Device) BuildInviteRequest(sessionName, channelId, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) (sip.Request, error) {
 	builder := d.NewRequestBuilder(sip.INVITE, Config.SipID, Config.SipContactAddr, channelId)
-	sdp := BuildSDP(Config.SipID, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc)
+	sdp := BuildSDP("video", Config.SipID, sessionName, ip, port, startTime, stopTime, setup, speed, ssrc, "96 PS/90000")
 	builder.SetContentType(&SDPMessageType)
 	builder.SetContact(GlobalContactAddress)
 	builder.SetBody(sdp)

@@ -10,19 +10,24 @@ import (
 	"sync"
 )
 
-type GBPlatform struct {
-	*Client
+const (
+	UATypeGB = iota + 1
+	UATypeJT
+)
+
+type Platform struct {
+	*gbClient
 	lock  sync.Mutex
 	sinks map[string]StreamID // 保存级联转发的sink, 方便离线的时候关闭sink
 }
 
-func (g *GBPlatform) addSink(callId string, stream StreamID) {
+func (g *Platform) addSink(callId string, stream StreamID) {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	g.sinks[callId] = stream
 }
 
-func (g *GBPlatform) removeSink(callId string) StreamID {
+func (g *Platform) removeSink(callId string) StreamID {
 	g.lock.Lock()
 	defer g.lock.Unlock()
 	stream := g.sinks[callId]
@@ -31,17 +36,17 @@ func (g *GBPlatform) removeSink(callId string) StreamID {
 }
 
 // OnBye 被上级挂断
-func (g *GBPlatform) OnBye(request sip.Request) {
+func (g *Platform) OnBye(request sip.Request) {
 	id, _ := request.CallID()
 	g.CloseStream(id.Value(), false, true)
 }
 
 // CloseStream 关闭级联会话
-func (g *GBPlatform) CloseStream(callId string, bye, ms bool) {
+func (g *Platform) CloseStream(callId string, bye, ms bool) {
 	_ = g.removeSink(callId)
 	sink := RemoveForwardSinkWithCallId(callId)
 	if sink == nil {
-		Sugar.Errorf("关闭级联转发sink失败, 找不到sink. callid: %s", callId)
+		Sugar.Errorf("关闭转发sink失败, 找不到sink. callid: %s", callId)
 		return
 	}
 
@@ -49,7 +54,7 @@ func (g *GBPlatform) CloseStream(callId string, bye, ms bool) {
 }
 
 // CloseStreams 关闭所有级联会话
-func (g *GBPlatform) CloseStreams(bye, ms bool) {
+func (g *Platform) CloseStreams(bye, ms bool) {
 	var callIds []string
 	g.lock.Lock()
 
@@ -66,8 +71,8 @@ func (g *GBPlatform) CloseStreams(bye, ms bool) {
 }
 
 // OnInvite 被上级呼叫
-func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
-	Sugar.Infof("收到级联Invite请求 platform: %s channel: %s sdp: %s", g.SeverID, user, request.Body())
+func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
+	Sugar.Infof("收到上级Invite请求 platform: %s channel: %s sdp: %s", g.SeverID, user, request.Body())
 
 	source := request.Source()
 	platform := PlatformManager.Find(source)
@@ -75,124 +80,84 @@ func (g *GBPlatform) OnInvite(request sip.Request, user string) sip.Response {
 
 	deviceId, channel, err := PlatformDao.QueryPlatformChannel(g.ServerAddr, user)
 	if err != nil {
-		Sugar.Errorf("级联转发失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
+		Sugar.Errorf("处理上级Invite失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
 	// 查找通道对应的设备
 	device, _ := DeviceDao.QueryDevice(deviceId)
 	if device == nil {
-		Sugar.Errorf("级联转发失败, 设备不存在 device: %s channel: %s", device, user)
+		Sugar.Errorf("处理上级Invite失败, 设备不存在 device: %s channel: %s", device, user)
 		return CreateResponseWithStatusCode(request, http.StatusNotFound)
 	}
 
-	parse, ssrc, speed, media, offerSetup, answerSetup, err := ParseGBSDP(request.Body())
+	gbSdp, err := ParseGBSDP(request.Body())
 	if err != nil {
-		Sugar.Errorf("级联转发失败, 解析上级SDP发生错误 err: %s sdp: %s", err.Error(), request.Body())
+		Sugar.Errorf("处理上级Invite失败,err: %s sdp: %s", err.Error(), request.Body())
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
-	// 解析时间范围
-	time := strings.Split(parse.Time, " ")
-	if len(time) < 2 {
-		Sugar.Errorf("级联转发失败 上级sdp的时间范围格式错误 time: %s sdp: %s", parse.Time, request.Body())
-		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
-	}
-
-	var streamId StreamID
 	var inviteType InviteType
-	inviteType.SessionName2Type(strings.ToLower(parse.Session))
-	switch inviteType {
-	case InviteTypePlay:
-		streamId = GenerateStreamID(InviteTypePlay, channel.ParentID, user, "", "")
-		break
-	case InviteTypePlayback:
-		// 级联下载和回放不限制路数，也不共享流
-		streamId = GenerateStreamID(InviteTypePlayback, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
-		break
-	case InviteTypeDownload:
-		streamId = GenerateStreamID(InviteTypeDownload, channel.ParentID, user, time[0], time[1]) + StreamID("."+utils.RandStringBytes(10))
-		break
-	}
+	inviteType.SessionName2Type(strings.ToLower(gbSdp.sdp.Session))
+	streamId := GenerateStreamID(inviteType, channel.RootID, channel.DeviceID, gbSdp.startTime, gbSdp.stopTime)
 
+	// 如果流不存在, 向通道发送Invite请求
 	stream, _ := StreamDao.QueryStream(streamId)
-	addr := fmt.Sprintf("%s:%d", parse.Addr, media.Port)
 	if stream == nil {
-		s := channel.SetupType.String()
-		println(s)
-		stream, err = device.StartStream(inviteType, streamId, user, time[0], time[1], channel.SetupType.String(), 0, true)
+		stream, err = device.StartStream(inviteType, streamId, user, gbSdp.startTime, gbSdp.stopTime, channel.SetupType.String(), 0, true)
 		if err != nil {
-			Sugar.Errorf("级联转发失败 err: %s stream: %s", err.Error(), streamId)
+			Sugar.Errorf("处理上级Invite失败 err: %s stream: %s", err.Error(), streamId)
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 		}
 	}
 
-	ip, port, sinkID, err := CreateAnswer(string(streamId), addr, offerSetup, answerSetup, ssrc, string(inviteType))
-	if err != nil {
-		Sugar.Errorf("级联转发失败,向流媒体服务添加转发Sink失败 err: %s", err.Error())
-
-		if "play" != parse.Session {
-			CloseStream(streamId, true)
-		}
-
-		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
-	}
-
-	// answer添加contact头域
-	answer := BuildSDP(user, parse.Session, ip, port, time[0], time[1], answerSetup, speed, ssrc)
-	response := CreateResponseWithStatusCode(request, http.StatusOK)
-	response.RemoveHeader("Contact")
-	response.AppendHeader(GlobalContactAddress.AsContactHeader())
-	response.AppendHeader(&SDPMessageType)
-	response.SetBody(answer, true)
-
-	setToTag(response)
-
 	sink := &Sink{
-		SinkID:     sinkID,
 		StreamID:   streamId,
 		ServerAddr: g.ServerAddr,
-		Protocol:   "gb_cascaded_forward"}
-	sink.SetDialog(g.CreateDialogRequestFromAnswer(response, true))
+		Protocol:   "gb_cascaded"}
 
-	AddForwardSink(streamId, sink)
+	response, err := AddForwardSink(TransStreamGBCascaded, request, user, sink, streamId, gbSdp, inviteType, "96 PS/90000")
+	if err != nil {
+		Sugar.Errorf("处理上级Invite失败 err: %s stream: %s", err.Error(), streamId)
+	}
+
 	return response
 }
 
-func (g *GBPlatform) Start() {
-	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.Username, g.sipClient.Transport, g.sipClient.ServerAddr)
-	g.sipClient.Start()
-	g.sipClient.SetOnRegisterHandler(g.onlineCB, g.offlineCB)
+func (g *Platform) Start() {
+	Sugar.Infof("启动级联设备, deivce: %s transport: %s addr: %s", g.Username, g.sipUA.Transport, g.sipUA.ServerAddr)
+	g.sipUA.Start()
+	g.sipUA.SetOnRegisterHandler(g.Online, g.Offline)
 }
 
-func (g *GBPlatform) Stop() {
-	g.sipClient.Stop()
-	g.sipClient.SetOnRegisterHandler(nil, nil)
+func (g *Platform) Stop() {
+	g.sipUA.Stop()
+	g.sipUA.SetOnRegisterHandler(nil, nil)
 
 	// 释放所有推流
 	g.CloseStreams(true, true)
 }
 
-func (g *GBPlatform) Online() {
-	Sugar.Infof("级联设备上线 device: %s", g.SeverID)
+func (g *Platform) Online() {
+	Sugar.Infof("ua上线 device: %s server addr: %s", g.Username, g.ServerAddr)
 
-	if err := PlatformDao.UpdatePlatformStatus(g.SeverID, ON); err != nil {
-		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
+	if err := PlatformDao.UpdateOnlineStatus(ON, g.ServerAddr); err != nil {
+		Sugar.Infof("ua状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
 	}
 }
 
-func (g *GBPlatform) Offline() {
-	Sugar.Infof("级联设备离线 device: %s", g.SeverID)
+func (g *Platform) Offline() {
+	Sugar.Infof("ua离线 device: %s server addr: %s", g.Username, g.ServerAddr)
 
-	if err := PlatformDao.UpdatePlatformStatus(g.SeverID, OFF); err != nil {
-		Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), g.SeverID)
+	if err := PlatformDao.UpdateOnlineStatus(OFF, g.ServerAddr); err != nil {
+		Sugar.Infof("ua状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
 	}
 
 	// 释放所有推流
 	g.CloseStreams(true, true)
 }
 
-func NewGBPlatform(record *SIPUAParams, ua SipServer) (*GBPlatform, error) {
+func NewPlatform(record *SIPUAOptions, ua SipServer) (*Platform, error) {
 	if len(record.SeverID) != 20 {
 		return nil, fmt.Errorf("SeverID must be exactly 20 characters long")
 	}
@@ -201,6 +166,6 @@ func NewGBPlatform(record *SIPUAParams, ua SipServer) (*GBPlatform, error) {
 		return nil, err
 	}
 
-	gbClient := NewGBClient(record, ua)
-	return &GBPlatform{Client: gbClient.(*Client), sinks: make(map[string]StreamID, 8)}, nil
+	client := NewGBClient(record, ua)
+	return &Platform{gbClient: client.(*gbClient), sinks: make(map[string]StreamID, 8)}, nil
 }

@@ -34,6 +34,15 @@ func (s SetupType) String() string {
 	panic("invalid setup type")
 }
 
+func (s SetupType) MediaProtocol() string {
+	switch s {
+	case SetupTypePassive, SetupTypeActive:
+		return "TCP/RTP/AVP"
+	default:
+		return "RTP/AVP"
+	}
+}
+
 // RequestWrapper sql序列化
 type RequestWrapper struct {
 	sip.Request
@@ -71,7 +80,7 @@ func (r *RequestWrapper) Scan(value interface{}) error {
 type Stream struct {
 	GBModel
 	StreamID  StreamID        `json:"stream_id"`          // 流ID
-	Protocol  string          `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
+	Protocol  int             `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
 	Dialog    *RequestWrapper `json:"dialog,omitempty"`   // 国标流的SipCall会话
 	SinkCount int32           `json:"sink_count"`         // 拉流端计数(包含级联转发)
 	SetupType SetupType
@@ -158,7 +167,7 @@ func (s *Stream) Close(bye, ms bool) {
 
 	if ms {
 		// 告知媒体服务释放source
-		go CloseSource(string(s.StreamID))
+		go MSCloseSource(string(s.StreamID))
 	}
 
 	// 关闭所转发会话
@@ -170,7 +179,7 @@ func (s *Stream) Close(bye, ms bool) {
 
 func (s *Stream) Bye() {
 	if s.Dialog != nil && s.Dialog.Request != nil {
-		go SipUA.SendRequest(s.CreateRequestFromDialog(sip.BYE))
+		go SipStack.SendRequest(s.CreateRequestFromDialog(sip.BYE))
 		s.Dialog = nil
 	}
 }

@@ -47,7 +47,7 @@ func (d *Device) DoSubscribePosition(channelId string) error {
 
 	event := Event("Catalog;id=2")
 	request.AppendHeader(&event)
-	response, err := SipUA.SendRequestWithTimeout(5, request)
+	response, err := SipStack.SendRequestWithTimeout(5, request)
 	if err != nil {
 		return err
 	}

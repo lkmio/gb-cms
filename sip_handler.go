@@ -104,6 +104,14 @@ func (e *EventHandler) OnCatalog(device string, response *CatalogResponse) {
 	}
 }
 
+func GetTypeCode(id string) string {
+	if len(id) != 20 {
+		return ""
+	}
+
+	return id[10:13]
+}
+
 func (e *EventHandler) OnRecord(device string, response *QueryRecordInfoResponse) {
 	event := SNManager.FindEvent(response.SN)
 	if event == nil {

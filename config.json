@@ -22,6 +22,12 @@
     "offline": "",
 
     "?position" : "设备位置通知",
-    "position": ""
+    "position": "",
+
+    "?on_invite": "被邀请, 用于通知1078信令服务器, 向设备下发推流指令",
+    "on_invite": "http://localhost:8081/api/v1/jt1078/on_invite",
+
+    "?on_answer": "被查询录像,用于通知1078信令服务器",
+    "on_query_record": ""
   }
 }

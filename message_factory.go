@@ -12,15 +12,14 @@ const (
 	XmlHeaderGBK = `<?xml version="1.0" encoding="GB2312"?>` + "\r\n"
 )
 
-func BuildSDP(userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string) string {
+func BuildSDP(media, userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string, attrs ...string) string {
 	format := "v=0\r\n" +
 		"o=%s 0 0 IN IP4 %s\r\n" +
 		"s=%s\r\n" +
 		"c=IN IP4 %s\r\n" +
 		"t=%s %s\r\n" +
-		"m=video %d %s 96\r\n" +
-		"a=%s\r\n" +
-		"a=rtpmap:96 PS/90000\r\n"
+		"m=%s %d %s %s\r\n" +
+		"a=%s\r\n"
 
 	tcpFormat := "a=setup:%s\r\n" +
 		"a=connection:new\r\n"
@@ -34,7 +33,16 @@ func BuildSDP(userName, sessionName, ip string, port uint16, startTime, stopTime
 		mediaProtocol = "RTP/AVP"
 	}
 
-	sdp := fmt.Sprintf(format, userName, ip, sessionName, ip, startTime, stopTime, port, mediaProtocol, "recvonly")
+	var mediaFormats []string
+	for _, attr := range attrs {
+		mediaFormats = append(mediaFormats, strings.Split(attr, " ")[0])
+	}
+
+	sdp := fmt.Sprintf(format, userName, ip, sessionName, ip, startTime, stopTime, media, port, mediaProtocol, strings.Join(mediaFormats, " "), "recvonly")
+	for _, attr := range attrs {
+		sdp += fmt.Sprintf("a=rtpmap:%s\r\n", attr)
+	}
+
 	if tcp {
 		sdp += fmt.Sprintf(tcpFormat, setup)
 	}
@@ -54,6 +62,7 @@ func NewSIPRequestBuilderWithTransport(transport string) *sip.RequestBuilder {
 	}
 
 	builder.AddVia(&hop)
+	builder.SetUserAgent(nil)
 	return builder
 }
 

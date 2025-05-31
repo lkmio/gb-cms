@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"gb-cms/hook"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -31,7 +32,7 @@ type InviteParams struct {
 
 type StreamParams struct {
 	Stream     StreamID `json:"stream"`      // Source
-	Protocol   string   `json:"protocol"`    // 推拉流协议
+	Protocol   int      `json:"protocol"`    // 推拉流协议
 	RemoteAddr string   `json:"remote_addr"` // peer地址
 }
 
@@ -161,14 +162,22 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)                                               // 云台控制
 
 	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                          // 级联设备列表
-	apiServer.router.HandleFunc("/api/v1/platform/add", withJsonResponse(apiServer.OnPlatformAdd, &SIPUAParams{}))                          // 添加级联设备
-	apiServer.router.HandleFunc("/api/v1/platform/remove", withJsonResponse(apiServer.OnPlatformRemove, &SIPUAParams{}))                    // 删除级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/add", withJsonResponse(apiServer.OnPlatformAdd, &PlatformModel{}))                        // 添加级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/remove", withJsonResponse(apiServer.OnPlatformRemove, &PlatformModel{}))                  // 删除级联设备
 	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", withJsonResponse(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
 	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", withJsonResponse(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联解绑通道
 
 	apiServer.router.HandleFunc("/api/v1/broadcast/invite", withJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &DefaultSetupType})) // 发起语音广播
 	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", withJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                            // 挂断广播会话
 	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                // 语音对讲
+
+	apiServer.router.HandleFunc("/api/v1/jt/device/add", withJsonResponse(apiServer.OnVirtualDeviceAdd, &JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/edit", withJsonResponse(apiServer.OnVirtualDeviceEdit, &JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/remove", withJsonResponse(apiServer.OnVirtualDeviceRemove, &JTDeviceModel{}))
+
+	apiServer.router.HandleFunc("/api/v1/jt/channel/add", withJsonResponse(apiServer.OnVirtualChannelAdd, &Channel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", withJsonResponse(apiServer.OnVirtualChannelEdit, &Channel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", withJsonResponse(apiServer.OnVirtualChannelRemove, &Channel{}))
 
 	http.Handle("/", apiServer.router)
 
@@ -201,9 +210,13 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001.session_id_0?setup=passive"&"stream_type=playback"&"start_time=2024-06-18T15:20:56"&"end_time=2024-06-18T15:25:56
 	//ffplay -i rtmp://127.0.0.1/34020000001320000001/34020000001310000001.session_id_0?setup=passive&stream_type=playback&start_time=2024-06-18T15:20:56&end_time=2024-06-18T15:25:56
 
+	// 拉流地址携带的参数
+	query := r.URL.Query()
+	jtSource := query.Get("forward_type") == "gateway_1078"
+
 	// 跳过非国标拉流
 	sourceStream := strings.Split(string(params.Stream), "/")
-	if len(sourceStream) != 2 || len(sourceStream[0]) != 20 || len(sourceStream[1]) < 20 {
+	if !jtSource && (len(sourceStream) != 2 || len(sourceStream[0]) != 20 || len(sourceStream[1]) < 20) {
 		Sugar.Infof("跳过非国标拉流 stream: %s", params.Stream)
 		return
 	}
@@ -211,6 +224,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	// 已经存在，累加计数
 	if stream, _ := StreamDao.QueryStream(params.Stream); stream != nil {
 		stream.IncreaseSinkCount()
+		return
 	}
 
 	deviceId := sourceStream[0]
@@ -219,35 +233,52 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 		channelId = channelId[:20]
 	}
 
-	// 发起invite的参数
-	query := r.URL.Query()
-	inviteParams := &InviteParams{
-		DeviceID:  deviceId,
-		ChannelID: channelId,
-		StartTime: query.Get("start_time"),
-		EndTime:   query.Get("end_time"),
-		Setup:     strings.ToLower(query.Get("setup")),
-		Speed:     query.Get("speed"),
-		streamId:  params.Stream,
-	}
-
 	var code int
-	var stream *Stream
-	var err error
-	streamType := strings.ToLower(query.Get("stream_type"))
-	if "playback" == streamType {
-		code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
-	} else if "download" == streamType {
-		code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false, w, r)
-	} else {
-		code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
-	}
+	// 通知1078信令服务器
+	if jtSource {
+		if len(sourceStream) != 2 {
+			code = http.StatusBadRequest
+			Sugar.Errorf("1078信令服务器转发请求参数错误")
+			return
+		}
 
-	if err != nil {
-		Sugar.Errorf("请求流失败 err: %s", err.Error())
-		utils.Assert(http.StatusOK != code)
-	} else if http.StatusOK == code {
-		stream.IncreaseSinkCount()
+		simNumber := sourceStream[0]
+		channelNumber := sourceStream[1]
+		response, err := hook.PostOnInviteEvent(simNumber, channelNumber)
+		if err != nil {
+			code = http.StatusInternalServerError
+			Sugar.Errorf("通知1078信令服务器失败 err: %s sim number: %s channel number: %s", err.Error(), simNumber, channelNumber)
+		} else if code = response.StatusCode; code != http.StatusOK {
+			Sugar.Errorf("通知1078信令服务器失败. 响应状态码: %d sim number: %s channel number: %s", response.StatusCode, simNumber, channelNumber)
+		}
+	} else {
+		inviteParams := &InviteParams{
+			DeviceID:  deviceId,
+			ChannelID: channelId,
+			StartTime: query.Get("start_time"),
+			EndTime:   query.Get("end_time"),
+			Setup:     strings.ToLower(query.Get("setup")),
+			Speed:     query.Get("speed"),
+			streamId:  params.Stream,
+		}
+
+		var stream *Stream
+		var err error
+		streamType := strings.ToLower(query.Get("stream_type"))
+		if "playback" == streamType {
+			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
+		} else if "download" == streamType {
+			code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false, w, r)
+		} else {
+			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
+		}
+
+		if err != nil {
+			Sugar.Errorf("请求流失败 err: %s", err.Error())
+			utils.Assert(http.StatusOK != code)
+		} else if http.StatusOK == code {
+			stream.IncreaseSinkCount()
+		}
 	}
 
 	w.WriteHeader(code)
@@ -256,63 +287,50 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	//stream := StreamManager.Find(params.StreamID)
-	//if stream == nil {
-	//	Sugar.Errorf("处理播放结束事件失败, stream不存在. id: %s", params.StreamID)
-	//	return
-	//}
-
-	//if 0 == stream.DecreaseSinkCount() && Config.AutoCloseOnIdle {
-	//	CloseStream(params.StreamID, true)
-	//}
-
-	if !strings.HasPrefix(params.Protocol, "gb") {
-		return
-	}
-
 	sink := RemoveForwardSink(params.Stream, params.Sink)
 	if sink == nil {
-		Sugar.Errorf("处理转发结束事件失败, 找不到sink. stream: %s sink: %s", params.Stream, params.Sink)
 		return
 	}
 
 	// 级联断开连接, 向上级发送Bye请求
-	if params.Protocol == "gb_cascaded_forward" {
+	if params.Protocol == TransStreamGBCascaded {
 		if platform := PlatformManager.Find(sink.ServerAddr); platform != nil {
 			callID, _ := sink.Dialog.CallID()
-			platform.CloseStream(callID.Value(), true, false)
+			platform.(*Platform).CloseStream(callID.Value(), true, false)
 		}
-	} else if params.Protocol == "gb_talk_forward" {
-		// 对讲设备断开连接
+	} else {
+		sink.Close(true, false)
 	}
-
-	sink.Close(true, false)
 }
 
 func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("推流事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	stream := Dialogs.Find(string(params.Stream))
+	if SourceTypeRtmp == params.Protocol {
+		return
+	}
+
+	stream := EarlyDialogs.Find(string(params.Stream))
 	if stream != nil {
 		stream.Put(200)
 	}
 
 	// 对讲websocket已连接
 	// 创建stream
-	if "gb_talk" == params.Protocol {
+	if params.Protocol == SourceTypeGBTalk {
 		Sugar.Infof("对讲websocket已连接, stream: %s", params.Stream)
+	}
 
-		s := &Stream{
-			StreamID: params.Stream,
-			Protocol: params.Protocol,
-		}
+	s := &Stream{
+		StreamID: params.Stream,
+		Protocol: params.Protocol,
+	}
 
-		_, ok := StreamDao.SaveStream(s)
-		if !ok {
-			Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+	_, ok := StreamDao.SaveStream(s)
+	if !ok {
+		Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 }
 
@@ -321,7 +339,7 @@ func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter,
 
 	CloseStream(params.Stream, false)
 	// 对讲websocket断开连接
-	if "gb_talk" == params.Protocol {
+	if SourceTypeGBTalk == params.Protocol {
 
 	}
 }
@@ -330,7 +348,7 @@ func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter,
 	Sugar.Infof("推流空闲超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp空闲超时, 返回非200应答, 删除会话
-	if params.Protocol != "rtmp" {
+	if SourceTypeRtmp != params.Protocol {
 		w.WriteHeader(http.StatusForbidden)
 		CloseStream(params.Stream, false)
 	}
@@ -340,7 +358,7 @@ func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWrit
 	Sugar.Infof("收流超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp推流超时, 返回非200应答, 删除会话
-	if params.Protocol != "rtmp" {
+	if SourceTypeRtmp != params.Protocol {
 		w.WriteHeader(http.StatusForbidden)
 		CloseStream(params.Stream, false)
 	}
@@ -576,7 +594,7 @@ func (api *ApiServer) OnSeekPlayback(v *SeekParams, w http.ResponseWriter, r *ht
 	seekRequest.RemoveHeader(RtspMessageType.Name())
 	seekRequest.AppendHeader(&RtspMessageType)
 
-	SipUA.SendRequest(seekRequest)
+	SipStack.SendRequest(seekRequest)
 	return nil, nil
 }
 
@@ -605,7 +623,7 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 	defer func() {
 		if !ok {
 			if InviteSourceId != "" {
-				Dialogs.Remove(InviteSourceId)
+				EarlyDialogs.Remove(InviteSourceId)
 			}
 
 			if sinkStreamId != "" {
@@ -642,7 +660,7 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 	sink := &Sink{
 		StreamID:     v.StreamId,
 		SinkStreamID: sinkStreamId,
-		Protocol:     "gb_talk_forward",
+		Protocol:     "gb_talk",
 		CreateTime:   time.Now().Unix(),
 		SetupType:    setupType,
 	}
@@ -651,7 +669,7 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 	if err := SinkDao.SaveForwardSink(v.StreamId, sink); err != nil {
 		Sugar.Errorf("广播失败, 设备正在广播中. stream: %s", sinkStreamId)
 		return nil, fmt.Errorf("设备正在广播中")
-	} else if _, ok = Dialogs.Add(InviteSourceId, streamWaiting); !ok {
+	} else if _, ok = EarlyDialogs.Add(InviteSourceId, streamWaiting); !ok {
 		Sugar.Errorf("广播失败, id冲突. id: %s", InviteSourceId)
 		return nil, fmt.Errorf("id冲突")
 	}
@@ -682,7 +700,8 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 			Sugar.Errorf("广播失败, 下级设备invite失败. stream: %s", sinkStreamId)
 			return nil, fmt.Errorf("错误应答 code: %d", code)
 		} else {
-			ok = AddForwardSink(v.StreamId, sink)
+			//ok = AddForwardSink(v.StreamId, sink)
+			ok = true
 		}
 		break
 	case <-cancel.Done():
@@ -712,7 +731,7 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (api *ApiServer) OnPlatformAdd(v *SIPUAParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformAdd(v *PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	Sugar.Infof("添加级联设备 %v", *v)
 
 	if v.Username == "" {
@@ -731,27 +750,32 @@ func (api *ApiServer) OnPlatformAdd(v *SIPUAParams, w http.ResponseWriter, r *ht
 	}
 
 	v.Status = "OFF"
-
-	platform, err := NewGBPlatform(v, SipUA)
-	if err == nil {
-		err = AddPlatform(platform)
+	platform, err := NewPlatform(&v.SIPUAOptions, SipStack)
+	if err != nil {
+		Sugar.Errorf("创建级联设备失败 err: %s", err.Error())
+		return nil, err
 	}
 
-	if err == nil {
-		platform.Start()
+	if !PlatformManager.Add(v.ServerAddr, platform) {
+		Sugar.Errorf("ua添加失败, id冲突. key: %s", v.ServerAddr)
+		return fmt.Errorf("ua添加失败, id冲突. key: %s", v.ServerAddr), nil
+	} else if err = PlatformDao.SavePlatform(v); err != nil {
+		PlatformManager.Remove(v.ServerAddr)
+		Sugar.Errorf("保存级联设备失败 err: %s", err.Error())
+		return nil, err
 	}
 
+	platform.Start()
 	return nil, err
 }
 
-func (api *ApiServer) OnPlatformRemove(v *SIPUAParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformRemove(v *PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	Sugar.Infof("删除级联设备 %v", *v)
 
-	platform, err := RemovePlatform(v.ServerAddr)
+	err := PlatformDao.DeleteUAByAddr(v.ServerAddr)
 	if err != nil {
-		Sugar.Errorf("删除级联设备失败 err: %s", err.Error())
 		return nil, err
-	} else if platform != nil {
+	} else if platform := PlatformManager.Remove(v.ServerAddr); platform != nil {
 		platform.Stop()
 	}
 
@@ -759,8 +783,8 @@ func (api *ApiServer) OnPlatformRemove(v *SIPUAParams, w http.ResponseWriter, r 
 }
 
 func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
-	platforms := LoadPlatforms()
-	httpResponseOK(w, platforms)
+	//platforms := LoadPlatforms()
+	//httpResponseOK(w, platforms)
 }
 
 func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {

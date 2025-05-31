@@ -2,12 +2,8 @@ package main
 
 import (
 	"fmt"
-	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip/sip"
-	"net"
 	"net/http"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -18,106 +14,49 @@ const (
 		"<SourceID>%s</SourceID>\r\n" +
 		"<TargetID>%s</TargetID>\r\n" +
 		"</Notify>\r\n"
-
-	AnswerFormat = "v=0\r\n" +
-		"o=%s 0 0 IN IP4 %s\r\n" +
-		"s=Play\r\n" +
-		"c=IN IP4 %s\r\n" +
-		"t=0 0\r\n" +
-		"m=audio %d %s 8\r\n" +
-		"a=sendonly\r\n" +
-		"a=rtpmap:8 PCMA/8000\r\n"
 )
-
-func findSetup(descriptor *sdp.SDP) SetupType {
-	var tcp bool
-	if descriptor.Audio != nil {
-		tcp = strings.Contains(descriptor.Audio.Proto, "TCP")
-	}
-
-	if !tcp && descriptor.Video != nil {
-		tcp = strings.Contains(descriptor.Video.Proto, "TCP")
-	}
-
-	setup := SetupTypeUDP
-	if tcp {
-		for _, attr := range descriptor.Attrs {
-			if "setup" == attr[0] {
-				if SetupTypePassive.String() == attr[1] {
-					setup = SetupTypePassive
-				} else if SetupTypeActive.String() == attr[1] {
-					setup = SetupTypeActive
-				}
-			}
-		}
-	}
-
-	return setup
-}
 
 func (d *Device) DoBroadcast(sourceId, channelId string) error {
 	body := fmt.Sprintf(BroadcastFormat, 1, sourceId, channelId)
 	request := d.BuildMessageRequest(channelId, body)
 
-	SipUA.SendRequest(request)
+	SipStack.SendRequest(request)
 	return nil
 }
 
 // OnInvite 语音广播
 func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
-	streamWaiting := Dialogs.Find(user)
+	// 会话是否存在
+	streamWaiting := EarlyDialogs.Find(user)
 	if streamWaiting == nil {
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
+	// 解析offer
 	sink := streamWaiting.data.(*Sink)
 	body := request.Body()
-	offer, err := sdp.Parse(body)
+	offer, err := ParseGBSDP(body)
 	if err != nil {
 		Sugar.Infof("广播失败, 解析sdp发生err: %s  sink: %s  sdp: %s", err.Error(), sink.SinkID, body)
 		streamWaiting.Put(http.StatusBadRequest)
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
-	} else if offer.Audio == nil {
+	} else if offer.media == nil {
 		Sugar.Infof("广播失败, offer中缺少audio字段. sink: %s sdp: %s", sink.SinkID, body)
 		streamWaiting.Put(http.StatusBadRequest)
 		return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 	}
 
-	// 通知流媒体服务器创建answer
-	offerSetup := findSetup(offer)
-	answerSetup := sink.SetupType
-	finalSetup := offerSetup
-	if answerSetup != offerSetup {
-		finalSetup = answerSetup
+	// http接口中设置的setup优先级高于sdp中的setup
+	if offer.answerSetup != sink.SetupType {
+		offer.answerSetup = sink.SetupType
 	}
 
-	addr := net.JoinHostPort(offer.Addr, strconv.Itoa(int(offer.Audio.Port)))
-	host, port, sinkId, err := CreateAnswer(string(sink.StreamID), addr, offerSetup.String(), answerSetup.String(), "", string(InviteTypeBroadcast))
+	response, err := AddForwardSink(TransStreamGBTalk, request, user, sink, sink.StreamID, offer, InviteTypeBroadcast, "8 PCMA/8000")
 	if err != nil {
 		Sugar.Errorf("广播失败, 流媒体创建answer发生err: %s  sink: %s ", err.Error(), sink.SinkID)
 		streamWaiting.Put(http.StatusInternalServerError)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
-
-	var answerSDP string
-	// UDP广播
-	if SetupTypeUDP == finalSetup {
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipID, host, host, port, "RTP/AVP")
-	} else {
-		// TCP广播
-		answerSDP = fmt.Sprintf(AnswerFormat, Config.SipID, host, host, port, "TCP/RTP/AVP")
-	}
-
-	// 创建answer和dialog
-	response := CreateResponseWithStatusCode(request, http.StatusOK)
-	setToTag(response)
-
-	sink.SinkID = sinkId
-	sink.SetDialog(d.CreateDialogRequestFromAnswer(response, true))
-
-	response.SetBody(answerSDP, true)
-	response.AppendHeader(&SDPMessageType)
-	response.AppendHeader(GlobalContactAddress.AsContactHeader())
 
 	streamWaiting.Put(http.StatusOK)
 	return response

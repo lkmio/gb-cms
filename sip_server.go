@@ -64,6 +64,13 @@ type sipServer struct {
 	handler         EventHandler
 }
 
+type SipRequestSource struct {
+	req         sip.Request
+	tx          sip.ServerTransaction
+	fromCascade bool
+	fromJt      bool
+}
+
 func (s *sipServer) Send(msg sip.Message) error {
 	return s.sip.Send(msg)
 }
@@ -74,39 +81,39 @@ func setToTag(response sip.Message) {
 	to.Params = sip.NewParams().Add("tag", sip.String{Str: util.RandString(10)})
 }
 
-func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent bool) {
+func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 	var device GBDevice
 	var queryCatalog bool
 
-	fromHeaders := req.GetHeaders("From")
+	fromHeaders := wrapper.req.GetHeaders("From")
 	if len(fromHeaders) == 0 {
-		Sugar.Errorf("not find From header. message: %s", req.String())
+		Sugar.Errorf("not find From header. message: %s", wrapper.req.String())
 		return
 	}
 
-	_ = req.GetHeaders("Authorization")
+	_ = wrapper.req.GetHeaders("Authorization")
 	fromHeader := fromHeaders[0].(*sip.FromHeader)
-	expiresHeader := req.GetHeaders("Expires")
+	expiresHeader := wrapper.req.GetHeaders("Expires")
 
-	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
+	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
 	id := fromHeader.Address.User().String()
 	if len(expiresHeader) > 0 && "0" == expiresHeader[0].Value() {
 		Sugar.Infof("设备注销 Device: %s", id)
 		s.handler.OnUnregister(id)
 	} else /*if authorizationHeader == nil*/ {
 		var expires int
-		expires, device, queryCatalog = s.handler.OnRegister(id, req.Transport(), req.Source())
+		expires, device, queryCatalog = s.handler.OnRegister(id, wrapper.req.Transport(), wrapper.req.Source())
 		if device != nil {
-			Sugar.Infof("注册成功 Device: %s addr: %s", id, req.Source())
+			Sugar.Infof("注册成功 Device: %s addr: %s", id, wrapper.req.Source())
 			expiresHeader := sip.Expires(expires)
 			response.AppendHeader(&expiresHeader)
 		} else {
 			Sugar.Infof("注册失败 Device: %s", id)
-			response = sip.NewResponseFromRequest("", req, 401, "Unauthorized", "")
+			response = sip.NewResponseFromRequest("", wrapper.req, 401, "Unauthorized", "")
 		}
 	}
 
-	SendResponse(tx, response)
+	SendResponse(wrapper.tx, response)
 
 	if device != nil {
 		// 查询设备信息
@@ -119,9 +126,9 @@ func (s *sipServer) OnRegister(req sip.Request, tx sip.ServerTransaction, parent
 }
 
 // OnInvite 收到上级预览/下级设备广播请求
-func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent bool) {
-	SendResponse(tx, sip.NewResponseFromRequest("", req, 100, "Trying", ""))
-	user := req.Recipient().User().String()
+func (s *sipServer) OnInvite(wrapper *SipRequestSource) {
+	SendResponse(wrapper.tx, sip.NewResponseFromRequest("", wrapper.req, 100, "Trying", ""))
+	user := wrapper.req.Recipient().User().String()
 
 	//if len(user) != 20 {
 	//	SendResponseWithStatusCode(req, tx, http.StatusNotFound)
@@ -130,43 +137,52 @@ func (s *sipServer) OnInvite(req sip.Request, tx sip.ServerTransaction, parent b
 
 	// 查找对应的设备
 	var device GBDevice
-	if parent {
+	if wrapper.fromCascade {
 		// 级联设备
-		device = PlatformManager.Find(req.Source())
-	} else if session := Dialogs.Find(user); session != nil {
-		// 语音广播设备
-		device, _ = DeviceDao.QueryDevice(session.data.(*Sink).SinkStreamID.DeviceID())
+		device = PlatformManager.Find(wrapper.req.Source())
+	} else if wrapper.fromJt {
+		// 部标设备
+		// 1. 根据通道查找到对应的设备ID
+		// 2. 根据Subject头域查找对应的设备ID
+		if channels, _ := ChannelDao.QueryChannelsByChannelID(user); len(channels) > 0 {
+			device = JTDeviceManager.Find(channels[0].RootID)
+		}
 	} else {
-		// 根据Subject头域查找设备
-		headers := req.GetHeaders("Subject")
-		if len(headers) > 0 {
-			subject := headers[0].(*sip.GenericHeader)
-			split := strings.Split(strings.Split(subject.Value(), ",")[0], ":")
-			if len(split) > 1 {
-				device, _ = DeviceDao.QueryDevice(split[1])
+		if session := EarlyDialogs.Find(user); session != nil {
+			// 语音广播设备
+			device, _ = DeviceDao.QueryDevice(session.data.(*Sink).SinkStreamID.DeviceID())
+		} else {
+			// 根据Subject头域查找设备
+			headers := wrapper.req.GetHeaders("Subject")
+			if len(headers) > 0 {
+				subject := headers[0].(*sip.GenericHeader)
+				split := strings.Split(strings.Split(subject.Value(), ",")[0], ":")
+				if len(split) > 1 {
+					device, _ = DeviceDao.QueryDevice(split[1])
+				}
 			}
 		}
 	}
 
 	if device == nil {
-		logger.Error("处理Invite失败, 找不到设备. request: %s", req.String())
+		logger.Error("处理Invite失败, 找不到设备. request: %s", wrapper.req.String())
 
-		SendResponseWithStatusCode(req, tx, http.StatusNotFound)
+		SendResponseWithStatusCode(wrapper.req, wrapper.tx, http.StatusNotFound)
 	} else {
-		response := device.OnInvite(req, user)
-		SendResponse(tx, response)
+		response := device.OnInvite(wrapper.req, user)
+		SendResponse(wrapper.tx, response)
 	}
 }
 
-func (s *sipServer) OnAck(req sip.Request, tx sip.ServerTransaction, parent bool) {
+func (s *sipServer) OnAck(wrapper *SipRequestSource) {
 
 }
 
-func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool) {
-	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
-	SendResponse(tx, response)
+func (s *sipServer) OnBye(wrapper *SipRequestSource) {
+	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
+	SendResponse(wrapper.tx, response)
 
-	id, _ := req.CallID()
+	id, _ := wrapper.req.CallID()
 	var deviceId string
 
 	if stream, _ := StreamDao.DeleteStreamByCallID(id.Value()); stream != nil {
@@ -177,48 +193,53 @@ func (s *sipServer) OnBye(req sip.Request, tx sip.ServerTransaction, parent bool
 		sink.Close(false, true)
 	}
 
-	if parent {
-		// 上级设备挂断
-		if platform := PlatformManager.Find(req.Source()); platform != nil {
-			platform.OnBye(req)
+	if wrapper.fromCascade {
+		// 级联上级挂断
+		if platform := PlatformManager.Find(wrapper.req.Source()); platform != nil {
+			platform.OnBye(wrapper.req)
+		}
+	} else if wrapper.fromJt {
+		// 部标设备挂断
+		if jtDevice := JTDeviceManager.Find(deviceId); jtDevice != nil {
+			jtDevice.OnBye(wrapper.req)
 		}
 	} else if device, _ := DeviceDao.QueryDevice(deviceId); device != nil {
-		device.OnBye(req)
+		device.OnBye(wrapper.req)
 	}
 }
 
-func (s *sipServer) OnNotify(req sip.Request, tx sip.ServerTransaction, parent bool) {
-	response := sip.NewResponseFromRequest("", req, 200, "OK", "")
-	SendResponse(tx, response)
+func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
+	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
+	SendResponse(wrapper.tx, response)
 
 	mobilePosition := MobilePositionNotify{}
-	if err := DecodeXML([]byte(req.Body()), &mobilePosition); err != nil {
-		Sugar.Errorf("解析位置通知失败 err: %s request: %s", err.Error(), req.String())
+	if err := DecodeXML([]byte(wrapper.req.Body()), &mobilePosition); err != nil {
+		Sugar.Errorf("解析位置通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
 		return
 	}
 
 	s.handler.OnNotifyPosition(&mobilePosition)
 }
 
-func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent bool) {
+func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 	var ok bool
 	defer func() {
 		var response sip.Response
 		if ok {
-			response = CreateResponseWithStatusCode(req, http.StatusOK)
+			response = CreateResponseWithStatusCode(wrapper.req, http.StatusOK)
 		} else {
-			response = CreateResponseWithStatusCode(req, http.StatusForbidden)
+			response = CreateResponseWithStatusCode(wrapper.req, http.StatusForbidden)
 		}
 
-		SendResponse(tx, response)
+		SendResponse(wrapper.tx, response)
 	}()
 
-	body := req.Body()
+	body := wrapper.req.Body()
 	xmlName := GetRootElementName(body)
 	cmd := GetCmdType(body)
 	src, ok := s.xmlReflectTypes[xmlName+"."+cmd]
 	if !ok {
-		Sugar.Errorf("处理XML消息失败, 找不到结构体. request: %s", req.String())
+		Sugar.Errorf("处理XML消息失败, 找不到结构体. request: %s", wrapper.req.String())
 		return
 	}
 
@@ -232,7 +253,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	deviceId := message.(BaseMessageGetter).GetDeviceID()
 	if CmdBroadcast == cmd {
 		// 广播消息
-		from, _ := req.From()
+		from, _ := wrapper.req.From()
 		deviceId = from.Address.User().String()
 	}
 
@@ -241,9 +262,15 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 		break
 	case XmlNameQuery:
 		// 被上级查询
-		device := PlatformManager.Find(req.Source())
+		var device GBClient
+		if wrapper.fromCascade {
+			device = PlatformManager.Find(wrapper.req.Source())
+		} else if wrapper.fromJt {
+			device = JTDeviceManager.Find(deviceId)
+		}
+
 		if ok = device != nil; !ok {
-			Sugar.Errorf("处理上级请求消息失败, 找不到级联设备 addr: %s request: %s", req.Source(), req.String())
+			Sugar.Errorf("处理上级请求消息失败, 找不到级联设备 addr: %s request: %s", wrapper.req.Source(), wrapper.req.String())
 			return
 		}
 
@@ -253,13 +280,15 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 			var channels []*Channel
 
 			// 查询出所有通道
-			if PlatformDao != nil {
-				result, err := PlatformDao.QueryPlatformChannels(device.ServerAddr)
+			if wrapper.fromCascade {
+				result, err := PlatformDao.QueryPlatformChannels(device.GetDomain())
 				if err != nil {
 					Sugar.Errorf("查询设备通道列表失败 err: %s device: %s", err.Error(), device.GetID())
 				}
 
 				channels = result
+			} else if wrapper.fromJt {
+				channels, _ = ChannelDao.QueryChannelsByRootID(device.GetID())
 			} else {
 				// 从模拟多个国标客户端中查找
 				channels = DeviceChannelsManager.FindChannels(device.GetID())
@@ -272,7 +301,7 @@ func (s *sipServer) OnMessage(req sip.Request, tx sip.ServerTransaction, parent 
 	case XmlNameNotify:
 		if CmdKeepalive == cmd {
 			// 下级设备心跳通知
-			ok = s.handler.OnKeepAlive(deviceId, req.Source())
+			ok = s.handler.OnKeepAlive(deviceId, wrapper.req.Source())
 		}
 
 		break
@@ -332,22 +361,28 @@ func (s *sipServer) ListenAddr() string {
 }
 
 // 过滤SIP消息、超找消息来源
-func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool)) gosip.RequestHandler {
+func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 	return func(req sip.Request, tx sip.ServerTransaction) {
 
 		source := req.Source()
+		// 是否是级联上级下发的请求
 		platform := PlatformManager.Find(source)
+		// 是否是部标设备上级下发的请求
+		var fromJt bool
+		if platform == nil {
+			fromJt = JTDeviceManager.ExistClientByServerAddr(req.Source())
+		}
 		switch req.Method() {
 		case sip.SUBSCRIBE, sip.INFO:
-			if platform == nil {
-				// SUBSCRIBE/INFO只能上级发起
+			if platform == nil || fromJt {
+				// SUBSCRIBE/INFO只能本级域向下级发起
 				SendResponseWithStatusCode(req, tx, http.StatusBadRequest)
 				Sugar.Errorf("处理%s请求失败, %s消息只能上级发起. request: %s", req.Method(), req.Method(), req.String())
 				return
 			}
 			break
 		case sip.NOTIFY, sip.REGISTER:
-			if platform != nil {
+			if platform != nil || fromJt {
 				// NOTIFY和REGISTER只能下级发起
 				SendResponseWithStatusCode(req, tx, http.StatusBadRequest)
 				Sugar.Errorf("处理%s请求失败, %s消息只能下级发起. request: %s", req.Method(), req.Method(), req.String())
@@ -356,13 +391,19 @@ func filterRequest(f func(req sip.Request, tx sip.ServerTransaction, parent bool
 			break
 		}
 
-		f(req, tx, platform != nil)
+		f(&SipRequestSource{
+			req,
+			tx,
+			platform != nil,
+			fromJt,
+		})
 	}
 }
 
 func StartSipServer(id, listenIP, publicIP string, listenPort int) (SipServer, error) {
 	ua := gosip.NewServer(gosip.ServerConfig{
-		Host: publicIP,
+		Host:      publicIP,
+		UserAgent: "github/lkmio",
 	}, nil, nil, logger)
 
 	addr := net.JoinHostPort(listenIP, strconv.Itoa(listenPort))
@@ -392,11 +433,11 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (SipServer, e
 	utils.Assert(ua.OnRequest(sip.NOTIFY, filterRequest(server.OnNotify)) == nil)
 	utils.Assert(ua.OnRequest(sip.MESSAGE, filterRequest(server.OnMessage)) == nil)
 
-	utils.Assert(ua.OnRequest(sip.INFO, filterRequest(func(req sip.Request, tx sip.ServerTransaction, parent bool) {
+	utils.Assert(ua.OnRequest(sip.INFO, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
-	utils.Assert(ua.OnRequest(sip.CANCEL, filterRequest(func(req sip.Request, tx sip.ServerTransaction, parent bool) {
+	utils.Assert(ua.OnRequest(sip.CANCEL, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
-	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(func(req sip.Request, tx sip.ServerTransaction, parent bool) {
+	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
 
 	server.listenAddr = addr

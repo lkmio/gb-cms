@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"gorm.io/gorm"
 )
 
@@ -13,11 +14,25 @@ type DaoChannel interface {
 
 	QueryChannels(deviceId, groupId, string, page, size int) ([]*Channel, int, error)
 
+	QueryChannelsByRootID(rootId string) ([]*Channel, error)
+
+	QueryChannelsByChannelID(channelId string) ([]*Channel, error)
+
 	QueryChanelCount(deviceId string) (int, error)
 
 	QueryOnlineChanelCount(deviceId string) (int, error)
 
 	QueryChannelByTypeCode(codecs ...int) ([]*Channel, error)
+
+	ExistChannel(channelId string) bool
+
+	SaveJTChannel(channel *Channel) error
+
+	ExistJTChannel(simNumber string, channelNumber int) bool
+
+	QueryJTChannelBySimNumber(simNumber string) (*Channel, error)
+
+	DeleteChannel(deviceId string, channelId string) error
 }
 
 type daoChannel struct {
@@ -68,6 +83,15 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int) ([]
 	return channels, int(total), nil
 }
 
+func (d *daoChannel) QueryChannelsByRootID(rootId string) ([]*Channel, error) {
+	var channels []*Channel
+	tx := db.Where("root_id =?", rootId).Find(&channels)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return channels, nil
+}
+
 func (d *daoChannel) QueryChanelCount(deviceId string) (int, error) {
 	var total int64
 	tx := db.Model(&Channel{}).Where("root_id =?", deviceId).Count(&total)
@@ -90,6 +114,40 @@ func (d *daoChannel) QueryOnlineChanelCount(deviceId string) (int, error) {
 func (d *daoChannel) QueryChannelByTypeCode(codecs ...int) ([]*Channel, error) {
 	var channels []*Channel
 	tx := db.Where("type_code in ?", codecs).Find(&channels)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return channels, nil
+}
+
+func (d *daoChannel) ExistChannel(channelId string) bool {
+	var channel Channel
+	if db.Select("id").Where("device_id =?", channelId).Take(&channel).Error == nil {
+		return true
+	}
+
+	return false
+}
+
+func (d *daoChannel) SaveJTChannel(channel *Channel) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		var old Channel
+		if tx.Select("id").Where("root_id =? and channel_number =?", channel.RootID, channel.ChannelNumber).Take(&old).Error == nil {
+			return fmt.Errorf("channel number %d already exist", channel.ChannelNumber)
+		} else if tx.Select("id").Where("device_id =?", channel.DeviceID).Take(&old).Error == nil {
+			return fmt.Errorf("channel id %s already exist", channel.DeviceID)
+		}
+		return tx.Save(channel).Error
+	})
+}
+
+func (d *daoChannel) DeleteChannel(deviceId string, channelId string) error {
+	return db.Where("root_id =? and device_id =?", deviceId, channelId).Unscoped().Delete(&Channel{}).Error
+}
+
+func (d *daoChannel) QueryChannelsByChannelID(channelId string) ([]*Channel, error) {
+	var channels []*Channel
+	tx := db.Where("device_id =?", channelId).Find(&channels)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}

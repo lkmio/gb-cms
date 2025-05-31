@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"gb-cms/hook"
 	"go.uber.org/zap/zapcore"
 	"net"
 	"net/http"
@@ -11,14 +12,14 @@ import (
 )
 
 var (
-	Config *Config_
-	SipUA  SipServer
+	Config   *Config_
+	SipStack SipServer
 )
 
 func init() {
 	logConfig := LogConfig{
 		Level:     int(zapcore.DebugLevel),
-		Name:      "./logs/cms.log",
+		Name:      "./logs/clog",
 		MaxSize:   10,
 		MaxBackup: 100,
 		MaxAge:    7,
@@ -37,6 +38,10 @@ func main() {
 	Config = config
 	indent, _ := json.MarshalIndent(Config, "", "\t")
 	Sugar.Infof("server config:\r\n%s", indent)
+
+	if config.Hooks.OnInvite != "" {
+		hook.RegisterEventUrl(hook.EventTypeDeviceOnInvite, config.Hooks.OnInvite)
+	}
 
 	OnlineDeviceManager.Start(time.Duration(Config.AliveExpires)*time.Second/4, time.Duration(Config.AliveExpires)*time.Second, OnExpires)
 
@@ -58,7 +63,7 @@ func main() {
 
 	Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
 	Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
-	SipUA = server
+	SipStack = server
 
 	// 在sip启动后, 关闭无效的流
 	for _, stream := range streams {
@@ -71,6 +76,8 @@ func main() {
 
 	// 启动级联设备
 	startPlatformDevices()
+	// 启动1078设备
+	startJTDevices()
 
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
 	Sugar.Infof("启动http server. addr: %s", httpAddr)

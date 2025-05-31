@@ -21,6 +21,7 @@ var (
 	PlatformDao = &daoPlatform{}
 	StreamDao   = &daoStream{}
 	SinkDao     = &daoSink{}
+	JTDeviceDao = &daoJTDevice{}
 )
 
 func init() {
@@ -61,13 +62,15 @@ func init() {
 		panic(err)
 	} else if err = db.AutoMigrate(&Channel{}); err != nil {
 		panic(err)
-	} else if err = db.AutoMigrate(&SIPUAParams{}); err != nil {
+	} else if err = db.AutoMigrate(&PlatformModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&Stream{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&Sink{}); err != nil {
 		panic(err)
-	} else if err = db.AutoMigrate(&DBPlatformChannel{}); err != nil {
+	} else if err = db.AutoMigrate(&PlatformChannelModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&JTDeviceModel{}); err != nil {
 		panic(err)
 	}
 

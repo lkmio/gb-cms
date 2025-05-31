@@ -100,8 +100,8 @@ package main
 //	m.Close(true)
 //}
 //
-//type VirtualDevice struct {
-//	*Client
+//type Platform struct {
+//	*gbClient
 //	streams map[string]*MediaStream
 //	lock    sync.Locker
 //}
@@ -126,7 +126,7 @@ package main
 //	}
 //}
 //
-//func (v VirtualDevice) OnInvite(request sip.Request, user string) sip.Response {
+//func (v Platform) OnInvite(request sip.Request, user string) sip.Response {
 //	if len(rtpPackets) < 1 {
 //		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 //	}
@@ -150,10 +150,10 @@ package main
 //	var ip string
 //	var port sip.Port
 //	var contactAddr string
-//	if v.sipClient.NatAddr != "" {
-//		contactAddr = v.sipClient.NatAddr
+//	if v.sipUA.NatAddr != "" {
+//		contactAddr = v.sipUA.NatAddr
 //	} else {
-//		contactAddr = v.sipClient.ListenAddr
+//		contactAddr = v.sipUA.ListenAddr
 //	}
 //
 //	host, p, _ := net.SplitHostPort(contactAddr)
@@ -180,7 +180,7 @@ package main
 //	i, _ := strconv.Atoi(ssrc)
 //	stream.ssrc = uint32(i)
 //	stream.tcp = tcp
-//	stream.dialog = CreateDialogRequestFromAnswer(response, true, v.sipClient.Domain)
+//	stream.dialog = CreateDialogRequestFromAnswer(response, true, v.sipUA.Domain)
 //	callId, _ := response.CallID()
 //
 //	{
@@ -203,7 +203,7 @@ package main
 //
 //			if sendBye {
 //				bye := CreateRequestFromDialog(stream.dialog, sip.BYE)
-//				v.sipClient.ua.SendRequest(bye)
+//				v.sipUA.stack.SendRequest(bye)
 //			}
 //
 //			stream.dialog = nil
@@ -219,7 +219,7 @@ package main
 //	stream.Start()
 //
 //	// 绑定到StreamManager, bye请求才会找到设备回调
-//	streamId := GenerateStreamID(InviteTypePlay, v.sipClient.Username, user, "", "")
+//	streamId := GenerateStreamID(InviteTypePlay, v.sipUA.Username, user, "", "")
 //	s := StreamID{StreamID: streamId, Dialog: stream.dialog}
 //	StreamManager.Add(&s)
 //
@@ -228,7 +228,7 @@ package main
 //	return response
 //}
 //
-//func (v VirtualDevice) OnBye(request sip.Request) {
+//func (v Platform) OnBye(request sip.Request) {
 //	id, _ := request.CallID()
 //	stream, ok := v.streams[id.Value()]
 //	if !ok {
@@ -245,7 +245,7 @@ package main
 //	stream.Close(false)
 //}
 //
-//func (v VirtualDevice) Offline() {
+//func (v Platform) Offline() {
 //	for _, stream := range v.streams {
 //		stream.Close(true)
 //	}
@@ -333,7 +333,7 @@ package main
 //		channelId := clientConfig.ChannelIDPrefix + fmt.Sprintf("%07d", i+1)
 //		client := NewGBClient(deviceId, clientConfig.ServerAddr, clientConfig.Domain, "UDP", clientConfig.Password, 500, 40, server)
 //
-//		device := VirtualDevice{client.(*Client), map[string]*MediaStream{}, &sync.Mutex{}}
+//		device := Platform{client.(*gbClient), map[string]*MediaStream{}, &sync.Mutex{}}
 //		device.SetDeviceInfo(fmt.Sprintf("测试设备%d", i+1), "lkmio", "lkmio_gb", "dev-0.0.1")
 //
 //		channel := &Channel{

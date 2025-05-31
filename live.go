@@ -41,7 +41,7 @@ func (i *InviteType) SessionName2Type(name string) {
 func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, error) {
 	stream := &Stream{
 		StreamID: streamId,
-		Protocol: "28181",
+		Protocol: SourceType28181,
 	}
 
 	// 先添加占位置, 防止重复请求
@@ -64,8 +64,8 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 	// 等待流媒体服务发送推流通知
 	wait := func() bool {
 		waiting := StreamWaiting{}
-		_, _ = Dialogs.Add(string(streamId), &waiting)
-		defer Dialogs.Remove(string(streamId))
+		_, _ = EarlyDialogs.Add(string(streamId), &waiting)
+		defer EarlyDialogs.Remove(string(streamId))
 
 		ok := http.StatusOK == waiting.Receive(10)
 		if !ok {
@@ -95,12 +95,12 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 	defer func() {
 		// 如果失败, 告知流媒体服务释放国标源
 		if err != nil {
-			go CloseSource(string(streamId))
+			go MSCloseSource(string(streamId))
 		}
 	}()
 
 	// 告知流媒体服务创建国标源, 返回收流地址信息
-	ip, port, urls, ssrc, msErr := CreateGBSource(string(streamId), setup, "", string(inviteType))
+	ip, port, urls, ssrc, msErr := MSCreateGBSource(string(streamId), setup, "", string(inviteType))
 	if msErr != nil {
 		Sugar.Errorf("创建GBSource失败 err: %s", msErr.Error())
 		return nil, nil, msErr
@@ -126,7 +126,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 	var body string
 	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	// invite信令交互
-	SipUA.SendRequestWithContext(reqCtx, inviteRequest, gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
+	SipStack.SendRequestWithContext(reqCtx, inviteRequest, gosip.WithResponseHandler(func(res sip.Response, request sip.Request) {
 		if res.StatusCode() < 200 {
 
 		} else if res.StatusCode() == 200 {
@@ -144,7 +144,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 
 			Sugar.Infof("send ack %s", ackRequest.String())
 
-			err = SipUA.Send(ackRequest)
+			err = SipStack.Send(ackRequest)
 			if err != nil {
 				cancel()
 				Sugar.Errorf("send ack error %s %s", err.Error(), ackRequest.String())
@@ -172,7 +172,7 @@ func (d *Device) Invite(inviteType InviteType, streamId StreamID, channelId, sta
 		}
 
 		addr := fmt.Sprintf("%s:%d", answer.Addr, answer.Video.Port)
-		if err = ConnectGBSource(string(streamId), addr); err != nil {
+		if err = MSConnectGBSource(string(streamId), addr); err != nil {
 			Sugar.Errorf("设置GB28181连接地址失败 err: %s addr: %s", err.Error(), addr)
 			return nil, nil, err
 		}

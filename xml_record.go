@@ -63,6 +63,6 @@ type RecordInfo struct {
 func (d *Device) DoQueryRecordList(channelId, startTime, endTime string, sn int, type_ string) error {
 	body := fmt.Sprintf(QueryRecordFormat, sn, channelId, startTime, endTime, type_)
 	request := d.BuildMessageRequest(channelId, body)
-	SipUA.SendRequest(request)
+	SipStack.SendRequest(request)
 	return nil
 }

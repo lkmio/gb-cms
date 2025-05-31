@@ -25,7 +25,7 @@ var (
 	UnregisterExpiresHeader = sip.Expires(0)
 )
 
-type SipClient interface {
+type SIPUA interface {
 	doRegister(request sip.Request) bool
 
 	doUnregister()
@@ -37,10 +37,12 @@ type SipClient interface {
 	Stop()
 
 	SetOnRegisterHandler(online, offline func())
+
+	GetDomain() string
 }
 
-type SIPUAParams struct {
-	GBModel
+type SIPUAOptions struct {
+	Name              string       `json:"name"`               // display name, 国标DeviceInfo消息中的Name
 	Username          string       `json:"username"`           // 用户名
 	SeverID           string       `json:"server_id"`          // 上级ID, 必选. 作为主键, 不能重复.
 	ServerAddr        string       `json:"server_addr"`        // 上级地址, 必选
@@ -51,17 +53,13 @@ type SIPUAParams struct {
 	Status            OnlineStatus `json:"status"`             // 在线状态
 }
 
-func (g *SIPUAParams) TableName() string {
-	return "lkm_virtual_device"
-}
-
-type sipClient struct {
-	SIPUAParams
+type sipUA struct {
+	SIPUAOptions
 
 	ListenAddr string //UA的监听地址
 	NatAddr    string //Nat地址
 
-	ua                   SipServer
+	stack                SipServer
 	exited               bool
 	ctx                  context.Context
 	cancel               context.CancelFunc
@@ -74,7 +72,7 @@ type sipClient struct {
 	offlineCB func()
 }
 
-func (g *sipClient) doRegister(request sip.Request) bool {
+func (g *sipUA) doRegister(request sip.Request) bool {
 	hop, _ := request.ViaHop()
 	empty := sip.String{}
 	hop.Params.Add("rport", &empty)
@@ -82,7 +80,7 @@ func (g *sipClient) doRegister(request sip.Request) bool {
 
 	for i := 0; i < 2; i++ {
 		//发起注册, 第一次未携带授权头, 第二次携带授权头
-		clientTransaction := g.ua.SendRequest(request)
+		clientTransaction := g.stack.SendRequest(request)
 
 		//等待响应
 		responses := clientTransaction.Responses()
@@ -118,7 +116,7 @@ func (g *sipClient) doRegister(request sip.Request) bool {
 	return false
 }
 
-func (g *sipClient) startNewRegister() bool {
+func (g *sipUA) startNewRegister() bool {
 	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport)
 	expires := sip.Expires(g.RegisterExpires)
 	builder.SetExpires(&expires)
@@ -159,30 +157,30 @@ func CopySipRequest(old sip.Request) sip.Request {
 	return request
 }
 
-func (g *sipClient) refreshRegister() bool {
+func (g *sipUA) refreshRegister() bool {
 	request := CopySipRequest(g.registerOKRequest)
 	return g.doRegister(request)
 }
 
-func (g *sipClient) doUnregister() {
+func (g *sipUA) doUnregister() {
 	request := CopySipRequest(g.registerOKRequest)
 	request.RemoveHeader("Expires")
 	request.AppendHeader(&UnregisterExpiresHeader)
-	g.ua.SendRequest(request)
+	g.stack.SendRequest(request)
 
 	if g.offlineCB != nil {
 		go g.offlineCB()
 	}
 }
 
-func (g *sipClient) doKeepalive() bool {
+func (g *sipUA) doKeepalive() bool {
 	body := fmt.Sprintf(KeepAliveBody, time.Now().UnixMilli()/1000, g.Username)
 	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport, body)
 	if err != nil {
 		panic(err)
 	}
 
-	transaction := g.ua.SendRequest(request)
+	transaction := g.stack.SendRequest(request)
 	responses := transaction.Responses()
 
 	var response sip.Response
@@ -197,7 +195,7 @@ func (g *sipClient) doKeepalive() bool {
 }
 
 // IsExpires 是否临近注册有效期
-func (g *sipClient) IsExpires() (bool, int) {
+func (g *sipUA) IsExpires() (bool, int) {
 	if !g.registerOK {
 		return false, 0
 	}
@@ -207,7 +205,7 @@ func (g *sipClient) IsExpires() (bool, int) {
 }
 
 // Refresh 处理Client的生命周期任务, 发起注册, 发送心跳，断开重连等， 并返回下次刷新任务时间
-func (g *sipClient) Refresh() time.Duration {
+func (g *sipUA) Refresh() time.Duration {
 	expires, _ := g.IsExpires()
 
 	if !g.registerOK || expires {
@@ -256,7 +254,7 @@ func (g *sipClient) Refresh() time.Duration {
 	return time.Duration(g.KeepaliveInterval) * time.Second
 }
 
-func (g *sipClient) Start() {
+func (g *sipUA) Start() {
 	utils.Assert(!g.exited)
 	g.ctx, g.cancel = context.WithCancel(context.Background())
 
@@ -284,21 +282,24 @@ func (g *sipClient) Start() {
 	}()
 }
 
-func (g *sipClient) Stop() {
+func (g *sipUA) Stop() {
 	utils.Assert(!g.exited)
+	if g.registerOK {
+		g.doUnregister()
+	}
 
 	g.exited = true
 	g.cancel()
 	g.registerOK = false
 	g.onlineCB = nil
 	g.offlineCB = nil
-
-	if g.registerOK {
-		g.doUnregister()
-	}
 }
 
-func (g *sipClient) SetOnRegisterHandler(online, offline func()) {
+func (g *sipUA) SetOnRegisterHandler(online, offline func()) {
 	g.onlineCB = online
 	g.offlineCB = offline
+}
+
+func (g *sipUA) GetDomain() string {
+	return g.ServerAddr
 }

@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	Dialogs = NewDialogManager[*StreamWaiting]()
+	EarlyDialogs = NewDialogManager[*StreamWaiting]()
 )
 
 type StreamWaiting struct {
