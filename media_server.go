@@ -108,7 +108,7 @@ func MSCreateGBSource(id, setup string, ssrc string, sessionName string) (string
 		},
 	}
 
-	response, err := Send("api/v1/gb28181/offer/create", v)
+	response, err := Send("api/v1/gb28181/source/create", v)
 	if err != nil {
 		return "", 0, nil, "", err
 	}

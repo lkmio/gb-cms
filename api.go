@@ -319,18 +319,18 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 	// 创建stream
 	if params.Protocol == SourceTypeGBTalk {
 		Sugar.Infof("对讲websocket已连接, stream: %s", params.Stream)
-	}
 
-	s := &Stream{
-		StreamID: params.Stream,
-		Protocol: params.Protocol,
-	}
+		s := &Stream{
+			StreamID: params.Stream,
+			Protocol: params.Protocol,
+		}
 
-	_, ok := StreamDao.SaveStream(s)
-	if !ok {
-		Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		_, ok := StreamDao.SaveStream(s)
+		if !ok {
+			Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 	}
 }
 
