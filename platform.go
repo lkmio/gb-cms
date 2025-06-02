@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
-	"sync"
 )
 
 const (
@@ -17,22 +16,6 @@ const (
 
 type Platform struct {
 	*gbClient
-	lock  sync.Mutex
-	sinks map[string]StreamID // 保存级联转发的sink, 方便离线的时候关闭sink
-}
-
-func (g *Platform) addSink(callId string, stream StreamID) {
-	g.lock.Lock()
-	defer g.lock.Unlock()
-	g.sinks[callId] = stream
-}
-
-func (g *Platform) removeSink(callId string) StreamID {
-	g.lock.Lock()
-	defer g.lock.Unlock()
-	stream := g.sinks[callId]
-	delete(g.sinks, callId)
-	return stream
 }
 
 // OnBye 被上级挂断
@@ -43,36 +26,23 @@ func (g *Platform) OnBye(request sip.Request) {
 
 // CloseStream 关闭级联会话
 func (g *Platform) CloseStream(callId string, bye, ms bool) {
-	_ = g.removeSink(callId)
-	sink := RemoveForwardSinkWithCallId(callId)
-	if sink == nil {
-		Sugar.Errorf("关闭转发sink失败, 找不到sink. callid: %s", callId)
-		return
+	sink, _ := SinkDao.DeleteForwardSinkByCallID(callId)
+	if sink != nil {
+		sink.Close(bye, ms)
 	}
-
-	sink.Close(bye, ms)
 }
 
 // CloseStreams 关闭所有级联会话
 func (g *Platform) CloseStreams(bye, ms bool) {
-	var callIds []string
-	g.lock.Lock()
-
-	for k := range g.sinks {
-		callIds = append(callIds, k)
-	}
-
-	g.sinks = make(map[string]StreamID)
-	g.lock.Unlock()
-
-	for _, id := range callIds {
-		g.CloseStream(id, bye, ms)
+	sinks, _ := SinkDao.DeleteForwardSinksByServerAddr(g.ServerAddr)
+	for _, sink := range sinks {
+		sink.Close(bye, ms)
 	}
 }
 
 // OnInvite 被上级呼叫
 func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
-	Sugar.Infof("收到上级Invite请求 platform: %s channel: %s sdp: %s", g.SeverID, user, request.Body())
+	Sugar.Infof("收到上级Invite请求 platform: %s channel: %s sdp: %s", g.ServerID, user, request.Body())
 
 	source := request.Source()
 	platform := PlatformManager.Find(source)
@@ -80,7 +50,7 @@ func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
 
 	deviceId, channel, err := PlatformDao.QueryPlatformChannel(g.ServerAddr, user)
 	if err != nil {
-		Sugar.Errorf("处理上级Invite失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.SeverID, user)
+		Sugar.Errorf("处理上级Invite失败, 查询数据库失败 err: %s platform: %s channel: %s", err.Error(), g.ServerID, user)
 		return CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
@@ -139,33 +109,33 @@ func (g *Platform) Stop() {
 }
 
 func (g *Platform) Online() {
-	Sugar.Infof("ua上线 device: %s server addr: %s", g.Username, g.ServerAddr)
+	Sugar.Infof("级联设备上线 device: %s server addr: %s", g.Username, g.ServerAddr)
 
 	if err := PlatformDao.UpdateOnlineStatus(ON, g.ServerAddr); err != nil {
-		Sugar.Infof("ua状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
+		Sugar.Infof("更新级联设备状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
 	}
 }
 
 func (g *Platform) Offline() {
-	Sugar.Infof("ua离线 device: %s server addr: %s", g.Username, g.ServerAddr)
+	Sugar.Infof("级联设备离线 device: %s server addr: %s", g.Username, g.ServerAddr)
 
 	if err := PlatformDao.UpdateOnlineStatus(OFF, g.ServerAddr); err != nil {
-		Sugar.Infof("ua状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
+		Sugar.Infof("更新级联设备状态失败 err: %s server addr: %s", err.Error(), g.ServerAddr)
 	}
 
 	// 释放所有推流
 	g.CloseStreams(true, true)
 }
 
-func NewPlatform(record *SIPUAOptions, ua SipServer) (*Platform, error) {
-	if len(record.SeverID) != 20 {
-		return nil, fmt.Errorf("SeverID must be exactly 20 characters long")
+func NewPlatform(options *SIPUAOptions, ua SipServer) (*Platform, error) {
+	if len(options.ServerID) != 20 {
+		return nil, fmt.Errorf("ServerID must be exactly 20 characters long")
 	}
 
-	if _, err := netip.ParseAddrPort(record.ServerAddr); err != nil {
+	if _, err := netip.ParseAddrPort(options.ServerAddr); err != nil {
 		return nil, err
 	}
 
-	client := NewGBClient(record, ua)
-	return &Platform{gbClient: client.(*gbClient), sinks: make(map[string]StreamID, 8)}, nil
+	client := NewGBClient(options, ua)
+	return &Platform{gbClient: client.(*gbClient)}, nil
 }

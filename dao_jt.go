@@ -1,18 +1,28 @@
 package main
 
 import (
-	"fmt"
 	"gorm.io/gorm"
 )
 
 // JTDeviceModel 数据库表结构
 type JTDeviceModel struct {
 	GBModel
-	SIPUAOptions
+	// SIPUAOptions
+
+	Name              string       `json:"name"`                        // display name, 国标DeviceInfo消息中的Name
+	Username          string       `json:"username" gorm:"uniqueIndex"` // 用户名
+	SeverID           string       `json:"server_id"`                   // 上级ID, 必选. 作为主键, 不能重复.
+	ServerAddr        string       `json:"server_addr"`                 // 上级地址, 必选
+	Transport         string       `json:"transport"`                   // 上级通信方式, UDP/TCP
+	Password          string       `json:"password"`                    // 密码
+	RegisterExpires   int          `json:"register_expires"`            // 注册有效期
+	KeepaliveInterval int          `json:"keepalive_interval"`          // 心跳间隔
+	Status            OnlineStatus `json:"status"`                      // 在线状态
+
 	Manufacturer string `json:"manufacturer"`
 	Model        string `json:"model"`
 	Firmware     string `json:"firmware"`
-	SimNumber    string `json:"sim_number"`
+	SimNumber    string `json:"sim_number" gorm:"uniqueIndex"`
 }
 
 func (g *JTDeviceModel) TableName() string {
@@ -28,6 +38,8 @@ type DaoJTDevice interface {
 	QueryDevice(user string) (*JTDeviceModel, error)
 
 	QueryDeviceBySimNumber(simNumber string) (*JTDeviceModel, error)
+
+	QueryDeviceByID(id uint) (*JTDeviceModel, error)
 
 	ExistDevice(username, simNumber string) bool
 
@@ -77,7 +89,11 @@ func (d *daoJTDevice) QueryDevice(id string) (*JTDeviceModel, error) {
 
 func (d *daoJTDevice) DeleteDevice(id string) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		return tx.Where("username =?", id).Unscoped().Delete(&JTDeviceModel{}).Error
+		err := tx.Where("username =?", id).Unscoped().Delete(&JTDeviceModel{}).Error
+		if err != nil {
+			return err
+		}
+		return tx.Where("root_id =?", id).Unscoped().Delete(&Channel{}).Error
 	})
 }
 
@@ -91,28 +107,23 @@ func (d *daoJTDevice) QueryDeviceBySimNumber(simNumber string) (*JTDeviceModel, 
 	return &device, nil
 }
 
+func (d *daoJTDevice) QueryDeviceByID(id uint) (*JTDeviceModel, error) {
+	var device JTDeviceModel
+	tx := db.Where("id =?", id).Take(&device)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return &device, nil
+}
+
 func (d *daoJTDevice) SaveDevice(model *JTDeviceModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		var old JTDeviceModel
-		tx = tx.Where("username =? or sim_number =?", model.Username, model.SimNumber).Select("id").First(&old)
-		if tx.Error == nil {
-			return fmt.Errorf("username or sim number already exists")
-		}
-
-		return db.Save(model).Error
+		return db.Create(model).Error
 	})
 }
 
 func (d *daoJTDevice) UpdateDevice(model *JTDeviceModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		var old JTDeviceModel
-		tx = tx.Where("username =? or sim_number =?", model.Username, model.SimNumber).Select("id").First(&old)
-		if tx.Error != nil {
-			return tx.Error
-		} else {
-			model.ID = old.ID
-		}
-
 		return db.Save(model).Error
 	})
 }

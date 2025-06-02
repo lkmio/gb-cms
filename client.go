@@ -70,7 +70,7 @@ func (g *gbClient) SendMessage(msg interface{}) {
 		panic(err)
 	}
 
-	request, err := BuildMessageRequest(g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.SeverID, g.sipUA.ServerAddr, g.sipUA.Transport, string(marshal))
+	request, err := BuildMessageRequest(g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, string(marshal))
 	if err != nil {
 		panic(err)
 	}

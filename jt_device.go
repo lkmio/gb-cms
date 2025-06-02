@@ -14,6 +14,8 @@ type JTDevice struct {
 }
 
 func (g *JTDevice) OnInvite(request sip.Request, user string) sip.Response {
+	Sugar.Infof("收到1078的Invite请求 sim number: %s device: %s channel: %s", g.simNumber, g.username, user)
+
 	// 通知1078的信令服务器
 	channels, _ := ChannelDao.QueryChannelsByChannelID(user)
 	if len(channels) < 1 {
@@ -54,8 +56,43 @@ func (g *JTDevice) OnInvite(request sip.Request, user string) sip.Response {
 	return response
 }
 
+func (g *JTDevice) Start() {
+	Sugar.Infof("启动部标设备, deivce: %s transport: %s addr: %s", g.Username, g.sipUA.Transport, g.sipUA.ServerAddr)
+	g.sipUA.Start()
+	g.sipUA.SetOnRegisterHandler(g.Online, g.Offline)
+}
+
+func (g *JTDevice) Online() {
+	Sugar.Infof("部标设备上线 sim number: %s device: %s server addr: %s", g.simNumber, g.Username, g.ServerAddr)
+
+	if err := JTDeviceDao.UpdateOnlineStatus(ON, g.Username); err != nil {
+		Sugar.Infof("更新部标设备状态失败 err: %s", err.Error())
+	}
+}
+
+func (g *JTDevice) Offline() {
+	Sugar.Infof("部标设备离线 sim number: %s device: %s server addr: %s", g.simNumber, g.Username, g.ServerAddr)
+
+	if err := JTDeviceDao.UpdateOnlineStatus(OFF, g.Username); err != nil {
+		Sugar.Infof("更新部标设备状态失败 err: %s", err.Error())
+	}
+
+	// 释放所有推流
+	g.CloseStreams(true, true)
+}
+
 func NewJTDevice(model *JTDeviceModel, ua SipServer) (*JTDevice, error) {
-	platform, err := NewPlatform(&model.SIPUAOptions, ua)
+	platform, err := NewPlatform(&SIPUAOptions{
+		Name:              model.Name,
+		Username:          model.Username,
+		ServerID:          model.SeverID,
+		ServerAddr:        model.ServerAddr,
+		Transport:         model.Transport,
+		Password:          model.Password,
+		RegisterExpires:   model.RegisterExpires,
+		KeepaliveInterval: model.KeepaliveInterval,
+		Status:            model.Status,
+	}, ua)
 	if err != nil {
 		return nil, err
 	}

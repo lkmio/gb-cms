@@ -10,6 +10,8 @@ type DaoChannel interface {
 
 	UpdateChannelStatus(deviceId, channelId, status string) error
 
+	QueryChannelByID(id uint) (*Channel, error)
+
 	QueryChannel(deviceId string, channelId string) (*Channel, error)
 
 	QueryChannels(deviceId, groupId, string, page, size int) ([]*Channel, int, error)
@@ -33,6 +35,10 @@ type DaoChannel interface {
 	QueryJTChannelBySimNumber(simNumber string) (*Channel, error)
 
 	DeleteChannel(deviceId string, channelId string) error
+
+	UpdateRootID(rootId, newRootId string) error
+
+	UpdateChannel(channel *Channel) error
 }
 
 type daoChannel struct {
@@ -50,6 +56,15 @@ func (d *daoChannel) SaveChannel(channel *Channel) error {
 
 func (d *daoChannel) UpdateChannelStatus(deviceId, channelId, status string) error {
 	return db.Model(&Channel{}).Where("root_id =? and device_id =?", deviceId, channelId).Update("status", status).Error
+}
+
+func (d *daoChannel) QueryChannelByID(id uint) (*Channel, error) {
+	var channel Channel
+	tx := db.Where("id =?", id).Take(&channel)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return &channel, nil
 }
 
 func (d *daoChannel) QueryChannel(deviceId string, channelId string) (*Channel, error) {
@@ -152,4 +167,19 @@ func (d *daoChannel) QueryChannelsByChannelID(channelId string) ([]*Channel, err
 		return nil, tx.Error
 	}
 	return channels, nil
+}
+
+func (d *daoChannel) UpdateRootID(rootId, newRootId string) error {
+	channel := &Channel{
+		RootID:   newRootId,
+		GroupID:  newRootId,
+		ParentID: newRootId,
+	}
+	return db.Model(channel).Where("root_id =?", rootId).Select("root_id", "group_id", "parent_id").Updates(channel).Error
+}
+
+func (d *daoChannel) UpdateChannel(channel *Channel) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(channel).Where("id =?", channel.ID).Updates(channel).Error
+	})
 }

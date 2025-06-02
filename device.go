@@ -272,19 +272,6 @@ func (d *Device) Close() {
 	// 更新在数据库中的状态
 	d.Status = OFF
 	_ = DeviceDao.UpdateDeviceStatus(d.DeviceID, OFF)
-
-	// 释放所有推流
-	//all := StreamManager.All()
-	//var streams []*Stream
-	//for _, stream := range all {
-	//	if d.DeviceID == stream.StreamID.DeviceID() {
-	//		streams = append(streams, stream)
-	//	}
-	//}
-	//
-	//for _, stream := range streams {
-	//	stream.Close(true, true)
-	//}
 }
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求

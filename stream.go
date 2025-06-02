@@ -79,6 +79,8 @@ func (r *RequestWrapper) Scan(value interface{}) error {
 
 type Stream struct {
 	GBModel
+	DeviceID  string          // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
+	ChannelID string          // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
 	StreamID  StreamID        `json:"stream_id"`          // 流ID
 	Protocol  int             `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
 	Dialog    *RequestWrapper `json:"dialog,omitempty"`   // 国标流的SipCall会话

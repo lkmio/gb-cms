@@ -7,6 +7,7 @@ import (
 	"github.com/lkmio/avformat/utils"
 	"math"
 	"net"
+	"net/netip"
 	"strconv"
 	"time"
 )
@@ -44,13 +45,31 @@ type SIPUA interface {
 type SIPUAOptions struct {
 	Name              string       `json:"name"`               // display name, 国标DeviceInfo消息中的Name
 	Username          string       `json:"username"`           // 用户名
-	SeverID           string       `json:"server_id"`          // 上级ID, 必选. 作为主键, 不能重复.
+	ServerID          string       `json:"server_id"`          // 上级ID, 必选. 作为主键, 不能重复.
 	ServerAddr        string       `json:"server_addr"`        // 上级地址, 必选
 	Transport         string       `json:"transport"`          // 上级通信方式, UDP/TCP
 	Password          string       `json:"password"`           // 密码
 	RegisterExpires   int          `json:"register_expires"`   // 注册有效期
 	KeepaliveInterval int          `json:"keepalive_interval"` // 心跳间隔
 	Status            OnlineStatus `json:"status"`             // 在线状态
+}
+
+func EqualSipUAOptions(old, new *SIPUAOptions) bool {
+	if old.Username != new.Username || old.ServerID != new.ServerID || old.ServerAddr != new.ServerAddr || old.Transport != new.Transport || old.Password != new.Password || old.RegisterExpires != new.RegisterExpires || old.KeepaliveInterval != new.KeepaliveInterval {
+		return false
+	}
+	return true
+}
+
+func CheckSipUAOptions(options *SIPUAOptions) error {
+	if len(options.Username) != 20 {
+		return fmt.Errorf("invalid username: %s", options.Username)
+	} else if len(options.ServerID) != 20 {
+		return fmt.Errorf("invalid server id: %s", options.ServerID)
+	} else if _, err := netip.ParseAddrPort(options.ServerAddr); err != nil {
+		return err
+	}
+	return nil
 }
 
 type sipUA struct {
@@ -117,7 +136,7 @@ func (g *sipUA) doRegister(request sip.Request) bool {
 }
 
 func (g *sipUA) startNewRegister() bool {
-	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport)
+	builder := NewRequestBuilder(sip.REGISTER, g.Username, g.ListenAddr, g.ServerID, g.ServerAddr, g.Transport)
 	expires := sip.Expires(g.RegisterExpires)
 	builder.SetExpires(&expires)
 
@@ -175,7 +194,7 @@ func (g *sipUA) doUnregister() {
 
 func (g *sipUA) doKeepalive() bool {
 	body := fmt.Sprintf(KeepAliveBody, time.Now().UnixMilli()/1000, g.Username)
-	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.SeverID, g.ServerAddr, g.Transport, body)
+	request, err := BuildMessageRequest(g.Username, g.ListenAddr, g.ServerID, g.ServerAddr, g.Transport, body)
 	if err != nil {
 		panic(err)
 	}

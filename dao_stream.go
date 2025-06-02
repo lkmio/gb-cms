@@ -23,6 +23,8 @@ type DaoStream interface {
 	QueryStreamByCallID(callID string) (*Stream, error)
 
 	DeleteStreamByCallID(callID string) (*Stream, error)
+
+	DeleteStreamByDeviceID(deviceID string) ([]*Stream, error)
 }
 
 type daoStream struct {
@@ -132,4 +134,20 @@ func (d *daoStream) DeleteStreamByCallID(callID string) (*Stream, error) {
 	return &stream, DBTransaction(func(tx *gorm.DB) error {
 		return tx.Where("call_id =?", callID).Unscoped().Delete(&Stream{}).Error
 	})
+}
+
+func (d *daoStream) DeleteStreamByDeviceID(deviceID string) ([]*Stream, error) {
+	var streams []*Stream
+	tx := db.Where("device_id =?", deviceID).Find(&streams)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	_ = DBTransaction(func(tx *gorm.DB) error {
+		for _, stream := range streams {
+			_ = tx.Where("stream_id =?", stream.StreamID).Unscoped().Delete(&Stream{})
+		}
+		return nil
+	})
+
+	return streams, nil
 }

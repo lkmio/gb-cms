@@ -20,7 +20,7 @@ func startPlatformDevices() {
 		utils.Assert(PlatformManager.Add(platform.ServerAddr, platform))
 
 		if err := PlatformDao.UpdateOnlineStatus(OFF, record.ServerAddr); err != nil {
-			Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.SeverID)
+			Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.ServerID)
 		}
 
 		platform.Start()

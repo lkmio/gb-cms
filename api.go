@@ -315,14 +315,13 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 		stream.Put(200)
 	}
 
-	// 对讲websocket已连接
 	// 创建stream
-	if params.Protocol == SourceTypeGBTalk {
-		Sugar.Infof("对讲websocket已连接, stream: %s", params.Stream)
-
+	if params.Protocol == SourceTypeGBTalk || params.Protocol == SourceType1078 {
 		s := &Stream{
-			StreamID: params.Stream,
-			Protocol: params.Protocol,
+			DeviceID:  params.Stream.DeviceID(),
+			ChannelID: params.Stream.ChannelID(),
+			StreamID:  params.Stream,
+			Protocol:  params.Protocol,
 		}
 
 		_, ok := StreamDao.SaveStream(s)
@@ -743,7 +742,7 @@ func (api *ApiServer) OnPlatformAdd(v *PlatformModel, w http.ResponseWriter, r *
 		err := fmt.Errorf("用户名长度必须20位")
 		Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
 		return nil, err
-	} else if len(v.SeverID) != 20 {
+	} else if len(v.ServerID) != 20 {
 		err := fmt.Errorf("上级ID长度必须20位")
 		Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
 		return nil, err

@@ -29,6 +29,8 @@ type DaoSink interface {
 	DeleteForwardSinkByCallID(callID string) (*Sink, error)
 
 	DeleteForwardSinkBySinkStreamID(sinkStreamID StreamID) (*Sink, error)
+
+	DeleteForwardSinksByServerAddr(addr string) ([]*Sink, error)
 }
 
 type daoSink struct {
@@ -153,5 +155,16 @@ func (d *daoSink) DeleteForwardSinks() ([]*Sink, error) {
 func (d *daoSink) DeleteForwardSinksByIds(ids []uint) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Where("id in?", ids).Unscoped().Delete(&Sink{}).Error
+	})
+}
+
+func (d *daoSink) DeleteForwardSinksByServerAddr(addr string) ([]*Sink, error) {
+	var sinks []*Sink
+	tx := db.Where("server_addr =?", addr).Find(&sinks)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return sinks, DBTransaction(func(tx *gorm.DB) error {
+		return tx.Where("server_addr =?", addr).Unscoped().Delete(&Sink{}).Error
 	})
 }

@@ -40,8 +40,10 @@ func (i *InviteType) SessionName2Type(name string) {
 
 func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId, startTime, stopTime, setup string, speed int, sync bool) (*Stream, error) {
 	stream := &Stream{
-		StreamID: streamId,
-		Protocol: SourceType28181,
+		DeviceID:  streamId.DeviceID(),
+		ChannelID: streamId.ChannelID(),
+		StreamID:  streamId,
+		Protocol:  SourceType28181,
 	}
 
 	// 先添加占位置, 防止重复请求

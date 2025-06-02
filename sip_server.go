@@ -270,7 +270,7 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 		}
 
 		if ok = device != nil; !ok {
-			Sugar.Errorf("处理上级请求消息失败, 找不到级联设备 addr: %s request: %s", wrapper.req.Source(), wrapper.req.String())
+			Sugar.Errorf("处理上级请求消息失败, 找不到设备 addr: %s request: %s", wrapper.req.Source(), wrapper.req.String())
 			return
 		}
 
