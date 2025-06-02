@@ -123,13 +123,14 @@ func withJsonParams[T any](f func(params T, w http.ResponseWriter, req *http.Req
 
 func withJsonResponse[T any](f func(params T, w http.ResponseWriter, req *http.Request) (interface{}, error), params interface{}) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		if err := HttpDecodeJSONBody(w, req, params); err != nil {
+		newParams := new(T)
+		if err := HttpDecodeJSONBody(w, req, newParams); err != nil {
 			Sugar.Errorf("解析请求体失败 err: %s path: %s", err.Error(), req.URL.Path)
 			httpResponseError(w, err.Error())
 			return
 		}
 
-		responseBody, err := f(params.(T), w, req)
+		responseBody, err := f(*newParams, w, req)
 		if err != nil {
 			httpResponseError(w, err.Error())
 		} else {
@@ -174,6 +175,7 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/jt/device/add", withJsonResponse(apiServer.OnVirtualDeviceAdd, &JTDeviceModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/device/edit", withJsonResponse(apiServer.OnVirtualDeviceEdit, &JTDeviceModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/device/remove", withJsonResponse(apiServer.OnVirtualDeviceRemove, &JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/list", withJsonResponse(apiServer.OnVirtualDeviceList, &PageQuery{}))
 
 	apiServer.router.HandleFunc("/api/v1/jt/channel/add", withJsonResponse(apiServer.OnVirtualChannelAdd, &Channel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", withJsonResponse(apiServer.OnVirtualChannelEdit, &Channel{}))
@@ -455,11 +457,6 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 
 func (api *ApiServer) OnDeviceList(v *PageQuery, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	Sugar.Infof("查询设备列表 %v", *v)
-
-	defer func() {
-		// debug发现指针v会重复利用,但是成员变量还是上次的... 手动重置为空值
-		// *v = PageQuery{}
-	}()
 
 	if v.PageNumber == nil {
 		var defaultPageNumber = 1

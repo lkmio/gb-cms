@@ -48,6 +48,8 @@ type DaoJTDevice interface {
 	SaveDevice(model *JTDeviceModel) error
 
 	UpdateDevice(model *JTDeviceModel) error
+
+	QueryDevices(page int, size int) ([]*JTDeviceModel, int, error)
 }
 
 type daoJTDevice struct {
@@ -126,4 +128,20 @@ func (d *daoJTDevice) UpdateDevice(model *JTDeviceModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return db.Save(model).Error
 	})
+}
+
+func (d *daoJTDevice) QueryDevices(page int, size int) ([]*JTDeviceModel, int, error) {
+	var devices []*JTDeviceModel
+	tx := db.Limit(size).Offset((page - 1) * size).Find(&devices)
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	var total int64
+	tx = db.Model(&JTDeviceModel{}).Count(&total)
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	return devices, int(total), nil
 }

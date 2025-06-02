@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 )
 
@@ -179,7 +180,7 @@ func (api *ApiServer) OnVirtualChannelAdd(channel *Channel, w http.ResponseWrite
 
 func (api *ApiServer) OnVirtualChannelEdit(channel *Channel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	Sugar.Infof("edit virtual channel: %v", *channel)
-	
+
 	oldChannel, err := ChannelDao.QueryChannelByID(channel.ID)
 	if err != nil {
 		Sugar.Errorf("query channel failed: %s", err.Error())
@@ -213,4 +214,34 @@ func (api *ApiServer) OnVirtualChannelRemove(channel *Channel, w http.ResponseWr
 		Sugar.Errorf("delete channel failed: %s", err.Error())
 	}
 	return nil, err
+}
+
+func (api *ApiServer) OnVirtualDeviceList(v *PageQuery, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	Sugar.Infof("query virtual device list: %v", *v)
+
+	if v.PageNumber == nil {
+		var defaultPageNumber = 1
+		v.PageNumber = &defaultPageNumber
+	}
+
+	if v.PageSize == nil {
+		var defaultPageSize = 10
+		v.PageSize = &defaultPageSize
+	}
+
+	devices, total, err := JTDeviceDao.QueryDevices(*v.PageNumber, *v.PageSize)
+	if err != nil {
+		Sugar.Errorf("查询设备列表失败 err: %s", err.Error())
+		return nil, err
+	}
+
+	query := &PageQuery{
+		PageNumber: v.PageNumber,
+		PageSize:   v.PageSize,
+		TotalCount: total,
+		TotalPages: int(math.Ceil(float64(total) / float64(*v.PageSize))),
+		Data:       devices,
+	}
+
+	return query, nil
 }
