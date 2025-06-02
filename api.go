@@ -111,13 +111,14 @@ func init() {
 
 func withJsonParams[T any](f func(params T, w http.ResponseWriter, req *http.Request), params T) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		if err := HttpDecodeJSONBody(w, req, params); err != nil {
+		newParams := new(T)
+		if err := HttpDecodeJSONBody(w, req, newParams); err != nil {
 			Sugar.Errorf("解析请求体失败 err: %s path: %s", err.Error(), req.URL.Path)
 			httpResponseError(w, err.Error())
 			return
 		}
 
-		f(params, w, req)
+		f(*newParams, w, req)
 	}
 }
 
