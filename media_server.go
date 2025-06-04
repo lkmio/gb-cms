@@ -199,7 +199,7 @@ func MSQuerySinkList(source string) ([]*SinkDetails, error) {
 	return data.Data, err
 }
 
-func MSAddForwardSink(protocol int, source, addr, offerSetup, answerSetup, ssrc, sessionName string, values url.Values) (string, uint16, string, error) {
+func MSAddForwardSink(protocol int, source, addr, offerSetup, answerSetup, ssrc, sessionName string, values url.Values) (string, uint16, string, string, error) {
 	offer := &GBOffer{
 		SourceSDP: SourceSDP{
 			Source: source,
@@ -217,25 +217,25 @@ func MSAddForwardSink(protocol int, source, addr, offerSetup, answerSetup, ssrc,
 	var err error
 	response, err := SendWithUrlParams("api/v1/sink/add", offer, values)
 	if err != nil {
-		return "", 0, "", err
+		return "", 0, "", "", err
 	}
 
 	data := &Response[struct {
 		Sink string `json:"sink"`
-		Addr string `json:"addr"`
+		SDP
 	}]{}
 
 	if err = DecodeJSONBody(response.Body, data); err != nil {
-		return "", 0, "", err
+		return "", 0, "", "", err
 	} else if http.StatusOK != data.Code {
-		return "", 0, "", fmt.Errorf(data.Msg)
+		return "", 0, "", "", fmt.Errorf(data.Msg)
 	}
 
 	host, p, err := net.SplitHostPort(data.Data.Addr)
 	if err != nil {
-		return "", 0, "", err
+		return "", 0, "", "", err
 	}
 
 	port, _ := strconv.Atoi(p)
-	return host, uint16(port), data.Data.Sink, nil
+	return host, uint16(port), data.Data.Sink, data.Data.SSRC, nil
 }

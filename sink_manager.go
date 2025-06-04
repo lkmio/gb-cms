@@ -16,7 +16,7 @@ func AddForwardSink(forwardType int, request sip.Request, user string, sink *Sin
 		urlParams.Add("forward_type", "gateway_1078")
 	}
 
-	ip, port, sinkID, err := MSAddForwardSink(forwardType, string(streamId), gbSdp.connectionAddr, gbSdp.offerSetup.String(), gbSdp.answerSetup.String(), gbSdp.ssrc, string(inviteType), urlParams)
+	ip, port, sinkID, ssrc, err := MSAddForwardSink(forwardType, string(streamId), gbSdp.connectionAddr, gbSdp.offerSetup.String(), gbSdp.answerSetup.String(), gbSdp.ssrc, string(inviteType), urlParams)
 	if err != nil {
 		Sugar.Errorf("处理上级Invite失败,向流媒体服务添加转发Sink失败 err: %s", err.Error())
 		if InviteTypePlay != inviteType {
@@ -28,7 +28,7 @@ func AddForwardSink(forwardType int, request sip.Request, user string, sink *Sin
 
 	sink.SinkID = sinkID
 	// 创建answer
-	answer := BuildSDP(gbSdp.mediaType, user, gbSdp.sdp.Session, ip, port, gbSdp.startTime, gbSdp.stopTime, gbSdp.answerSetup.String(), gbSdp.speed, gbSdp.ssrc, attrs...)
+	answer := BuildSDP(gbSdp.mediaType, user, gbSdp.sdp.Session, ip, port, gbSdp.startTime, gbSdp.stopTime, gbSdp.answerSetup.String(), gbSdp.speed, ssrc, attrs...)
 	response := CreateResponseWithStatusCode(request, http.StatusOK)
 
 	// answer添加contact头域
