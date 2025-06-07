@@ -321,10 +321,13 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 	// 创建stream
 	if params.Protocol == SourceTypeGBTalk || params.Protocol == SourceType1078 {
 		s := &Stream{
-			DeviceID:  params.Stream.DeviceID(),
-			ChannelID: params.Stream.ChannelID(),
-			StreamID:  params.Stream,
-			Protocol:  params.Protocol,
+			StreamID: params.Stream,
+			Protocol: params.Protocol,
+		}
+
+		if params.Protocol != SourceTypeGBTalk {
+			s.DeviceID = params.Stream.DeviceID()
+			s.ChannelID = params.Stream.ChannelID()
 		}
 
 		_, ok := StreamDao.SaveStream(s)
@@ -636,8 +639,8 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 	}
 
 	// 主讲人id
-	source, _ := StreamDao.QueryStream(v.StreamId)
-	if source == nil {
+	stream, _ := StreamDao.QueryStream(v.StreamId)
+	if stream == nil {
 		Sugar.Errorf("广播失败, 找不到主讲人, stream: %s", v.StreamId)
 		return nil, fmt.Errorf("找不到主讲人")
 	}
