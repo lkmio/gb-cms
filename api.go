@@ -290,7 +290,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
 	Sugar.Infof("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	sink := RemoveForwardSink(params.Stream, params.Sink)
+	sink, _ := SinkDao.DeleteForwardSink(params.Stream, params.Sink)
 	if sink == nil {
 		return
 	}
@@ -606,7 +606,7 @@ func (api *ApiServer) OnHangup(v *BroadcastParams, w http.ResponseWriter, r *htt
 	Sugar.Infof("广播挂断 %v", *v)
 
 	id := GenerateStreamID(InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
-	if sink := RemoveForwardSinkWithSinkStreamID(id); sink != nil {
+	if sink, _ := SinkDao.DeleteForwardSinkBySinkStreamID(id); sink != nil {
 		sink.Close(true, true)
 	}
 

@@ -209,3 +209,13 @@ func CloseStream(streamId StreamID, ms bool) {
 		deleteStream.Close(true, ms)
 	}
 }
+
+// CloseStreamSinks 关闭某个流的所有sink
+func CloseStreamSinks(StreamID StreamID, bye, ms bool) []*Sink {
+	sinks, _ := SinkDao.DeleteForwardSinksByStreamID(StreamID)
+	for _, sink := range sinks {
+		sink.Close(bye, ms)
+	}
+
+	return sinks
+}

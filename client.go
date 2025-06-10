@@ -30,8 +30,6 @@ type GBClient interface {
 	OnQueryDeviceInfo(sn int)
 
 	OnSubscribeCatalog(sn int)
-
-	CloseStream(callId string, bye, ms bool)
 }
 
 type gbClient struct {
@@ -95,10 +93,6 @@ func (g *gbClient) SetDeviceInfo(name, manufacturer, model, firmware string) {
 }
 
 func (g *gbClient) OnSubscribeCatalog(sn int) {
-
-}
-
-func (g *gbClient) CloseStream(callId string, bye, ms bool) {
 
 }
 
