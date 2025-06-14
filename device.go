@@ -154,7 +154,7 @@ func (d *Device) SubscribePosition(channelId string) error {
 
 	//暂时不考虑级联
 	builder := d.NewRequestBuilder(sip.SUBSCRIBE, Config.SipID, Config.SipContactAddr, channelId)
-	body := fmt.Sprintf(MobilePositionMessageFormat, "1", channelId, Config.MobilePositionInterval)
+	body := fmt.Sprintf(MobilePositionMessageFormat, 1, channelId, Config.MobilePositionInterval)
 
 	expiresHeader := sip.Expires(Config.MobilePositionExpires)
 	builder.SetExpires(&expiresHeader)
@@ -167,7 +167,7 @@ func (d *Device) SubscribePosition(channelId string) error {
 		return err
 	}
 
-	event := Event("Catalog;id=2")
+	event := Event(EventPresence)
 	request.AppendHeader(&event)
 	response, err := SipStack.SendRequestWithTimeout(5, request)
 	if err != nil {
