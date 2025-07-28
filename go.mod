@@ -45,8 +45,6 @@ require (
 	github.com/gomodule/redigo v1.9.2
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/lkmio/avformat v0.0.0
+	github.com/lkmio/avformat v0.0.1
 	gorm.io/gorm v1.26.1
 )
-
-replace github.com/lkmio/avformat => ../avformat
