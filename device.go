@@ -92,19 +92,20 @@ type GBDevice interface {
 
 type Device struct {
 	GBModel
-	DeviceID      string       `json:"device_id" gorm:"uniqueIndex"`
-	Name          string       `json:"name"`
+	DeviceID      string       `json:"device_id" gorm:"index"`
+	Name          string       `json:"name" gorm:"index"`
 	RemoteAddr    string       `json:"remote_addr"`
-	Transport     string       `json:"transport"`
-	Status        OnlineStatus `json:"status"` //在线状态 ON-在线/OFF-离线
+	Transport     string       `json:"transport"` // 信令传输模式
+	Status        OnlineStatus `json:"status"`    // 在线状态 ON-在线/OFF-离线
 	Manufacturer  string       `json:"manufacturer"`
 	Model         string       `json:"model"`
 	Firmware      string       `json:"firmware"`
-	RegisterTime  time.Time    `json:"register_time"`
-	LastHeartbeat time.Time    `json:"last_heartbeat"`
+	RegisterTime  time.Time    `json:"register_time"`  // 注册时间
+	LastHeartbeat time.Time    `json:"last_heartbeat"` // 最后心跳时间
 
 	ChannelsTotal  int `json:"total_channels"`  // 通道总数
 	ChannelsOnline int `json:"online_channels"` // 通道在线数量
+	Setup          SetupType
 }
 
 func (d *Device) GetID() string {

@@ -33,6 +33,12 @@ func (m *onlineDeviceManager) Find(deviceId string) (time.Time, bool) {
 	return t, ok
 }
 
+func (m *onlineDeviceManager) Count() int {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	return len(m.devices)
+}
+
 func (m *onlineDeviceManager) Start(interval time.Duration, keepalive time.Duration, OnExpires func(platformId int, deviceId string)) {
 	// 精度有偏差
 	var timer *time.Timer

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"gb-cms/hook"
+	"github.com/shirou/gopsutil/v3/host"
 	"go.uber.org/zap/zapcore"
 	"net"
 	"net/http"
@@ -12,11 +13,16 @@ import (
 )
 
 var (
-	Config   *Config_
-	SipStack SipServer
+	Config      *Config_
+	SipStack    SipServer
+	PwdMD5      string
+	StartUpTime time.Time
+	KernelArch  string
 )
 
 func init() {
+	StartUpTime = time.Now()
+
 	logConfig := LogConfig{
 		Level:     int(zapcore.DebugLevel),
 		Name:      "./logs/clog",
@@ -39,10 +45,28 @@ func main() {
 	indent, _ := json.MarshalIndent(Config, "", "\t")
 	Sugar.Infof("server config:\r\n%s", indent)
 
+	info, err := host.Info()
+	if err != nil {
+		Sugar.Errorf(err.Error())
+	} else {
+		KernelArch = info.KernelArch
+	}
+
 	if config.Hooks.OnInvite != "" {
 		hook.RegisterEventUrl(hook.EventTypeDeviceOnInvite, config.Hooks.OnInvite)
 	}
 
+	plaintext, md5 := ReadTempPwd()
+	if plaintext != "" {
+		Sugar.Infof("temp pwd: %s", plaintext)
+	}
+
+	PwdMD5 = md5
+
+	// 启动session超时管理
+	go TokenManager.Start(5 * time.Minute)
+
+	// 启动设备在线超时管理
 	OnlineDeviceManager.Start(time.Duration(Config.AliveExpires)*time.Second/4, time.Duration(Config.AliveExpires)*time.Second, OnExpires)
 
 	// 从数据库中恢复会话
@@ -60,6 +84,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	go StartStats()
 
 	Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
 	Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))

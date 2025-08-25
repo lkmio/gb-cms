@@ -76,23 +76,45 @@ func (d *daoChannel) QueryChannel(deviceId string, channelId string) (*Channel, 
 	return &channel, nil
 }
 
-func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int) ([]*Channel, int, error) {
+func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, status string, keyword string) ([]*Channel, int, error) {
 	conditions := map[string]interface{}{}
 	conditions["root_id"] = deviceId
 	if groupId != "" {
 		conditions["group_id"] = groupId
 	}
+	if status != "" {
+		conditions["status"] = status
+	}
+
+	cTx := db.Limit(size).Offset((page - 1) * size).Where(conditions)
+	if keyword != "" {
+		cTx.Where("name like ? or device_id like ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
 
 	var channels []*Channel
-	tx := db.Limit(size).Offset((page - 1) * size).Where(conditions).Find(&channels)
-	if tx.Error != nil {
+	if tx := cTx.Find(&channels); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 
+	countTx := db.Model(&Channel{}).Select("id").Where(conditions)
+	if keyword != "" {
+		countTx.Where("name like ? or device_id like ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
 	var total int64
-	tx = db.Model(&Channel{}).Select("id").Where(conditions).Count(&total)
-	if tx.Error != nil {
+	if tx := countTx.Count(&total); tx.Error != nil {
 		return nil, 0, tx.Error
+	}
+
+	// 查询每个通道的子节点通道数量
+	for _, channel := range channels {
+		// 查询子节点数量
+		var subCount int64
+		tx := db.Model(&Channel{}).Where("root_id =? and group_id =?", deviceId, channel.DeviceID).Count(&subCount)
+		if tx.Error != nil {
+			return nil, 0, tx.Error
+		}
+		channel.SubCount = int(subCount)
 	}
 
 	return channels, int(total), nil

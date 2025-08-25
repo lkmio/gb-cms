@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	DBNAME = "lkm_gb.db"
+	DBNAME = "data/lkm_gb.db"
 	//DBNAME = ":memory:"
 )
 

@@ -24,6 +24,16 @@ func (g *Platform) OnBye(request sip.Request) {
 	g.CloseStream(id.Value(), false, true)
 }
 
+func (g *Platform) OnQueryCatalog(sn int, channels []*Channel) {
+	// 添加本级域
+	channels = append(channels, &Channel{
+		DeviceID: g.ServerID,
+		Setup:    SetupTypePassive,
+	})
+
+	g.gbClient.OnQueryCatalog(sn, channels)
+}
+
 // CloseStream 关闭级联会话
 func (g *Platform) CloseStream(callId string, bye, ms bool) {
 	sink, _ := SinkDao.DeleteForwardSinkByCallID(callId)
@@ -74,7 +84,7 @@ func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
 	// 如果流不存在, 向通道发送Invite请求
 	stream, _ := StreamDao.QueryStream(streamId)
 	if stream == nil {
-		stream, err = device.StartStream(inviteType, streamId, user, gbSdp.startTime, gbSdp.stopTime, channel.SetupType.String(), 0, true)
+		stream, err = device.StartStream(inviteType, streamId, user, gbSdp.startTime, gbSdp.stopTime, channel.Setup.String(), 0, true)
 		if err != nil {
 			Sugar.Errorf("处理上级Invite失败 err: %s stream: %s", err.Error(), streamId)
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)

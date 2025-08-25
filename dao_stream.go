@@ -47,7 +47,7 @@ func (d *daoStream) LoadStreams() (map[string]*Stream, error) {
 
 func (d *daoStream) SaveStream(stream *Stream) (*Stream, bool) {
 	var old Stream
-	tx := db.Select("id").Where("stream_id =?", stream.StreamID).Take(&old)
+	tx := db.Where("stream_id =?", stream.StreamID).Take(&old)
 	if old.ID != 0 {
 		return &old, false
 	}

@@ -12,7 +12,7 @@ import (
 type SetupType int
 
 const (
-	SetupTypeUDP SetupType = iota
+	SetupTypeUDP SetupType = iota + 1
 	SetupTypePassive
 	SetupTypeActive
 )
@@ -23,15 +23,13 @@ var (
 
 func (s SetupType) String() string {
 	switch s {
-	case SetupTypeUDP:
-		return "udp"
 	case SetupTypePassive:
 		return "passive"
 	case SetupTypeActive:
 		return "active"
+	default:
+		return "udp"
 	}
-
-	panic("invalid setup type")
 }
 
 func (s SetupType) MediaProtocol() string {
@@ -40,6 +38,15 @@ func (s SetupType) MediaProtocol() string {
 		return "TCP/RTP/AVP"
 	default:
 		return "RTP/AVP"
+	}
+}
+
+func (s SetupType) Transport() string {
+	switch s {
+	case SetupTypePassive, SetupTypeActive:
+		return "TCP"
+	default:
+		return "UDP"
 	}
 }
 
@@ -86,9 +93,8 @@ type Stream struct {
 	Dialog    *RequestWrapper `json:"dialog,omitempty"`   // 国标流的SipCall会话
 	SinkCount int32           `json:"sink_count"`         // 拉流端计数(包含级联转发)
 	SetupType SetupType
-	CallID    string `json:"call_id"`
-
-	urls []string // 从流媒体服务器返回的拉流地址
+	CallID    string   `json:"call_id"`
+	Urls      []string `gorm:"serializer:json"` // 从流媒体服务器返回的拉流地址
 }
 
 func (s *Stream) MarshalJSON() ([]byte, error) {

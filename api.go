@@ -10,6 +10,7 @@ import (
 	"github.com/lkmio/avformat/utils"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,12 +22,13 @@ type ApiServer struct {
 }
 
 type InviteParams struct {
-	DeviceID  string `json:"device_id"`
-	ChannelID string `json:"channel_id"`
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time"`
+	DeviceID  string `json:"serial"`
+	ChannelID string `json:"code"`
+	StartTime string `json:"starttime"`
+	EndTime   string `json:"endtime"`
 	Setup     string `json:"setup"`
 	Speed     string `json:"speed"`
+	Token     string `json:"token"`
 	streamId  StreamID
 }
 
@@ -42,12 +44,12 @@ type PlayDoneParams struct {
 }
 
 type QueryRecordParams struct {
-	DeviceID  string `json:"device_id"`
-	ChannelID string `json:"channel_id"`
+	DeviceID  string `json:"serial"`
+	ChannelID string `json:"code"`
 	Timeout   int    `json:"timeout"`
-	StartTime string `json:"start_time"`
-	EndTime   string `json:"end_time"`
-	Type_     string `json:"type"`
+	StartTime string `json:"starttime"`
+	EndTime   string `json:"endtime"`
+	//Type_     string `json:"type"`
 }
 
 type DeviceChannelID struct {
@@ -109,37 +111,6 @@ func init() {
 	}
 }
 
-func withJsonParams[T any](f func(params T, w http.ResponseWriter, req *http.Request), params T) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		newParams := new(T)
-		if err := HttpDecodeJSONBody(w, req, newParams); err != nil {
-			Sugar.Errorf("解析请求体失败 err: %s path: %s", err.Error(), req.URL.Path)
-			httpResponseError(w, err.Error())
-			return
-		}
-
-		f(*newParams, w, req)
-	}
-}
-
-func withJsonResponse[T any](f func(params T, w http.ResponseWriter, req *http.Request) (interface{}, error), params interface{}) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		newParams := new(T)
-		if err := HttpDecodeJSONBody(w, req, newParams); err != nil {
-			Sugar.Errorf("解析请求体失败 err: %s path: %s", err.Error(), req.URL.Path)
-			httpResponseError(w, err.Error())
-			return
-		}
-
-		responseBody, err := f(*newParams, w, req)
-		if err != nil {
-			httpResponseError(w, err.Error())
-		} else {
-			httpResponseOK(w, responseBody)
-		}
-	}
-}
-
 func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_play", withJsonParams(apiServer.OnPlay, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", withJsonParams(apiServer.OnPlayDone, &PlayDoneParams{}))
@@ -152,16 +123,16 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	// 统一处理live/playback/download请求
-	apiServer.router.HandleFunc("/api/v1/{action}/start", withJsonParams(apiServer.OnInvite, &InviteParams{}))
+	apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(withFormDataParams(apiServer.OnInvite, InviteParams{})))
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
 	apiServer.router.HandleFunc("/api/v1/stream/close", withJsonParams(apiServer.OnCloseStream, &StreamIDParams{}))
 
-	apiServer.router.HandleFunc("/api/v1/device/list", withJsonResponse(apiServer.OnDeviceList, &PageQuery{}))               // 查询设备列表
-	apiServer.router.HandleFunc("/api/v1/channel/list", withJsonResponse(apiServer.OnChannelList, &PageQueryChannel{}))      // 查询通道列表
-	apiServer.router.HandleFunc("/api/v1/record/list", withJsonResponse(apiServer.OnRecordList, &QueryRecordParams{}))       // 查询录像列表
-	apiServer.router.HandleFunc("/api/v1/position/sub", withJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{})) // 订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", withJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))          // 回放seek
-	apiServer.router.HandleFunc("/api/v1/ptz/control", apiServer.OnPTZControl)                                               // 云台控制
+	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(withQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))         // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(withQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{}))) // 查询通道列表
+	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(withQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))  // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/position/sub", withJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))                    // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", withJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                             // 回放seek
+	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                                  // 云台控制
 
 	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                          // 级联设备列表
 	apiServer.router.HandleFunc("/api/v1/platform/add", withJsonResponse(apiServer.OnPlatformAdd, &PlatformModel{}))                        // 添加级联设备
@@ -181,8 +152,29 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/jt/channel/add", withJsonResponse(apiServer.OnVirtualChannelAdd, &Channel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", withJsonResponse(apiServer.OnVirtualChannelEdit, &Channel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", withJsonResponse(apiServer.OnVirtualChannelRemove, &Channel{}))
+	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(withJsonResponse2(apiServer.OnDeviceMediaTransportSet)))
 
-	http.Handle("/", apiServer.router)
+	registerLiveGBSApi()
+
+	// 前端路由
+	htmlRoot := "../www/"
+	fileServer := http.FileServer(http.Dir(htmlRoot))
+	apiServer.router.PathPrefix("/").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// 处理无扩展名的路径，自动添加.html扩展名
+		path := request.URL.Path
+		if !strings.Contains(path, ".") {
+			// 检查是否存在对应的.html文件
+			htmlPath := htmlRoot + path + ".html"
+			if _, err := os.Stat(htmlPath); err == nil {
+				// 如果存在对应的.html文件，则直接返回该文件
+				http.ServeFile(writer, request, htmlPath)
+				return
+			}
+		}
+
+		// 供静态文件服务
+		fileServer.ServeHTTP(writer, request)
+	})
 
 	srv := &http.Server{
 		Handler: apiServer.router,
@@ -215,6 +207,15 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 
 	// 拉流地址携带的参数
 	query := r.URL.Query()
+
+	// 播放授权
+	streamToken := query.Get("stream_token")
+	if TokenManager.Find(streamToken) == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		Sugar.Errorf("播放鉴权失败, token不存在 token: %s", streamToken)
+		return
+	}
+
 	jtSource := query.Get("forward_type") == "gateway_1078"
 
 	// 跳过非国标拉流
@@ -269,11 +270,11 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 		var err error
 		streamType := strings.ToLower(query.Get("stream_type"))
 		if "playback" == streamType {
-			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
+			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false)
 		} else if "download" == streamType {
-			code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false, w, r)
+			code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false)
 		} else {
-			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false, w, r)
+			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false)
 		}
 
 		if err != nil {
@@ -316,6 +317,8 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 	stream := EarlyDialogs.Find(string(params.Stream))
 	if stream != nil {
 		stream.Put(200)
+	} else {
+		Sugar.Infof("推流事件. 未找到stream. stream: %s", params.Stream)
 	}
 
 	// 创建stream
@@ -373,7 +376,7 @@ func (api *ApiServer) OnRecord(params *RecordParams, w http.ResponseWriter, req 
 	Sugar.Infof("录制事件. protocol: %s stream: %s path:%s ", params.Protocol, params.Stream, params.Path)
 }
 
-func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	vars := mux.Vars(r)
 	action := strings.ToLower(vars["action"])
 
@@ -381,35 +384,99 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 	var stream *Stream
 	var err error
 	if "playback" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypePlayback, v, true, w, r)
+		code, stream, err = apiServer.DoInvite(InviteTypePlayback, v, true)
 	} else if "download" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypeDownload, v, true, w, r)
-	} else if "live" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypePlay, v, true, w, r)
+		code, stream, err = apiServer.DoInvite(InviteTypeDownload, v, true)
+	} else if "stream" == action {
+		code, stream, err = apiServer.DoInvite(InviteTypePlay, v, true)
 	} else {
-		w.WriteHeader(http.StatusNotFound)
-		return
+		return nil, fmt.Errorf("action not found")
 	}
 
 	if http.StatusOK != code {
 		Sugar.Errorf("请求流失败 err: %s", err.Error())
-		httpResponseError(w, err.Error())
-	} else {
-		// 返回stream id和拉流地址
-		response := struct {
-			Stream string   `json:"stream_id"`
-			Urls   []string `json:"urls"`
-		}{
-			string(stream.StreamID),
-			stream.urls,
-		}
-		httpResponseOK(w, response)
+		return nil, err
 	}
+
+	var urls map[string]string
+	urls = make(map[string]string, 10)
+	for _, url := range stream.Urls {
+		var streamName string
+
+		if strings.HasPrefix(url, "ws") {
+			streamName = "WS_FLV"
+		} else if strings.HasSuffix(url, ".flv") {
+			streamName = "FLV"
+		} else if strings.HasSuffix(url, ".m3u8") {
+			streamName = "HLS"
+		} else if strings.HasSuffix(url, ".rtc") {
+			streamName = "WEBRTC"
+		} else if strings.HasPrefix(url, "rtmp") {
+			streamName = "RTMP"
+		} else if strings.HasPrefix(url, "rtsp") {
+			streamName = "RTSP"
+		}
+
+		// 加上登录的token, 播放授权
+		url += "?stream_token=" + v.Token
+
+		// 兼容livegbs前端播放webrtc
+		if streamName == "WEBRTC" {
+			if strings.HasPrefix(url, "http") {
+				url = strings.Replace(url, "http", "webrtc", 1)
+			} else if strings.HasPrefix(url, "https") {
+				url = strings.Replace(url, "https", "webrtcs", 1)
+			}
+
+			url += "&wf=livegbs"
+		}
+		
+		urls[streamName] = url
+	}
+
+	response := LiveGBSStream{
+		AudioEnable:           false,
+		CDN:                   "",
+		CascadeSize:           0,
+		ChannelID:             v.ChannelID,
+		ChannelName:           "未读取通道名",
+		ChannelPTZType:        0,
+		CloudRecord:           false,
+		DecodeSize:            0,
+		DeviceID:              v.DeviceID,
+		Duration:              1,
+		FLV:                   urls["FLV"],
+		HLS:                   urls["HLS"],
+		InBitRate:             0,
+		InBytes:               0,
+		NumOutputs:            0,
+		Ondemand:              true,
+		OutBytes:              0,
+		RTMP:                  urls["RTMP"],
+		RecordStartAt:         "",
+		RelaySize:             0,
+		SMSID:                 "",
+		SnapURL:               "",
+		SourceAudioCodecName:  "",
+		SourceAudioSampleRate: 0,
+		SourceVideoCodecName:  "",
+		SourceVideoFrameRate:  0,
+		SourceVideoHeight:     0,
+		SourceVideoWidth:      0,
+		StartAt:               "",
+		StreamID:              string(stream.StreamID),
+		Transport:             "TCP",
+		VideoFrameCount:       0,
+		WEBRTC:                urls["WEBRTC"],
+		WS_FLV:                urls["WS_FLV"],
+	}
+
+	return response, err
 }
 
 // DoInvite 发起Invite请求
 // @params sync 是否异步等待流媒体的publish事件(确认收到流), 目前请求流分两种方式，流媒体hook和http接口, hook方式同步等待确认收到流再应答, http接口直接应答成功。
-func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync bool, w http.ResponseWriter, r *http.Request) (int, *Stream, error) {
+func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync bool) (int, *Stream, error) {
 	device, _ := DeviceDao.QueryDevice(params.DeviceID)
 	if device == nil || !device.Online() {
 		return http.StatusNotFound, nil, fmt.Errorf("设备离线 id: %s", params.DeviceID)
@@ -419,12 +486,12 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	var startTimeSeconds string
 	var endTimeSeconds string
 	if InviteTypePlay != inviteType {
-		startTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.StartTime, time.Local)
+		startTime, err := time.ParseInLocation("2006-01-02T15:04:05", params.StartTime, time.Local)
 		if err != nil {
 			return http.StatusBadRequest, nil, err
 		}
 
-		endTime, err := time.ParseInLocation("2006-01-02t15:04:05", params.EndTime, time.Local)
+		endTime, err := time.ParseInLocation("2006-01-02T15:04:05", params.EndTime, time.Local)
 		if err != nil {
 			return http.StatusBadRequest, nil, err
 		}
@@ -435,6 +502,10 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 
 	if params.streamId == "" {
 		params.streamId = GenerateStreamID(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
+	}
+
+	if params.Setup == "" {
+		params.Setup = device.Setup.String()
 	}
 
 	// 解析回放或下载速度参数
@@ -459,64 +530,205 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 	httpResponseOK(w, nil)
 }
 
-func (api *ApiServer) OnDeviceList(v *PageQuery, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("查询设备列表 %v", *v)
+// QueryDeviceChannel 查询设备和通道的参数
+type QueryDeviceChannel struct {
+	DeviceID    string `json:"serial"`
+	GroupID     string `json:"dir_serial"`
+	Start       int    `json:"start"`
+	Limit       int    `json:"limit"`
+	Keyword     string `json:"q"`
+	Online      string `json:"online"`
+	ChannelType string `json:"channel_type"`
 
-	if v.PageNumber == nil {
-		var defaultPageNumber = 1
-		v.PageNumber = &defaultPageNumber
+	//pageNumber  int
+	//pageSize    int
+	//keyword     string
+	//online      string // true/false
+	//channelType string // device/dir, 查询通道列表使用
+}
+
+func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	values := r.URL.Query()
+
+	Sugar.Infof("查询设备列表 %s", values.Encode())
+
+	var status string
+	if "" == q.Online {
+	} else if "true" == q.Online {
+		status = "ON"
+	} else if "false" == q.Online {
+		status = "OFF"
 	}
 
-	if v.PageSize == nil {
-		var defaultPageSize = 10
-		v.PageSize = &defaultPageSize
-	}
-
-	devices, total, err := DeviceDao.QueryDevices(*v.PageNumber, *v.PageSize)
+	devices, total, err := DeviceDao.QueryDevices((q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
 	if err != nil {
 		Sugar.Errorf("查询设备列表失败 err: %s", err.Error())
 		return nil, err
 	}
 
-	query := &PageQuery{
-		PageNumber: v.PageNumber,
-		PageSize:   v.PageSize,
-		TotalCount: total,
-		TotalPages: int(math.Ceil(float64(total) / float64(*v.PageSize))),
-		Data:       devices,
+	response := struct {
+		DeviceCount int
+		DeviceList_ []LiveGBSDevice `json:"DeviceList"`
+	}{
+		DeviceCount: total,
 	}
 
-	return query, nil
+	for _, device := range devices {
+		split := strings.Split(device.RemoteAddr, ":")
+		remoteIP := split[0]
+		remotePort, _ := strconv.Atoi(split[1])
+
+		response.DeviceList_ = append(response.DeviceList_, LiveGBSDevice{
+			AlarmSubscribe:     false,
+			CatalogInterval:    3600,
+			CatalogSubscribe:   false,
+			ChannelCount:       device.ChannelsTotal,
+			ChannelOverLoad:    false,
+			Charset:            "GB2312",
+			CivilCodeFirst:     false,
+			CommandTransport:   device.Transport,
+			ContactIP:          "",
+			CreatedAt:          device.CreatedAt.Format("2006-01-02 15:04:05"),
+			CustomName:         "",
+			DropChannelType:    "",
+			GBVer:              "",
+			ID:                 device.GetID(),
+			KeepOriginalTree:   false,
+			LastKeepaliveAt:    device.LastHeartbeat.Format("2006-01-02 15:04:05"),
+			LastRegisterAt:     device.RegisterTime.Format("2006-01-02 15:04:05"),
+			Latitude:           0,
+			Longitude:          0,
+			Manufacturer:       device.Manufacturer,
+			MediaTransport:     device.Setup.Transport(),
+			MediaTransportMode: device.Setup.String(),
+			Name:               device.Name,
+			Online:             device.Online(),
+			PTZSubscribe:       false,
+			Password:           "",
+			PositionSubscribe:  false,
+			RecordCenter:       false,
+			RecordIndistinct:   false,
+			RecvStreamIP:       "",
+			RemoteIP:           remoteIP,
+			RemotePort:         remotePort,
+			RemoteRegion:       "",
+			SMSGroupID:         "",
+			SMSID:              "",
+			StreamMode:         "",
+			SubscribeInterval:  0,
+			Type:               "GB",
+			UpdatedAt:          device.UpdatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+
+	return &response, nil
 }
 
-func (api *ApiServer) OnChannelList(v *PageQueryChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("查询通道列表 %v", *v)
+func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	values := r.URL.Query()
+	Sugar.Infof("查询通道列表 %s", values.Encode())
 
-	if v.PageNumber == nil {
-		var defaultPageNumber = 1
-		v.PageNumber = &defaultPageNumber
+	device, err := DeviceDao.QueryDevice(q.DeviceID)
+	if err != nil {
+		Sugar.Errorf("查询设备失败 err: %s", err.Error())
+		return nil, err
 	}
 
-	if v.PageSize == nil {
-		var defaultPageSize = 10
-		v.PageSize = &defaultPageSize
+	var status string
+	if "" == q.Online {
+	} else if "true" == q.Online {
+		status = "ON"
+	} else if "false" == q.Online {
+		status = "OFF"
 	}
 
-	channels, total, err := ChannelDao.QueryChannels(v.DeviceID, v.GroupID, *v.PageNumber, *v.PageSize)
+	channels, total, err := ChannelDao.QueryChannels(q.DeviceID, q.GroupID, (q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
 	if err != nil {
 		Sugar.Errorf("查询通道列表失败 err: %s", err.Error())
 		return nil, err
 	}
 
-	query := &PageQuery{
-		PageNumber: v.PageNumber,
-		PageSize:   v.PageSize,
-		TotalCount: total,
-		TotalPages: int(math.Ceil(float64(total) / float64(*v.PageSize))),
-		Data:       channels,
+	response := struct {
+		ChannelCount int
+		ChannelList  []LiveGBSChannel
+	}{
+		ChannelCount: total,
 	}
 
-	return query, nil
+	index := q.Start + 1
+	for _, channel := range channels {
+		parental, _ := strconv.Atoi(channel.Parental)
+		port, _ := strconv.Atoi(channel.Port)
+		registerWay, _ := strconv.Atoi(channel.RegisterWay)
+		secrecy, _ := strconv.Atoi(channel.Secrecy)
+
+		response.ChannelList = append(response.ChannelList, LiveGBSChannel{
+			Address:            channel.Address,
+			Altitude:           0,
+			AudioEnable:        true,
+			BatteryLevel:       0,
+			Channel:            index,
+			CivilCode:          channel.CivilCode,
+			CloudRecord:        false,
+			CreatedAt:          channel.CreatedAt.Format("2006-01-02 15:04:05"),
+			Custom:             false,
+			CustomAddress:      "",
+			CustomBlock:        "",
+			CustomCivilCode:    "",
+			CustomFirmware:     "",
+			CustomID:           "",
+			CustomIPAddress:    "",
+			CustomLatitude:     0,
+			CustomLongitude:    0,
+			CustomManufacturer: "",
+			CustomModel:        "",
+			CustomName:         "",
+			CustomPTZType:      0,
+			CustomParentID:     "",
+			CustomPort:         0,
+			CustomSerialNumber: "",
+			CustomStatus:       "",
+			Description:        "",
+			DeviceCustomName:   "",
+			DeviceID:           channel.RootID,
+			DeviceName:         device.Name,
+			DeviceOnline:       device.Online(),
+			DeviceType:         "GB",
+			Direction:          0,
+			DownloadSpeed:      "",
+			Firmware:           "",
+			ID:                 channel.DeviceID,
+			IPAddress:          channel.IPAddress,
+			Latitude:           0,
+			Longitude:          0,
+			Manufacturer:       channel.Manufacturer,
+			Model:              channel.Model,
+			Name:               channel.Name,
+			NumOutputs:         0,
+			Ondemand:           true,
+			Owner:              channel.Owner,
+			PTZType:            0,
+			ParentID:           channel.ParentID,
+			Parental:           parental,
+			Port:               port,
+			Quality:            "",
+			RegisterWay:        registerWay,
+			Secrecy:            secrecy,
+			SerialNumber:       "",
+			Shared:             false,
+			SignalLevel:        0,
+			SnapURL:            "",
+			Speed:              0,
+			Status:             channel.Status.String(),
+			StreamID:           "",
+			SubCount:           channel.SubCount,
+			UpdatedAt:          channel.UpdatedAt.Format("2006-01-02 15:04:05"),
+		})
+
+		index++
+	}
+
+	return response, nil
 }
 
 func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
@@ -529,7 +741,7 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 	}
 
 	sn := GetSN()
-	err := device.QueryRecord(v.ChannelID, v.StartTime, v.EndTime, sn, v.Type_)
+	err := device.QueryRecord(v.ChannelID, v.StartTime, v.EndTime, sn, "all")
 	if err != nil {
 		Sugar.Errorf("发送查询录像请求失败 err: %s", err.Error())
 		return nil, err
@@ -558,7 +770,47 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 		break
 	}
 
-	return recordList, nil
+	response := struct {
+		DeviceID   string
+		Name       string
+		RecordList []struct {
+			DeviceID  string
+			EndTime   string
+			FileSize  uint64
+			Name      string
+			Secrecy   string
+			StartTime string
+			Type      string
+		}
+		SumNum int `json:"sumNum"`
+	}{
+		DeviceID: v.DeviceID,
+		Name:     device.Name,
+		SumNum:   len(recordList),
+	}
+
+	for _, record := range recordList {
+		Sugar.Infof("查询录像列表 %v", record)
+		response.RecordList = append(response.RecordList, struct {
+			DeviceID  string
+			EndTime   string
+			FileSize  uint64
+			Name      string
+			Secrecy   string
+			StartTime string
+			Type      string
+		}{
+			DeviceID:  record.DeviceID,
+			EndTime:   record.EndTime,
+			FileSize:  record.FileSize,
+			Name:      record.Name,
+			Secrecy:   record.Secrecy,
+			StartTime: record.StartTime,
+			Type:      record.Type,
+		})
+	}
+
+	return &response, nil
 }
 
 func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWriter, r *http.Request) (interface{}, error) {
@@ -822,4 +1074,28 @@ func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, w http.Respons
 	}
 
 	return channels, nil
+}
+
+func (api *ApiServer) OnDeviceMediaTransportSet(w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	serial := r.FormValue("serial")
+	mediaTransport := r.FormValue("media_transport")
+	mediaTransportMode := r.FormValue("media_transport_mode")
+
+	var setupType SetupType
+	if "udp" == strings.ToLower(mediaTransport) {
+		setupType = SetupTypeUDP
+	} else if "passive" == strings.ToLower(mediaTransportMode) {
+		setupType = SetupTypePassive
+	} else if "active" == strings.ToLower(mediaTransportMode) {
+		setupType = SetupTypeActive
+	} else {
+		return nil, fmt.Errorf("media_transport_mode error")
+	}
+
+	err := DeviceDao.UpdateMediaTransport(serial, setupType)
+	if err != nil {
+		return nil, err
+	}
+
+	return "OK", nil
 }

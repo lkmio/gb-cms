@@ -48,8 +48,9 @@ type Channel struct {
 	Status          OnlineStatus `json:"status" xml:"Status,omitempty"`
 	Longitude       string       `json:"longitude" xml:"Longitude,omitempty"`
 	Latitude        string       `json:"latitude" xml:"Latitude,omitempty"`
-	SetupType       SetupType    `json:"setup_type,omitempty"`
+	Setup           SetupType    `json:"setup,omitempty"`
 	ChannelNumber   int          `json:"channel_number" xml:"-"` // 对应1078的通道号
+	SubCount        int          `json:"-" xml:"-" gorm:"-"`     // 子节点数量
 }
 
 func (d *Channel) Online() bool {

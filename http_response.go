@@ -11,31 +11,49 @@ type Response[T any] struct {
 	Data T      `json:"data"`
 }
 
-func httpResponse(w http.ResponseWriter, code int, msg string) {
-	httpResponseJson(w, MalformedRequest{
+func httpResponse(w http.ResponseWriter, code int, msg string) error {
+	return httpResponseJson(w, MalformedRequest{
 		Code: code,
 		Msg:  msg,
 	})
 }
 
-func httpResponseJson(w http.ResponseWriter, payload interface{}) {
-	body, _ := json.Marshal(payload)
+func httpResponseJson(w http.ResponseWriter, payload interface{}) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	return httpResponseJsonStr(w, string(body))
+}
+
+func httpResponseJsonStr(w http.ResponseWriter, payload string) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT")
-	w.Write(body)
+
+	_, err := w.Write([]byte(payload))
+	return err
 }
 
-func httpResponseOK(w http.ResponseWriter, data interface{}) {
-	httpResponseJson(w, MalformedRequest{
+func httpResponseOK(w http.ResponseWriter, data interface{}) error {
+	return httpResponseJson(w, MalformedRequest{
 		Code: http.StatusOK,
 		Msg:  "ok",
 		Data: data,
 	})
 }
 
-func httpResponseError(w http.ResponseWriter, msg string) {
-	httpResponseJson(w, MalformedRequest{
+func httpResponseSuccess(w http.ResponseWriter, data interface{}) error {
+	return httpResponseJson(w, MalformedRequest{
+		Code: http.StatusOK,
+		Msg:  "Success",
+		Data: data,
+	})
+}
+
+func httpResponseError(w http.ResponseWriter, msg string) error {
+	return httpResponseJson(w, MalformedRequest{
 		Code: -1,
 		Msg:  msg,
 		Data: nil,

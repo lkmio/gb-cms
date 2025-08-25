@@ -311,6 +311,7 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 		if CmdCatalog == cmd {
 			s.handler.OnCatalog(deviceId, message.(*CatalogResponse))
 		} else if CmdRecordInfo == cmd {
+			Sugar.Infof("查询录像列表 %s", body)
 			s.handler.OnRecord(deviceId, message.(*QueryRecordInfoResponse))
 		} else if CmdDeviceInfo == cmd {
 			s.handler.OnDeviceInfo(deviceId, message.(*DeviceInfoResponse))

@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+var (
+	DeviceCount int
+)
+
 type DaoDevice interface {
 	LoadOnlineDevices() (map[string]*Device, error)
 
@@ -25,6 +29,8 @@ type DaoDevice interface {
 	UpdateOfflineDevices(deviceIds []string) error
 
 	ExistDevice(deviceId string) bool
+
+	UpdateMediaTransport(deviceId string, setupType SetupType) error
 }
 
 type daoDevice struct {
@@ -47,6 +53,7 @@ func (d *daoDevice) LoadDevices() (map[string]*Device, error) {
 		deviceMap[device.DeviceID] = device
 	}
 
+	DeviceCount = len(devices)
 	return deviceMap, nil
 }
 
@@ -59,7 +66,11 @@ func (d *daoDevice) SaveDevice(device *Device) error {
 
 		if device.ID == 0 {
 			//return tx.Create(&old).Error
-			return tx.Save(device).Error
+			err := tx.Save(device).Error
+			if err == nil {
+				DeviceCount++
+			}
+			return err
 		} else {
 			return tx.Model(device).Select("Transport", "RemoteAddr", "Status", "RegisterTime", "LastHeartbeat").Updates(*device).Error
 		}
@@ -114,16 +125,29 @@ func (d *daoDevice) QueryDevice(id string) (*Device, error) {
 	return &device, nil
 }
 
-func (d *daoDevice) QueryDevices(page int, size int) ([]*Device, int, error) {
+func (d *daoDevice) QueryDevices(page int, size int, status string, keyword string) ([]*Device, int, error) {
+	var cond = make(map[string]interface{})
+	if status != "" {
+		cond["status"] = status
+	}
+
+	devicesTx := db.Where(cond).Limit(size).Offset((page - 1) * size)
+	if keyword != "" {
+		devicesTx.Where("device_id like ? or name like ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
 	var devices []*Device
-	tx := db.Limit(size).Offset((page - 1) * size).Find(&devices)
-	if tx.Error != nil {
+	if tx := devicesTx.Find(&devices); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 
+	countTx := db.Where(cond).Model(&Device{})
+	if keyword != "" {
+		countTx.Where("device_id like ? or name like ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
 	var total int64
-	tx = db.Model(&Device{}).Count(&total)
-	if tx.Error != nil {
+	if tx := countTx.Count(&total); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 
@@ -151,4 +175,9 @@ func (d *daoDevice) ExistDevice(deviceId string) bool {
 	}
 
 	return true
+}
+func (d *daoDevice) UpdateMediaTransport(deviceId string, setupType SetupType) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&Device{}).Where("device_id =?", deviceId).Update("setup", setupType).Error
+	})
 }

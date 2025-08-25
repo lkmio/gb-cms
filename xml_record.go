@@ -32,6 +32,7 @@ type QueryRecordInfoResponse struct {
 	DeviceID   string     `xml:"DeviceID"`
 	SumNum     int        `xml:"SumNum"`
 	DeviceList RecordList `xml:"RecordList"`
+	BaseMessage
 }
 
 type RecordList struct {
@@ -41,13 +42,21 @@ type RecordList struct {
 }
 
 type RecordInfo struct {
-	FileSize       uint64 `xml:"FileSize" json:"fileSize"`
+	DeviceID       string `xml:"DeviceID"`
+	Name           string `xml:"Name"`
+	FilePath       string `xml:"FilePath" json:"filePath"`
+	Address        string `xml:"Address"`
 	StartTime      string `xml:"StartTime" json:"startTime"`
 	EndTime        string `xml:"EndTime" json:"endTime"`
-	FilePath       string `xml:"FilePath" json:"filePath"`
+	Secrecy        string `xml:"Secrecy"`
+	Type           string `xml:"Type"`
+	RecorderID     string `xml:"RecorderID" json:"recorderId"`
+	FileSize       uint64 `xml:"FileSize" json:"fileSize"`
+	RecordLocation string `xml:"RecordLocation"`
+	StreamNumber   int    `xml:"StreamNumber"`
+
 	ResourceType   string `xml:"ResourceType" json:"type"`
 	ResourceId     string `xml:"ResourceId" json:"resourceId"`
-	RecorderId     string `xml:"RecorderId" json:"recorderId"`
 	UserId         string `xml:"UserId" json:"userId"`
 	UserName       string `xml:"UserName" json:"userName"`
 	ResourceName   string `xml:"ResourceName" json:"resourceName"`

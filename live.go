@@ -66,6 +66,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 	// 等待流媒体服务发送推流通知
 	wait := func() bool {
 		waiting := StreamWaiting{}
+		logger.Infof("等待收流通知 streamId: %s", streamId)
 		_, _ = EarlyDialogs.Add(string(streamId), &waiting)
 		defer EarlyDialogs.Remove(string(streamId))
 
@@ -83,7 +84,7 @@ func (d *Device) StartStream(inviteType InviteType, streamId StreamID, channelId
 		return nil, fmt.Errorf("receiving stream timed out")
 	}
 
-	stream.urls = urls
+	stream.Urls = urls
 
 	// 保存到数据库
 	_ = StreamDao.UpdateStream(stream)
