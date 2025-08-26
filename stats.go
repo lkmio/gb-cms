@@ -4,6 +4,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"gb-cms/common"
+	"gb-cms/log"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -293,7 +295,7 @@ func StartStats() {
 		// 获取CPU使用率
 		cpuPercent, err := cpu.Percent(time.Second, false)
 		if err != nil {
-			Sugar.Errorf("获取CPU信息失败: %v", err)
+			log.Sugar.Errorf("获取CPU信息失败: %v", err)
 		} else {
 			// 所有核心
 			var cpuPercentTotal float64
@@ -322,7 +324,7 @@ func StartStats() {
 		// 获取内存信息
 		memInfo, err := mem.VirtualMemory()
 		if err != nil {
-			Sugar.Errorf("获取内存信息失败: %v", err)
+			log.Sugar.Errorf("获取内存信息失败: %v", err)
 		} else {
 
 			// 只统计30条，超过30条，删除最旧的
@@ -342,7 +344,7 @@ func StartStats() {
 		// 获取网络信息
 		rx, tx, err := stateNet(refreshInterval)
 		if err != nil {
-			Sugar.Errorf("获取网络信息失败: %v", err)
+			log.Sugar.Errorf("获取网络信息失败: %v", err)
 		} else {
 			if len(topStats.Net) >= MaxStatsCount {
 				topStats.Net = topStats.Net[1:]
@@ -360,19 +362,19 @@ func StartStats() {
 
 			marshal, err := json.Marshal(topStats.Net[len(topStats.Net)-1])
 			if err != nil {
-				Sugar.Errorf("序列化网络信息失败: %v", err)
+				log.Sugar.Errorf("序列化网络信息失败: %v", err)
 			} else {
 				lastNetStatsJson = string(marshal)
 			}
 		}
 
-		marshal, err := json.Marshal(MalformedRequest{
+		marshal, err := json.Marshal(common.MalformedRequest{
 			Code: http.StatusOK,
 			Msg:  "Success",
 			Data: topStats,
 		})
 		if err != nil {
-			Sugar.Errorf("序列化统计信息失败: %v", err)
+			log.Sugar.Errorf("序列化统计信息失败: %v", err)
 		} else {
 			topStatsJson = string(marshal)
 		}
@@ -383,17 +385,17 @@ func StartStats() {
 			count = 0
 			usage, err := stateDiskUsage()
 			if err != nil {
-				Sugar.Errorf("获取磁盘信息失败: %v", err)
+				log.Sugar.Errorf("获取磁盘信息失败: %v", err)
 				continue
 			}
 
-			bytes, err := json.Marshal(MalformedRequest{
+			bytes, err := json.Marshal(common.MalformedRequest{
 				Code: http.StatusOK,
 				Msg:  "Success",
 				Data: usage,
 			})
 			if err != nil {
-				Sugar.Errorf("序列化磁盘信息失败: %v", err)
+				log.Sugar.Errorf("序列化磁盘信息失败: %v", err)
 			} else {
 				diskStatsJson = string(bytes)
 			}

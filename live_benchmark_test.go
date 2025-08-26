@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"gb-cms/stack"
 	"io"
 	"net/http"
 	"testing"
@@ -20,7 +21,7 @@ func request(url string, body []byte) (*http.Response, error) {
 	return client.Do(request)
 }
 
-func queryAllDevices() []Device {
+func queryAllDevices() []stack.Device {
 	response, err := request("http://localhost:9000/api/v1/device/list", nil)
 	if err != nil {
 		panic(err)
@@ -32,9 +33,9 @@ func queryAllDevices() []Device {
 	}
 
 	v := struct {
-		Code int      `json:"code"`
-		Msg  string   `json:"msg"`
-		Data []Device `json:"data,omitempty"`
+		Code int            `json:"code"`
+		Msg  string         `json:"msg"`
+		Data []stack.Device `json:"data,omitempty"`
 	}{}
 
 	err = json.Unmarshal(all, &v)

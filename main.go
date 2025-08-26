@@ -2,7 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"gb-cms/common"
+	"gb-cms/dao"
 	"gb-cms/hook"
+	"gb-cms/log"
+	"gb-cms/stack"
 	"github.com/shirou/gopsutil/v3/host"
 	"go.uber.org/zap/zapcore"
 	"net"
@@ -13,8 +17,6 @@ import (
 )
 
 var (
-	Config      *Config_
-	SipStack    SipServer
 	PwdMD5      string
 	StartUpTime time.Time
 	KernelArch  string
@@ -23,7 +25,7 @@ var (
 func init() {
 	StartUpTime = time.Now()
 
-	logConfig := LogConfig{
+	logConfig := common.LogConfig{
 		Level:     int(zapcore.DebugLevel),
 		Name:      "./logs/clog",
 		MaxSize:   10,
@@ -32,22 +34,22 @@ func init() {
 		Compress:  false,
 	}
 
-	InitLogger(zapcore.Level(logConfig.Level), logConfig.Name, logConfig.MaxSize, logConfig.MaxBackup, logConfig.MaxAge, logConfig.Compress)
+	log.InitLogger(zapcore.Level(logConfig.Level), logConfig.Name, logConfig.MaxSize, logConfig.MaxBackup, logConfig.MaxAge, logConfig.Compress)
 }
 
 func main() {
-	config, err := ParseConfig("./config.json")
+	config, err := common.ParseConfig("./config.json")
 	if err != nil {
 		panic(err)
 	}
 
-	Config = config
-	indent, _ := json.MarshalIndent(Config, "", "\t")
-	Sugar.Infof("server config:\r\n%s", indent)
+	common.Config = config
+	indent, _ := json.MarshalIndent(common.Config, "", "\t")
+	log.Sugar.Infof("server config:\r\n%s", indent)
 
 	info, err := host.Info()
 	if err != nil {
-		Sugar.Errorf(err.Error())
+		log.Sugar.Errorf(err.Error())
 	} else {
 		KernelArch = info.KernelArch
 	}
@@ -58,7 +60,7 @@ func main() {
 
 	plaintext, md5 := ReadTempPwd()
 	if plaintext != "" {
-		Sugar.Infof("temp pwd: %s", plaintext)
+		log.Sugar.Infof("temp pwd: %s", plaintext)
 	}
 
 	PwdMD5 = md5
@@ -67,11 +69,11 @@ func main() {
 	go TokenManager.Start(5 * time.Minute)
 
 	// 启动设备在线超时管理
-	OnlineDeviceManager.Start(time.Duration(Config.AliveExpires)*time.Second/4, time.Duration(Config.AliveExpires)*time.Second, OnExpires)
+	stack.OnlineDeviceManager.Start(time.Duration(common.Config.AliveExpires)*time.Second/4, time.Duration(common.Config.AliveExpires)*time.Second, stack.OnExpires)
 
 	// 从数据库中恢复会话
-	var streams map[string]*Stream
-	var sinks map[string]*Sink
+	var streams map[string]*dao.StreamModel
+	var sinks map[string]*dao.SinkModel
 
 	// 查询在线设备, 更新设备在线状态
 	updateDevicesStatus()
@@ -80,24 +82,24 @@ func main() {
 	streams, sinks = recoverStreams()
 
 	// 启动sip server
-	server, err := StartSipServer(config.SipID, config.ListenIP, config.PublicIP, config.SipPort)
+	server, err := stack.StartSipServer(config.SipID, config.ListenIP, config.PublicIP, config.SipPort)
 	if err != nil {
 		panic(err)
 	}
 
 	go StartStats()
 
-	Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
-	Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
-	SipStack = server
+	log.Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
+	common.Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
+	common.SipStack = server
 
 	// 在sip启动后, 关闭无效的流
 	for _, stream := range streams {
-		stream.Bye()
+		(&stack.Stream{stream}).Bye()
 	}
 
 	for _, sink := range sinks {
-		sink.Bye()
+		(&stack.Sink{sink}).Close(true, false)
 	}
 
 	// 启动级联设备
@@ -106,7 +108,7 @@ func main() {
 	startJTDevices()
 
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
-	Sugar.Infof("启动http server. addr: %s", httpAddr)
+	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
 	go startApiServer(httpAddr)
 
 	err = http.ListenAndServe(":19000", nil)

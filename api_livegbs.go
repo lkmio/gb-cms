@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"gb-cms/common"
+	"gb-cms/dao"
+	"gb-cms/log"
+	"gb-cms/stack"
 	"net/http"
 	"os"
 	"sync"
@@ -73,8 +77,8 @@ func registerLiveGBSApi() {
 		},
 	}
 
-	apiServer.router.HandleFunc("/api/v1/login", withFormDataParams(apiServer.OnLogin, LoginReq{}))
-	apiServer.router.HandleFunc("/api/v1/modifypassword", withVerify(withFormDataParams(apiServer.OnModifyPassword, ModifyPasswordReq{})))
+	apiServer.router.HandleFunc("/api/v1/login", common.WithFormDataParams(apiServer.OnLogin, LoginReq{}))
+	apiServer.router.HandleFunc("/api/v1/modifypassword", withVerify(common.WithFormDataParams(apiServer.OnModifyPassword, ModifyPasswordReq{})))
 
 	apiServer.router.HandleFunc("/api/v1/dashboard/auth", withVerify(func(writer http.ResponseWriter, request *http.Request) {
 		response := struct {
@@ -87,11 +91,11 @@ func registerLiveGBSApi() {
 			ChannelCount:  16,
 			ChannelOnline: 1,
 			ChannelTotal:  1,
-			DeviceOnline:  OnlineDeviceManager.Count(),
-			DeviceTotal:   DeviceCount,
+			DeviceOnline:  stack.OnlineDeviceManager.Count(),
+			DeviceTotal:   dao.DeviceCount,
 		}
 
-		_ = httpResponseSuccess(writer, response)
+		_ = common.HttpResponseSuccess(writer, response)
 	}))
 
 	apiServer.router.HandleFunc("/api/v1/getserverinfo", withVerify2(func(writer http.ResponseWriter, request *http.Request) {
@@ -124,9 +128,9 @@ func registerLiveGBSApi() {
 			VersionType: "开源版",
 		}
 
-		_ = httpResponseJson(writer, response)
+		_ = common.HttpResponseJson(writer, response)
 	}, func(w http.ResponseWriter, req *http.Request) {
-		_ = httpResponseJson(w, &serverInfoBase)
+		_ = common.HttpResponseJson(w, &serverInfoBase)
 	}))
 
 	apiServer.router.HandleFunc("/api/v1/userinfo", withVerify(func(writer http.ResponseWriter, request *http.Request) {
@@ -155,11 +159,11 @@ func registerLiveGBSApi() {
 			RemoteIP:      request.RemoteAddr,
 		}
 
-		_ = httpResponseJson(writer, response)
+		_ = common.HttpResponseJson(writer, response)
 	}))
 
 	apiServer.router.HandleFunc("/api/v1/ispasswordchanged", func(writer http.ResponseWriter, request *http.Request) {
-		_ = httpResponseJson(writer, map[string]bool{
+		_ = common.HttpResponseJson(writer, map[string]bool{
 			"PasswordChanged": true,
 			"UserChanged":     false,
 		})
@@ -170,22 +174,22 @@ func registerLiveGBSApi() {
 	}))
 
 	apiServer.router.HandleFunc("/api/v1/dashboard/top", withVerify(func(writer http.ResponseWriter, request *http.Request) {
-		_ = httpResponseJsonStr(writer, topStatsJson)
+		_ = common.HttpResponseJsonStr(writer, topStatsJson)
 	}))
 
 	// 实时统计上下行流量
 	apiServer.router.HandleFunc("/api/v1/dashboard/top/net", withVerify(func(writer http.ResponseWriter, request *http.Request) {
-		_ = httpResponseJsonStr(writer, lastNetStatsJson)
+		_ = common.HttpResponseJsonStr(writer, lastNetStatsJson)
 	}))
 
 	apiServer.router.HandleFunc("/api/v1/dashboard/store", withVerify(func(writer http.ResponseWriter, request *http.Request) {
-		_ = httpResponseJsonStr(writer, diskStatsJson)
+		_ = common.HttpResponseJsonStr(writer, diskStatsJson)
 	}))
 }
 
 func (api *ApiServer) OnLogin(v *LoginReq, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	if PwdMD5 != v.Pwd {
-		Sugar.Errorf("登录失败, 密码错误 pwd: %s remote addr: %s", v.Pwd, r.RemoteAddr)
+		log.Sugar.Errorf("登录失败, 密码错误 pwd: %s remote addr: %s", v.Pwd, r.RemoteAddr)
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("用户名或密码错误"))
 		return nil, nil
@@ -222,7 +226,7 @@ func (api *ApiServer) OnModifyPassword(v *ModifyPasswordReq, w http.ResponseWrit
 	ModifyPasswordLock.Lock()
 	defer ModifyPasswordLock.Unlock()
 	if PwdMD5 != v.OldPwd {
-		Sugar.Errorf("修改密码失败, 旧密码错误 oldPwd: %s remote addr: %s", v.OldPwd, r.RemoteAddr)
+		log.Sugar.Errorf("修改密码失败, 旧密码错误 oldPwd: %s remote addr: %s", v.OldPwd, r.RemoteAddr)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("原密码不正确"))
 		return nil, nil
@@ -231,7 +235,7 @@ func (api *ApiServer) OnModifyPassword(v *ModifyPasswordReq, w http.ResponseWrit
 	// 写入新密码
 	err := os.WriteFile("./data/pwd.txt", []byte(v.NewPwd), 0644)
 	if err != nil {
-		Sugar.Errorf("修改密码失败, 写入文件失败 err: %s pwd: %s", err.Error(), v.NewPwd)
+		log.Sugar.Errorf("修改密码失败, 写入文件失败 err: %s pwd: %s", err.Error(), v.NewPwd)
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("系统错误"))
 		return nil, nil

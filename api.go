@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"gb-cms/common"
+	"gb-cms/dao"
 	"gb-cms/hook"
+	"gb-cms/log"
+	"gb-cms/stack"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -29,13 +33,13 @@ type InviteParams struct {
 	Setup     string `json:"setup"`
 	Speed     string `json:"speed"`
 	Token     string `json:"token"`
-	streamId  StreamID
+	streamId  common.StreamID
 }
 
 type StreamParams struct {
-	Stream     StreamID `json:"stream"`      // Source
-	Protocol   int      `json:"protocol"`    // 推拉流协议
-	RemoteAddr string   `json:"remote_addr"` // peer地址
+	Stream     common.StreamID `json:"stream"`      // Source
+	Protocol   int             `json:"protocol"`    // 推拉流协议
+	RemoteAddr string          `json:"remote_addr"` // peer地址
 }
 
 type PlayDoneParams struct {
@@ -58,8 +62,8 @@ type DeviceChannelID struct {
 }
 
 type SeekParams struct {
-	StreamId StreamID `json:"stream_id"`
-	Seconds  int      `json:"seconds"`
+	StreamId common.StreamID `json:"stream_id"`
+	Seconds  int             `json:"seconds"`
 }
 
 type PlatformChannel struct {
@@ -68,10 +72,10 @@ type PlatformChannel struct {
 }
 
 type BroadcastParams struct {
-	DeviceID  string     `json:"device_id"`
-	ChannelID string     `json:"channel_id"`
-	StreamId  StreamID   `json:"stream_id"`
-	Setup     *SetupType `json:"setup"`
+	DeviceID  string            `json:"device_id"`
+	ChannelID string            `json:"channel_id"`
+	StreamId  common.StreamID   `json:"stream_id"`
+	Setup     *common.SetupType `json:"setup"`
 }
 
 type RecordParams struct {
@@ -80,7 +84,7 @@ type RecordParams struct {
 }
 
 type StreamIDParams struct {
-	StreamID StreamID `json:"stream_id"`
+	StreamID common.StreamID `json:"stream_id"`
 }
 
 type PageQuery struct {
@@ -111,53 +115,83 @@ func init() {
 	}
 }
 
+// 验证和刷新token
+func withVerify(f func(w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		cookie, err := req.Cookie("token")
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		ok := TokenManager.Refresh(cookie.Value, time.Now())
+		if !ok {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		f(w, req)
+	}
+}
+
+func withVerify2(onSuccess func(w http.ResponseWriter, req *http.Request), onFailure func(w http.ResponseWriter, req *http.Request)) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		cookie, err := req.Cookie("token")
+		if err == nil && TokenManager.Refresh(cookie.Value, time.Now()) {
+			onSuccess(w, req)
+		} else {
+			onFailure(w, req)
+		}
+	}
+}
+
 func startApiServer(addr string) {
-	apiServer.router.HandleFunc("/api/v1/hook/on_play", withJsonParams(apiServer.OnPlay, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", withJsonParams(apiServer.OnPlayDone, &PlayDoneParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_publish", withJsonParams(apiServer.OnPublish, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", withJsonParams(apiServer.OnPublishDone, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", withJsonParams(apiServer.OnIdleTimeout, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", withJsonParams(apiServer.OnReceiveTimeout, &StreamParams{}))
-	apiServer.router.HandleFunc("/api/v1/hook/on_record", withJsonParams(apiServer.OnRecord, &RecordParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_play", common.WithJsonParams(apiServer.OnPlay, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", common.WithJsonParams(apiServer.OnPlayDone, &PlayDoneParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_publish", common.WithJsonParams(apiServer.OnPublish, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", common.WithJsonParams(apiServer.OnPublishDone, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", common.WithJsonParams(apiServer.OnIdleTimeout, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", common.WithJsonParams(apiServer.OnReceiveTimeout, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_record", common.WithJsonParams(apiServer.OnRecord, &RecordParams{}))
 
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	// 统一处理live/playback/download请求
-	apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(withFormDataParams(apiServer.OnInvite, InviteParams{})))
+	apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(common.WithFormDataParams(apiServer.OnInvite, InviteParams{})))
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
-	apiServer.router.HandleFunc("/api/v1/stream/close", withJsonParams(apiServer.OnCloseStream, &StreamIDParams{}))
+	apiServer.router.HandleFunc("/api/v1/stream/close", common.WithJsonParams(apiServer.OnCloseStream, &StreamIDParams{}))
 
-	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(withQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))         // 查询设备列表
-	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(withQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{}))) // 查询通道列表
-	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(withQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))  // 查询录像列表
-	apiServer.router.HandleFunc("/api/v1/position/sub", withJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))                    // 订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", withJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                             // 回放seek
-	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                                  // 云台控制
+	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))         // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{}))) // 查询通道列表
+	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))  // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))                    // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                             // 回放seek
+	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                                         // 云台控制
 
-	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                          // 级联设备列表
-	apiServer.router.HandleFunc("/api/v1/platform/add", withJsonResponse(apiServer.OnPlatformAdd, &PlatformModel{}))                        // 添加级联设备
-	apiServer.router.HandleFunc("/api/v1/platform/remove", withJsonResponse(apiServer.OnPlatformRemove, &PlatformModel{}))                  // 删除级联设备
-	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", withJsonResponse(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
-	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", withJsonResponse(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联解绑通道
+	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                                 // 级联设备列表
+	apiServer.router.HandleFunc("/api/v1/platform/add", common.WithJsonResponse(apiServer.OnPlatformAdd, &dao.PlatformModel{}))                    // 添加级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/remove", common.WithJsonResponse(apiServer.OnPlatformRemove, &dao.PlatformModel{}))              // 删除级联设备
+	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", common.WithJsonResponse(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
+	apiServer.router.HandleFunc("/api/v1/platform/channel/unbind", common.WithJsonResponse(apiServer.OnPlatformChannelUnbind, &PlatformChannel{})) // 级联解绑通道
 
-	apiServer.router.HandleFunc("/api/v1/broadcast/invite", withJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &DefaultSetupType})) // 发起语音广播
-	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", withJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                            // 挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                // 语音对讲
+	apiServer.router.HandleFunc("/api/v1/broadcast/invite", common.WithJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &common.DefaultSetupType})) // 发起语音广播
+	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", common.WithJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                                   // 挂断广播会话
+	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                              // 语音对讲
 
-	apiServer.router.HandleFunc("/api/v1/jt/device/add", withJsonResponse(apiServer.OnVirtualDeviceAdd, &JTDeviceModel{}))
-	apiServer.router.HandleFunc("/api/v1/jt/device/edit", withJsonResponse(apiServer.OnVirtualDeviceEdit, &JTDeviceModel{}))
-	apiServer.router.HandleFunc("/api/v1/jt/device/remove", withJsonResponse(apiServer.OnVirtualDeviceRemove, &JTDeviceModel{}))
-	apiServer.router.HandleFunc("/api/v1/jt/device/list", withJsonResponse(apiServer.OnVirtualDeviceList, &PageQuery{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/add", common.WithJsonResponse(apiServer.OnVirtualDeviceAdd, &dao.JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/edit", common.WithJsonResponse(apiServer.OnVirtualDeviceEdit, &dao.JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/remove", common.WithJsonResponse(apiServer.OnVirtualDeviceRemove, &dao.JTDeviceModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/device/list", common.WithJsonResponse(apiServer.OnVirtualDeviceList, &PageQuery{}))
 
-	apiServer.router.HandleFunc("/api/v1/jt/channel/add", withJsonResponse(apiServer.OnVirtualChannelAdd, &Channel{}))
-	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", withJsonResponse(apiServer.OnVirtualChannelEdit, &Channel{}))
-	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", withJsonResponse(apiServer.OnVirtualChannelRemove, &Channel{}))
-	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(withJsonResponse2(apiServer.OnDeviceMediaTransportSet)))
+	apiServer.router.HandleFunc("/api/v1/jt/channel/add", common.WithJsonResponse(apiServer.OnVirtualChannelAdd, &dao.ChannelModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", common.WithJsonResponse(apiServer.OnVirtualChannelEdit, &dao.ChannelModel{}))
+	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", common.WithJsonResponse(apiServer.OnVirtualChannelRemove, &dao.ChannelModel{}))
+	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(common.WithJsonResponse2(apiServer.OnDeviceMediaTransportSet)))
 
 	registerLiveGBSApi()
 
 	// 前端路由
-	htmlRoot := "../www/"
+	htmlRoot := "./html/"
 	fileServer := http.FileServer(http.Dir(htmlRoot))
 	apiServer.router.PathPrefix("/").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// 处理无扩展名的路径，自动添加.html扩展名
@@ -192,7 +226,7 @@ func startApiServer(addr string) {
 }
 
 func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("播放事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Infof("播放事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// [注意]: windows上使用cmd/power shell推拉流如果要携带多个参数, 请用双引号将与号引起来("&")
 	// session_id是为了同一个录像文件, 允许同时点播多个.当然如果实时流支持多路预览, 也是可以的.
@@ -212,7 +246,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	streamToken := query.Get("stream_token")
 	if TokenManager.Find(streamToken) == nil {
 		w.WriteHeader(http.StatusUnauthorized)
-		Sugar.Errorf("播放鉴权失败, token不存在 token: %s", streamToken)
+		log.Sugar.Errorf("播放鉴权失败, token不存在 token: %s", streamToken)
 		return
 	}
 
@@ -221,13 +255,12 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	// 跳过非国标拉流
 	sourceStream := strings.Split(string(params.Stream), "/")
 	if !jtSource && (len(sourceStream) != 2 || len(sourceStream[0]) != 20 || len(sourceStream[1]) < 20) {
-		Sugar.Infof("跳过非国标拉流 stream: %s", params.Stream)
+		log.Sugar.Infof("跳过非国标拉流 stream: %s", params.Stream)
 		return
 	}
 
 	// 已经存在，累加计数
-	if stream, _ := StreamDao.QueryStream(params.Stream); stream != nil {
-		stream.IncreaseSinkCount()
+	if stream, _ := dao.Stream.QueryStream(params.Stream); stream != nil {
 		return
 	}
 
@@ -242,7 +275,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	if jtSource {
 		if len(sourceStream) != 2 {
 			code = http.StatusBadRequest
-			Sugar.Errorf("1078信令服务器转发请求参数错误")
+			log.Sugar.Errorf("1078信令服务器转发请求参数错误")
 			return
 		}
 
@@ -251,9 +284,9 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 		response, err := hook.PostOnInviteEvent(simNumber, channelNumber)
 		if err != nil {
 			code = http.StatusInternalServerError
-			Sugar.Errorf("通知1078信令服务器失败 err: %s sim number: %s channel number: %s", err.Error(), simNumber, channelNumber)
+			log.Sugar.Errorf("通知1078信令服务器失败 err: %s sim number: %s channel number: %s", err.Error(), simNumber, channelNumber)
 		} else if code = response.StatusCode; code != http.StatusOK {
-			Sugar.Errorf("通知1078信令服务器失败. 响应状态码: %d sim number: %s channel number: %s", response.StatusCode, simNumber, channelNumber)
+			log.Sugar.Errorf("通知1078信令服务器失败. 响应状态码: %d sim number: %s channel number: %s", response.StatusCode, simNumber, channelNumber)
 		}
 	} else {
 		inviteParams := &InviteParams{
@@ -266,22 +299,22 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 			streamId:  params.Stream,
 		}
 
-		var stream *Stream
+		var stream *dao.StreamModel
 		var err error
 		streamType := strings.ToLower(query.Get("stream_type"))
 		if "playback" == streamType {
-			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false)
+			code, stream, err = api.DoInvite(common.InviteTypePlay, inviteParams, false)
 		} else if "download" == streamType {
-			code, stream, err = api.DoInvite(InviteTypeDownload, inviteParams, false)
+			code, stream, err = api.DoInvite(common.InviteTypeDownload, inviteParams, false)
 		} else {
-			code, stream, err = api.DoInvite(InviteTypePlay, inviteParams, false)
+			code, stream, err = api.DoInvite(common.InviteTypePlay, inviteParams, false)
 		}
 
 		if err != nil {
-			Sugar.Errorf("请求流失败 err: %s", err.Error())
+			log.Sugar.Errorf("请求流失败 err: %s", err.Error())
 			utils.Assert(http.StatusOK != code)
 		} else if http.StatusOK == code {
-			stream.IncreaseSinkCount()
+			_ = stream.ID
 		}
 	}
 
@@ -289,53 +322,53 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 }
 
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Debugf("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	sink, _ := SinkDao.DeleteForwardSink(params.Stream, params.Sink)
+	sink, _ := dao.Sink.DeleteForwardSink(params.Stream, params.Sink)
 	if sink == nil {
 		return
 	}
 
 	// 级联断开连接, 向上级发送Bye请求
-	if params.Protocol == TransStreamGBCascaded {
-		if platform := PlatformManager.Find(sink.ServerAddr); platform != nil {
+	if params.Protocol == stack.TransStreamGBCascaded {
+		if platform := stack.PlatformManager.Find(sink.ServerAddr); platform != nil {
 			callID, _ := sink.Dialog.CallID()
-			platform.(*Platform).CloseStream(callID.Value(), true, false)
+			platform.(*stack.Platform).CloseStream(callID.Value(), true, false)
 		}
 	} else {
-		sink.Close(true, false)
+		(&stack.Sink{sink}).Close(true, false)
 	}
 }
 
 func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("推流事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Debugf("推流事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	if SourceTypeRtmp == params.Protocol {
+	if stack.SourceTypeRtmp == params.Protocol {
 		return
 	}
 
-	stream := EarlyDialogs.Find(string(params.Stream))
+	stream := stack.EarlyDialogs.Find(string(params.Stream))
 	if stream != nil {
 		stream.Put(200)
 	} else {
-		Sugar.Infof("推流事件. 未找到stream. stream: %s", params.Stream)
+		log.Sugar.Infof("推流事件. 未找到stream. stream: %s", params.Stream)
 	}
 
 	// 创建stream
-	if params.Protocol == SourceTypeGBTalk || params.Protocol == SourceType1078 {
-		s := &Stream{
+	if params.Protocol == stack.SourceTypeGBTalk || params.Protocol == stack.SourceType1078 {
+		s := &dao.StreamModel{
 			StreamID: params.Stream,
 			Protocol: params.Protocol,
 		}
 
-		if params.Protocol != SourceTypeGBTalk {
+		if params.Protocol != stack.SourceTypeGBTalk {
 			s.DeviceID = params.Stream.DeviceID()
 			s.ChannelID = params.Stream.ChannelID()
 		}
 
-		_, ok := StreamDao.SaveStream(s)
+		_, ok := dao.Stream.SaveStream(s)
 		if !ok {
-			Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
+			log.Sugar.Errorf("处理推流事件失败, stream已存在. id: %s", params.Stream)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -343,37 +376,37 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 }
 
 func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter, r *http.Request) {
-	Sugar.Infof("推流结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Debugf("推流结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	CloseStream(params.Stream, false)
+	stack.CloseStream(params.Stream, false)
 	// 对讲websocket断开连接
-	if SourceTypeGBTalk == params.Protocol {
+	if stack.SourceTypeGBTalk == params.Protocol {
 
 	}
 }
 
 func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
-	Sugar.Infof("推流空闲超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Debugf("推流空闲超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp空闲超时, 返回非200应答, 删除会话
-	if SourceTypeRtmp != params.Protocol {
+	if stack.SourceTypeRtmp != params.Protocol {
 		w.WriteHeader(http.StatusForbidden)
-		CloseStream(params.Stream, false)
+		stack.CloseStream(params.Stream, false)
 	}
 }
 
 func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
-	Sugar.Infof("收流超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
+	log.Sugar.Debugf("收流超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp推流超时, 返回非200应答, 删除会话
-	if SourceTypeRtmp != params.Protocol {
+	if stack.SourceTypeRtmp != params.Protocol {
 		w.WriteHeader(http.StatusForbidden)
-		CloseStream(params.Stream, false)
+		stack.CloseStream(params.Stream, false)
 	}
 }
 
 func (api *ApiServer) OnRecord(params *RecordParams, w http.ResponseWriter, req *http.Request) {
-	Sugar.Infof("录制事件. protocol: %s stream: %s path:%s ", params.Protocol, params.Stream, params.Path)
+	log.Sugar.Infof("录制事件. protocol: %s stream: %s path:%s ", params.Protocol, params.Stream, params.Path)
 }
 
 func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
@@ -381,20 +414,20 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 	action := strings.ToLower(vars["action"])
 
 	var code int
-	var stream *Stream
+	var stream *dao.StreamModel
 	var err error
 	if "playback" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypePlayback, v, true)
+		code, stream, err = apiServer.DoInvite(common.InviteTypePlayback, v, true)
 	} else if "download" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypeDownload, v, true)
+		code, stream, err = apiServer.DoInvite(common.InviteTypeDownload, v, true)
 	} else if "stream" == action {
-		code, stream, err = apiServer.DoInvite(InviteTypePlay, v, true)
+		code, stream, err = apiServer.DoInvite(common.InviteTypePlay, v, true)
 	} else {
 		return nil, fmt.Errorf("action not found")
 	}
 
 	if http.StatusOK != code {
-		Sugar.Errorf("请求流失败 err: %s", err.Error())
+		log.Sugar.Errorf("请求流失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -430,7 +463,7 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 
 			url += "&wf=livegbs"
 		}
-		
+
 		urls[streamName] = url
 	}
 
@@ -476,8 +509,8 @@ func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.R
 
 // DoInvite 发起Invite请求
 // @params sync 是否异步等待流媒体的publish事件(确认收到流), 目前请求流分两种方式，流媒体hook和http接口, hook方式同步等待确认收到流再应答, http接口直接应答成功。
-func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync bool) (int, *Stream, error) {
-	device, _ := DeviceDao.QueryDevice(params.DeviceID)
+func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParams, sync bool) (int, *dao.StreamModel, error) {
+	device, _ := dao.Device.QueryDevice(params.DeviceID)
 	if device == nil || !device.Online() {
 		return http.StatusNotFound, nil, fmt.Errorf("设备离线 id: %s", params.DeviceID)
 	}
@@ -485,7 +518,7 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	// 解析回放或下载的时间范围参数
 	var startTimeSeconds string
 	var endTimeSeconds string
-	if InviteTypePlay != inviteType {
+	if common.InviteTypePlay != inviteType {
 		startTime, err := time.ParseInLocation("2006-01-02T15:04:05", params.StartTime, time.Local)
 		if err != nil {
 			return http.StatusBadRequest, nil, err
@@ -501,7 +534,7 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	}
 
 	if params.streamId == "" {
-		params.streamId = GenerateStreamID(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
+		params.streamId = common.GenerateStreamID(inviteType, device.GetID(), params.ChannelID, params.StartTime, params.EndTime)
 	}
 
 	if params.Setup == "" {
@@ -511,7 +544,8 @@ func (api *ApiServer) DoInvite(inviteType InviteType, params *InviteParams, sync
 	// 解析回放或下载速度参数
 	speed, _ := strconv.Atoi(params.Speed)
 	speed = int(math.Min(4, float64(speed)))
-	stream, err := device.StartStream(inviteType, params.streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
+	d := stack.Device{device}
+	stream, err := d.StartStream(inviteType, params.streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
 	if err != nil {
 		return http.StatusInternalServerError, nil, err
 	}
@@ -527,7 +561,7 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 	//	CloseStream(v.StreamID, true)
 	//}
 
-	httpResponseOK(w, nil)
+	common.HttpResponseOK(w, nil)
 }
 
 // QueryDeviceChannel 查询设备和通道的参数
@@ -550,7 +584,7 @@ type QueryDeviceChannel struct {
 func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	values := r.URL.Query()
 
-	Sugar.Infof("查询设备列表 %s", values.Encode())
+	log.Sugar.Debugf("查询设备列表 %s", values.Encode())
 
 	var status string
 	if "" == q.Online {
@@ -560,9 +594,9 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter,
 		status = "OFF"
 	}
 
-	devices, total, err := DeviceDao.QueryDevices((q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
+	devices, total, err := dao.Device.QueryDevices((q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
 	if err != nil {
-		Sugar.Errorf("查询设备列表失败 err: %s", err.Error())
+		log.Sugar.Errorf("查询设备列表失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -626,11 +660,11 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter,
 
 func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	values := r.URL.Query()
-	Sugar.Infof("查询通道列表 %s", values.Encode())
+	log.Sugar.Debugf("查询通道列表 %s", values.Encode())
 
-	device, err := DeviceDao.QueryDevice(q.DeviceID)
+	device, err := dao.Device.QueryDevice(q.DeviceID)
 	if err != nil {
-		Sugar.Errorf("查询设备失败 err: %s", err.Error())
+		log.Sugar.Errorf("查询设备失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -642,9 +676,9 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter
 		status = "OFF"
 	}
 
-	channels, total, err := ChannelDao.QueryChannels(q.DeviceID, q.GroupID, (q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
+	channels, total, err := dao.Channel.QueryChannels(q.DeviceID, q.GroupID, (q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
 	if err != nil {
-		Sugar.Errorf("查询通道列表失败 err: %s", err.Error())
+		log.Sugar.Errorf("查询通道列表失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -732,18 +766,19 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter
 }
 
 func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("查询录像列表 %v", *v)
+	log.Sugar.Debugf("查询录像列表 %v", *v)
 
-	device, _ := DeviceDao.QueryDevice(v.DeviceID)
-	if device == nil || !device.Online() {
-		Sugar.Errorf("查询录像列表失败, 设备离线 device: %s", v.DeviceID)
+	model, _ := dao.Device.QueryDevice(v.DeviceID)
+	if model == nil || !model.Online() {
+		log.Sugar.Errorf("查询录像列表失败, 设备离线 device: %s", v.DeviceID)
 		return nil, fmt.Errorf("设备离线")
 	}
 
-	sn := GetSN()
+	device := &stack.Device{model}
+	sn := stack.GetSN()
 	err := device.QueryRecord(v.ChannelID, v.StartTime, v.EndTime, sn, "all")
 	if err != nil {
-		Sugar.Errorf("发送查询录像请求失败 err: %s", err.Error())
+		log.Sugar.Errorf("发送查询录像请求失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -751,9 +786,9 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 	timeout := int(math.Max(math.Min(5, float64(v.Timeout)), 60))
 	withTimeout, cancelFunc := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 
-	var recordList []RecordInfo
-	SNManager.AddEvent(sn, func(data interface{}) {
-		response := data.(*QueryRecordInfoResponse)
+	var recordList []stack.RecordInfo
+	stack.SNManager.AddEvent(sn, func(data interface{}) {
+		response := data.(*stack.QueryRecordInfoResponse)
 
 		if len(response.DeviceList.Devices) > 0 {
 			recordList = append(recordList, response.DeviceList.Devices...)
@@ -785,12 +820,12 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 		SumNum int `json:"sumNum"`
 	}{
 		DeviceID: v.DeviceID,
-		Name:     device.Name,
+		Name:     model.Name,
 		SumNum:   len(recordList),
 	}
 
 	for _, record := range recordList {
-		Sugar.Infof("查询录像列表 %v", record)
+		log.Sugar.Infof("查询录像列表 %v", record)
 		response.RecordList = append(response.RecordList, struct {
 			DeviceID  string
 			EndTime   string
@@ -814,16 +849,17 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 }
 
 func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("订阅位置 %v", *v)
+	log.Sugar.Debugf("订阅位置 %v", *v)
 
-	device, _ := DeviceDao.QueryDevice(v.DeviceID)
-	if device == nil || !device.Online() {
-		Sugar.Errorf("订阅位置失败, 设备离线 device: %s", v.DeviceID)
+	model, _ := dao.Device.QueryDevice(v.DeviceID)
+	if model == nil || !model.Online() {
+		log.Sugar.Errorf("订阅位置失败, 设备离线 device: %s", v.DeviceID)
 		return nil, fmt.Errorf("设备离线")
 	}
 
+	device := &stack.Device{model}
 	if err := device.SubscribePosition(v.ChannelID); err != nil {
-		Sugar.Errorf("订阅位置失败 err: %s", err.Error())
+		log.Sugar.Errorf("订阅位置失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -831,22 +867,23 @@ func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWri
 }
 
 func (api *ApiServer) OnSeekPlayback(v *SeekParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("快进回放 %v", *v)
+	log.Sugar.Debugf("快进回放 %v", *v)
 
-	stream, _ := StreamDao.QueryStream(v.StreamId)
-	if stream == nil || stream.Dialog == nil {
-		Sugar.Infof("快进回放失败 stream不存在 %s", v.StreamId)
+	model, _ := dao.Stream.QueryStream(v.StreamId)
+	if model == nil || model.Dialog == nil {
+		log.Sugar.Errorf("快进回放失败 stream不存在 %s", v.StreamId)
 		return nil, fmt.Errorf("stream不存在")
 	}
 
+	stream := &stack.Stream{model}
 	seekRequest := stream.CreateRequestFromDialog(sip.INFO)
 	seq, _ := seekRequest.CSeq()
-	body := fmt.Sprintf(SeekBodyFormat, seq.SeqNo, v.Seconds)
+	body := fmt.Sprintf(stack.SeekBodyFormat, seq.SeqNo, v.Seconds)
 	seekRequest.SetBody(body, true)
-	seekRequest.RemoveHeader(RtspMessageType.Name())
-	seekRequest.AppendHeader(&RtspMessageType)
+	seekRequest.RemoveHeader(stack.RtspMessageType.Name())
+	seekRequest.AppendHeader(&stack.RtspMessageType)
 
-	SipStack.SendRequest(seekRequest)
+	common.SipStack.SendRequest(seekRequest)
 	return nil, nil
 }
 
@@ -855,45 +892,45 @@ func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnHangup(v *BroadcastParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("广播挂断 %v", *v)
+	log.Sugar.Debugf("广播挂断 %v", *v)
 
-	id := GenerateStreamID(InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
-	if sink, _ := SinkDao.DeleteForwardSinkBySinkStreamID(id); sink != nil {
-		sink.Close(true, true)
+	id := common.GenerateStreamID(common.InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
+	if sink, _ := dao.Sink.DeleteForwardSinkBySinkStreamID(id); sink != nil {
+		(&stack.Sink{sink}).Close(true, true)
 	}
 
 	return nil, nil
 }
 
 func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("广播邀请 %v", *v)
+	log.Sugar.Debugf("广播邀请 %v", *v)
 
-	var sinkStreamId StreamID
+	var sinkStreamId common.StreamID
 	var InviteSourceId string
 	var ok bool
 	// 响应错误消息
 	defer func() {
 		if !ok {
 			if InviteSourceId != "" {
-				EarlyDialogs.Remove(InviteSourceId)
+				stack.EarlyDialogs.Remove(InviteSourceId)
 			}
 
 			if sinkStreamId != "" {
-				_, _ = SinkDao.DeleteForwardSinkBySinkStreamID(sinkStreamId)
+				_, _ = dao.Sink.DeleteForwardSinkBySinkStreamID(sinkStreamId)
 			}
 		}
 	}()
 
-	device, _ := DeviceDao.QueryDevice(v.DeviceID)
-	if device == nil || !device.Online() {
-		Sugar.Errorf("广播失败, 设备离线, DeviceID: %s", v.DeviceID)
+	model, _ := dao.Device.QueryDevice(v.DeviceID)
+	if model == nil || !model.Online() {
+		log.Sugar.Errorf("广播失败, 设备离线, DeviceID: %s", v.DeviceID)
 		return nil, fmt.Errorf("设备离线")
 	}
 
 	// 主讲人id
-	stream, _ := StreamDao.QueryStream(v.StreamId)
+	stream, _ := dao.Stream.QueryStream(v.StreamId)
 	if stream == nil {
-		Sugar.Errorf("广播失败, 找不到主讲人, stream: %s", v.StreamId)
+		log.Sugar.Errorf("广播失败, 找不到主讲人, stream: %s", v.StreamId)
 		return nil, fmt.Errorf("找不到主讲人")
 	}
 
@@ -902,14 +939,14 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 
 	InviteSourceId = string(v.StreamId) + utils.RandStringBytes(10)
 	// 每个设备的广播唯一ID
-	sinkStreamId = GenerateStreamID(InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
+	sinkStreamId = common.GenerateStreamID(common.InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
 
-	setupType := SetupTypePassive
-	if v.Setup != nil && *v.Setup >= SetupTypeUDP && *v.Setup <= SetupTypeActive {
+	setupType := common.SetupTypePassive
+	if v.Setup != nil && *v.Setup >= common.SetupTypeUDP && *v.Setup <= common.SetupTypeActive {
 		setupType = *v.Setup
 	}
 
-	sink := &Sink{
+	sink := &dao.SinkModel{
 		StreamID:     v.StreamId,
 		SinkStreamID: sinkStreamId,
 		Protocol:     "gb_talk",
@@ -917,39 +954,40 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 		SetupType:    setupType,
 	}
 
-	streamWaiting := &StreamWaiting{data: sink}
-	if err := SinkDao.SaveForwardSink(v.StreamId, sink); err != nil {
-		Sugar.Errorf("广播失败, 设备正在广播中. stream: %s", sinkStreamId)
+	streamWaiting := &stack.StreamWaiting{Data: sink}
+	if err := dao.Sink.SaveForwardSink(v.StreamId, sink); err != nil {
+		log.Sugar.Errorf("广播失败, 设备正在广播中. stream: %s", sinkStreamId)
 		return nil, fmt.Errorf("设备正在广播中")
-	} else if _, ok = EarlyDialogs.Add(InviteSourceId, streamWaiting); !ok {
-		Sugar.Errorf("广播失败, id冲突. id: %s", InviteSourceId)
+	} else if _, ok = stack.EarlyDialogs.Add(InviteSourceId, streamWaiting); !ok {
+		log.Sugar.Errorf("广播失败, id冲突. id: %s", InviteSourceId)
 		return nil, fmt.Errorf("id冲突")
 	}
 
 	ok = false
 	cancel := r.Context()
+	device := stack.Device{model}
 	transaction := device.Broadcast(InviteSourceId, v.ChannelID)
 	responses := transaction.Responses()
 	select {
 	// 等待message broadcast的应答
 	case response := <-responses:
 		if response == nil {
-			Sugar.Errorf("广播失败, 信令超时. stream: %s", sinkStreamId)
+			log.Sugar.Errorf("广播失败, 信令超时. stream: %s", sinkStreamId)
 			return nil, fmt.Errorf("信令超时")
 		}
 
 		if response.StatusCode() != http.StatusOK {
-			Sugar.Errorf("广播失败, 错误响应, status code: %d", response.StatusCode())
+			log.Sugar.Errorf("广播失败, 错误响应, status code: %d", response.StatusCode())
 			return nil, fmt.Errorf("错误响应 code: %d", response.StatusCode())
 		}
 
 		// 等待下级设备的Invite请求
 		code := streamWaiting.Receive(10)
 		if code == -1 {
-			Sugar.Errorf("广播失败, 等待invite超时. stream: %s", sinkStreamId)
+			log.Sugar.Errorf("广播失败, 等待invite超时. stream: %s", sinkStreamId)
 			return nil, fmt.Errorf("等待invite超时")
 		} else if http.StatusOK != code {
-			Sugar.Errorf("广播失败, 下级设备invite失败. stream: %s", sinkStreamId)
+			log.Sugar.Errorf("广播失败, 下级设备invite失败. stream: %s", sinkStreamId)
 			return nil, fmt.Errorf("错误应答 code: %d", code)
 		} else {
 			//ok = AddForwardSink(v.StreamId, sink)
@@ -958,7 +996,7 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 		break
 	case <-cancel.Done():
 		// http请求取消
-		Sugar.Warnf("广播失败, http请求取消. session: %s", sinkStreamId)
+		log.Sugar.Warnf("广播失败, http请求取消. session: %s", sinkStreamId)
 		break
 	}
 
@@ -970,50 +1008,50 @@ func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
-	Sugar.Infof("lkm启动")
+	log.Sugar.Infof("lkm启动")
 
-	streams, _ := StreamDao.DeleteStreams()
+	streams, _ := dao.Stream.DeleteStreams()
 	for _, stream := range streams {
-		stream.Close(true, false)
+		(&stack.Stream{stream}).Close(true, false)
 	}
 
-	sinks, _ := SinkDao.DeleteForwardSinks()
+	sinks, _ := dao.Sink.DeleteForwardSinks()
 	for _, sink := range sinks {
-		sink.Close(true, false)
+		(&stack.Sink{sink}).Close(true, false)
 	}
 }
 
-func (api *ApiServer) OnPlatformAdd(v *PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("添加级联设备 %v", *v)
+func (api *ApiServer) OnPlatformAdd(v *dao.PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	log.Sugar.Debugf("添加级联设备 %v", *v)
 
 	if v.Username == "" {
-		v.Username = Config.SipID
-		Sugar.Infof("级联设备使用本级域: %s", Config.SipID)
+		v.Username = common.Config.SipID
+		log.Sugar.Infof("级联设备使用本级域: %s", common.Config.SipID)
 	}
 
 	if len(v.Username) != 20 {
 		err := fmt.Errorf("用户名长度必须20位")
-		Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
+		log.Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
 		return nil, err
 	} else if len(v.ServerID) != 20 {
 		err := fmt.Errorf("上级ID长度必须20位")
-		Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
+		log.Sugar.Errorf("添加级联设备失败 err: %s", err.Error())
 		return nil, err
 	}
 
 	v.Status = "OFF"
-	platform, err := NewPlatform(&v.SIPUAOptions, SipStack)
+	platform, err := stack.NewPlatform(&v.SIPUAOptions, common.SipStack)
 	if err != nil {
-		Sugar.Errorf("创建级联设备失败 err: %s", err.Error())
+		log.Sugar.Errorf("创建级联设备失败 err: %s", err.Error())
 		return nil, err
 	}
 
-	if !PlatformManager.Add(v.ServerAddr, platform) {
-		Sugar.Errorf("ua添加失败, id冲突. key: %s", v.ServerAddr)
+	if !stack.PlatformManager.Add(v.ServerAddr, platform) {
+		log.Sugar.Errorf("ua添加失败, id冲突. key: %s", v.ServerAddr)
 		return fmt.Errorf("ua添加失败, id冲突. key: %s", v.ServerAddr), nil
-	} else if err = PlatformDao.SavePlatform(v); err != nil {
-		PlatformManager.Remove(v.ServerAddr)
-		Sugar.Errorf("保存级联设备失败 err: %s", err.Error())
+	} else if err = dao.Platform.SavePlatform(v); err != nil {
+		stack.PlatformManager.Remove(v.ServerAddr)
+		log.Sugar.Errorf("保存级联设备失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -1021,13 +1059,13 @@ func (api *ApiServer) OnPlatformAdd(v *PlatformModel, w http.ResponseWriter, r *
 	return nil, err
 }
 
-func (api *ApiServer) OnPlatformRemove(v *PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("删除级联设备 %v", *v)
+func (api *ApiServer) OnPlatformRemove(v *dao.PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	log.Sugar.Debugf("删除级联设备 %v", *v)
 
-	err := PlatformDao.DeleteUAByAddr(v.ServerAddr)
+	err := dao.Platform.DeleteUAByAddr(v.ServerAddr)
 	if err != nil {
 		return nil, err
-	} else if platform := PlatformManager.Remove(v.ServerAddr); platform != nil {
+	} else if platform := stack.PlatformManager.Remove(v.ServerAddr); platform != nil {
 		platform.Stop()
 	}
 
@@ -1040,18 +1078,18 @@ func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("级联绑定通道 %v", *v)
+	log.Sugar.Debugf("级联绑定通道 %v", *v)
 
-	platform := PlatformManager.Find(v.ServerAddr)
+	platform := stack.PlatformManager.Find(v.ServerAddr)
 	if platform == nil {
-		Sugar.Errorf("绑定通道失败, 级联设备不存在 addr: %s", v.ServerAddr)
+		log.Sugar.Errorf("绑定通道失败, 级联设备不存在 addr: %s", v.ServerAddr)
 		return nil, fmt.Errorf("not found platform")
 	}
 
 	// 级联功能，通道号必须唯一
-	channels, err := PlatformDao.BindChannels(v.ServerAddr, v.Channels)
+	channels, err := dao.Platform.BindChannels(v.ServerAddr, v.Channels)
 	if err != nil {
-		Sugar.Errorf("绑定通道失败 err: %s", err.Error())
+		log.Sugar.Errorf("绑定通道失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -1059,17 +1097,17 @@ func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseW
 }
 
 func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	Sugar.Infof("级联解绑通道 %v", *v)
+	log.Sugar.Debugf("级联解绑通道 %v", *v)
 
-	platform := PlatformManager.Find(v.ServerAddr)
+	platform := stack.PlatformManager.Find(v.ServerAddr)
 	if platform == nil {
-		Sugar.Errorf("解绑通道失败, 级联设备不存在 addr: %s", v.ServerAddr)
+		log.Sugar.Errorf("解绑通道失败, 级联设备不存在 addr: %s", v.ServerAddr)
 		return nil, fmt.Errorf("not found platform")
 	}
 
-	channels, err := PlatformDao.UnbindChannels(v.ServerAddr, v.Channels)
+	channels, err := dao.Platform.UnbindChannels(v.ServerAddr, v.Channels)
 	if err != nil {
-		Sugar.Errorf("解绑通道失败 err: %s", err.Error())
+		log.Sugar.Errorf("解绑通道失败 err: %s", err.Error())
 		return nil, err
 	}
 
@@ -1081,18 +1119,18 @@ func (api *ApiServer) OnDeviceMediaTransportSet(w http.ResponseWriter, r *http.R
 	mediaTransport := r.FormValue("media_transport")
 	mediaTransportMode := r.FormValue("media_transport_mode")
 
-	var setupType SetupType
+	var setupType common.SetupType
 	if "udp" == strings.ToLower(mediaTransport) {
-		setupType = SetupTypeUDP
+		setupType = common.SetupTypeUDP
 	} else if "passive" == strings.ToLower(mediaTransportMode) {
-		setupType = SetupTypePassive
+		setupType = common.SetupTypePassive
 	} else if "active" == strings.ToLower(mediaTransportMode) {
-		setupType = SetupTypeActive
+		setupType = common.SetupTypeActive
 	} else {
 		return nil, fmt.Errorf("media_transport_mode error")
 	}
 
-	err := DeviceDao.UpdateMediaTransport(serial, setupType)
+	err := dao.Device.UpdateMediaTransport(serial, setupType)
 	if err != nil {
 		return nil, err
 	}
