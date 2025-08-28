@@ -89,8 +89,8 @@ func registerLiveGBSApi() {
 			DeviceTotal   int `json:"DeviceTotal"`
 		}{
 			ChannelCount:  16,
-			ChannelOnline: 1,
-			ChannelTotal:  1,
+			ChannelOnline: ChannelOnlineCount,
+			ChannelTotal:  ChannelTotalCount,
 			DeviceOnline:  stack.OnlineDeviceManager.Count(),
 			DeviceTotal:   dao.DeviceCount,
 		}
@@ -120,7 +120,7 @@ func registerLiveGBSApi() {
 			Hardware:         KernelArch,
 			InterfaceVersion: "v1",
 
-			RemainDays:  0,
+			RemainDays:  99,
 			RunningTime: FormatUptime(GetUptime()),
 			Server:      "github.com/lkmio/gb-cms dev",
 			ServerTime:  time.Now().Format("2006-01-02 15:04:05"),

@@ -17,6 +17,12 @@ var (
 		clients: make(map[string]GBClient, 8), // username->client
 		addrMap: make(map[string]int, 8),
 	}
+
+	// DeviceManager 模拟国标设备
+	DeviceManager = &ClientManager{
+		clients: make(map[string]GBClient, 8), // username->client
+		addrMap: make(map[string]int, 8),
+	}
 )
 
 type ClientManager struct {

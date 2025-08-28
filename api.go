@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lkmio/avformat/utils"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -101,6 +102,12 @@ type PageQueryChannel struct {
 	GroupID  string `json:"group_id"`
 }
 
+type SetMediaTransportReq struct {
+	DeviceID           string `json:"serial"`
+	MediaTransport     string `json:"media_transport"`
+	MediaTransportMode string `json:"media_transport_mode"`
+}
+
 var apiServer *ApiServer
 
 func init() {
@@ -161,12 +168,15 @@ func startApiServer(addr string) {
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
 	apiServer.router.HandleFunc("/api/v1/stream/close", common.WithJsonParams(apiServer.OnCloseStream, &StreamIDParams{}))
 
-	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))         // 查询设备列表
-	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{}))) // 查询通道列表
-	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))  // 查询录像列表
-	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))                    // 订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                             // 回放seek
-	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                                         // 云台控制
+	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))           // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))   // 查询通道列表
+	apiServer.router.HandleFunc("/api/v1/device/fetchcatalog", withVerify(common.WithQueryStringParams(apiServer.OnCatalogQuery, QueryDeviceChannel{}))) // 更新通道
+	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))    // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/stream/info", withVerify(apiServer.OnStreamInfo))
+
+	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{})) // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))          // 回放seek
+	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                      // 云台控制
 
 	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                                 // 级联设备列表
 	apiServer.router.HandleFunc("/api/v1/platform/add", common.WithJsonResponse(apiServer.OnPlatformAdd, &dao.PlatformModel{}))                    // 添加级联设备
@@ -186,7 +196,7 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/jt/channel/add", common.WithJsonResponse(apiServer.OnVirtualChannelAdd, &dao.ChannelModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", common.WithJsonResponse(apiServer.OnVirtualChannelEdit, &dao.ChannelModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", common.WithJsonResponse(apiServer.OnVirtualChannelRemove, &dao.ChannelModel{}))
-	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(common.WithJsonResponse2(apiServer.OnDeviceMediaTransportSet)))
+	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(common.WithFormDataParams(apiServer.OnDeviceMediaTransportSet, SetMediaTransportReq{})))
 
 	registerLiveGBSApi()
 
@@ -321,7 +331,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 	w.WriteHeader(code)
 }
 
-func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPlayDone(params *PlayDoneParams, _ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	sink, _ := dao.Sink.DeleteForwardSink(params.Stream, params.Sink)
@@ -340,7 +350,7 @@ func (api *ApiServer) OnPlayDone(params *PlayDoneParams, w http.ResponseWriter, 
 	}
 }
 
-func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("推流事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	if stack.SourceTypeRtmp == params.Protocol {
@@ -375,7 +385,7 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, r *
 	}
 }
 
-func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPublishDone(params *StreamParams, _ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("推流结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	stack.CloseStream(params.Stream, false)
@@ -385,7 +395,7 @@ func (api *ApiServer) OnPublishDone(params *StreamParams, w http.ResponseWriter,
 	}
 }
 
-func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("推流空闲超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp空闲超时, 返回非200应答, 删除会话
@@ -395,7 +405,7 @@ func (api *ApiServer) OnIdleTimeout(params *StreamParams, w http.ResponseWriter,
 	}
 }
 
-func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("收流超时事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// 非rtmp推流超时, 返回非200应答, 删除会话
@@ -405,11 +415,11 @@ func (api *ApiServer) OnReceiveTimeout(params *StreamParams, w http.ResponseWrit
 	}
 }
 
-func (api *ApiServer) OnRecord(params *RecordParams, w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnRecord(params *RecordParams, _ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Infof("录制事件. protocol: %s stream: %s path:%s ", params.Protocol, params.Stream, params.Path)
 }
 
-func (api *ApiServer) OnInvite(v *InviteParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnInvite(v *InviteParams, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	vars := mux.Vars(r)
 	action := strings.ToLower(vars["action"])
 
@@ -553,7 +563,7 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 	return http.StatusOK, stream, nil
 }
 
-func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, _ *http.Request) {
 	//stream := StreamManager.Find(v.StreamID)
 	//
 	//// 等空闲或收流超时会自动关闭
@@ -561,7 +571,7 @@ func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, r 
 	//	CloseStream(v.StreamID, true)
 	//}
 
-	common.HttpResponseOK(w, nil)
+	_ = common.HttpResponseOK(w, nil)
 }
 
 // QueryDeviceChannel 查询设备和通道的参数
@@ -581,7 +591,7 @@ type QueryDeviceChannel struct {
 	//channelType string // device/dir, 查询通道列表使用
 }
 
-func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	values := r.URL.Query()
 
 	log.Sugar.Debugf("查询设备列表 %s", values.Encode())
@@ -612,10 +622,22 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter,
 		remoteIP := split[0]
 		remotePort, _ := strconv.Atoi(split[1])
 
+		// 更新正在查询通道的进度
+		var catalogProgress string
+		data := stack.UniqueTaskManager.Find(stack.GenerateCatalogTaskID(device.GetID()))
+		if data != nil {
+			catalogSize := data.(*stack.CatalogProgress)
+
+			if catalogSize.TotalSize > 0 {
+				catalogProgress = fmt.Sprintf("%d/%d", catalogSize.RecvSize, catalogSize.TotalSize)
+			}
+		}
+
 		response.DeviceList_ = append(response.DeviceList_, LiveGBSDevice{
-			AlarmSubscribe:     false,
-			CatalogInterval:    3600,
-			CatalogSubscribe:   false,
+			AlarmSubscribe:     false, // 报警订阅
+			CatalogInterval:    3600,  // 目录刷新时间
+			CatalogProgress:    catalogProgress,
+			CatalogSubscribe:   false, // 目录订阅
 			ChannelCount:       device.ChannelsTotal,
 			ChannelOverLoad:    false,
 			Charset:            "GB2312",
@@ -637,9 +659,9 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter,
 			MediaTransportMode: device.Setup.String(),
 			Name:               device.Name,
 			Online:             device.Online(),
-			PTZSubscribe:       false,
+			PTZSubscribe:       false, // PTZ订阅2022
 			Password:           "",
-			PositionSubscribe:  false,
+			PositionSubscribe:  false, // 位置订阅
 			RecordCenter:       false,
 			RecordIndistinct:   false,
 			RecvStreamIP:       "",
@@ -658,7 +680,7 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, w http.ResponseWriter,
 	return &response, nil
 }
 
-func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	values := r.URL.Query()
 	log.Sugar.Debugf("查询通道列表 %s", values.Encode())
 
@@ -765,7 +787,7 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, w http.ResponseWriter
 	return response, nil
 }
 
-func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnRecordList(v *QueryRecordParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("查询录像列表 %v", *v)
 
 	model, _ := dao.Device.QueryDevice(v.DeviceID)
@@ -848,7 +870,7 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, w http.ResponseWriter, 
 	return &response, nil
 }
 
-func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("订阅位置 %v", *v)
 
 	model, _ := dao.Device.QueryDevice(v.DeviceID)
@@ -866,7 +888,7 @@ func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, w http.ResponseWri
 	return nil, nil
 }
 
-func (api *ApiServer) OnSeekPlayback(v *SeekParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnSeekPlayback(v *SeekParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("快进回放 %v", *v)
 
 	model, _ := dao.Stream.QueryStream(v.StreamId)
@@ -887,11 +909,11 @@ func (api *ApiServer) OnSeekPlayback(v *SeekParams, w http.ResponseWriter, r *ht
 	return nil, nil
 }
 
-func (api *ApiServer) OnPTZControl(w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPTZControl(_ http.ResponseWriter, _ *http.Request) {
 
 }
 
-func (api *ApiServer) OnHangup(v *BroadcastParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnHangup(v *BroadcastParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("广播挂断 %v", *v)
 
 	id := common.GenerateStreamID(common.InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
@@ -902,7 +924,7 @@ func (api *ApiServer) OnHangup(v *BroadcastParams, w http.ResponseWriter, r *htt
 	return nil, nil
 }
 
-func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnBroadcast(v *BroadcastParams, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("广播邀请 %v", *v)
 
 	var sinkStreamId common.StreamID
@@ -1003,11 +1025,11 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, w http.ResponseWriter, r *
 	return nil, nil
 }
 
-func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnTalk(_ http.ResponseWriter, _ *http.Request) {
 
 }
 
-func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
+func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Infof("lkm启动")
 
 	streams, _ := dao.Stream.DeleteStreams()
@@ -1021,7 +1043,7 @@ func (api *ApiServer) OnStarted(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (api *ApiServer) OnPlatformAdd(v *dao.PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformAdd(v *dao.PlatformModel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("添加级联设备 %v", *v)
 
 	if v.Username == "" {
@@ -1059,7 +1081,7 @@ func (api *ApiServer) OnPlatformAdd(v *dao.PlatformModel, w http.ResponseWriter,
 	return nil, err
 }
 
-func (api *ApiServer) OnPlatformRemove(v *dao.PlatformModel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformRemove(v *dao.PlatformModel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("删除级联设备 %v", *v)
 
 	err := dao.Platform.DeleteUAByAddr(v.ServerAddr)
@@ -1072,12 +1094,12 @@ func (api *ApiServer) OnPlatformRemove(v *dao.PlatformModel, w http.ResponseWrit
 	return nil, err
 }
 
-func (api *ApiServer) OnPlatformList(w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPlatformList(_ http.ResponseWriter, _ *http.Request) {
 	//platforms := LoadPlatforms()
 	//httpResponseOK(w, platforms)
 }
 
-func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("级联绑定通道 %v", *v)
 
 	platform := stack.PlatformManager.Find(v.ServerAddr)
@@ -1096,7 +1118,7 @@ func (api *ApiServer) OnPlatformChannelBind(v *PlatformChannel, w http.ResponseW
 	return channels, nil
 }
 
-func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("级联解绑通道 %v", *v)
 
 	platform := stack.PlatformManager.Find(v.ServerAddr)
@@ -1114,26 +1136,94 @@ func (api *ApiServer) OnPlatformChannelUnbind(v *PlatformChannel, w http.Respons
 	return channels, nil
 }
 
-func (api *ApiServer) OnDeviceMediaTransportSet(w http.ResponseWriter, r *http.Request) (interface{}, error) {
-	serial := r.FormValue("serial")
-	mediaTransport := r.FormValue("media_transport")
-	mediaTransportMode := r.FormValue("media_transport_mode")
-
+func (api *ApiServer) OnDeviceMediaTransportSet(req *SetMediaTransportReq, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	var setupType common.SetupType
-	if "udp" == strings.ToLower(mediaTransport) {
+	if "udp" == strings.ToLower(req.MediaTransport) {
 		setupType = common.SetupTypeUDP
-	} else if "passive" == strings.ToLower(mediaTransportMode) {
+	} else if "passive" == strings.ToLower(req.MediaTransportMode) {
 		setupType = common.SetupTypePassive
-	} else if "active" == strings.ToLower(mediaTransportMode) {
+	} else if "active" == strings.ToLower(req.MediaTransportMode) {
 		setupType = common.SetupTypeActive
 	} else {
 		return nil, fmt.Errorf("media_transport_mode error")
 	}
 
-	err := dao.Device.UpdateMediaTransport(serial, setupType)
+	err := dao.Device.UpdateMediaTransport(req.DeviceID, setupType)
 	if err != nil {
 		return nil, err
 	}
 
 	return "OK", nil
+}
+
+func (api *ApiServer) OnCatalogQuery(params *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	deviceModel, err := dao.Device.QueryDevice(params.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if deviceModel == nil {
+		return nil, fmt.Errorf("not found device")
+	}
+
+	list, err := (&stack.Device{deviceModel}).QueryCatalog(15)
+	if err != nil {
+		return nil, err
+	}
+
+	response := struct {
+		ChannelCount int                 `json:"ChannelCount"`
+		ChannelList  []*dao.ChannelModel `json:"ChannelList"`
+	}{
+		ChannelCount: len(list),
+		ChannelList:  list,
+	}
+	return &response, nil
+}
+
+func (api *ApiServer) OnStreamInfo(w http.ResponseWriter, r *http.Request) {
+	// 构建目标URL
+	targetURL := common.Config.MediaServer + r.URL.Path
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	// 创建转发请求
+	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
+		return
+	}
+
+	// 复制请求头
+	for name, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(name, value)
+		}
+	}
+
+	// 发送请求
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		http.Error(w, "Error forwarding request", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 复制响应头
+	for name, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
+	}
+
+	// 设置状态码并转发响应体
+	w.WriteHeader(resp.StatusCode)
+	_, err = io.Copy(w, resp.Body)
+	if err != nil {
+		log.Sugar.Errorf("Failed to copy response body: %v", err)
+	}
 }

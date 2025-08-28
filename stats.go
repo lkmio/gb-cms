@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"gb-cms/common"
+	"gb-cms/dao"
 	"gb-cms/log"
+	"gb-cms/stack"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -22,6 +24,9 @@ var (
 	diskStatsJson    string
 	lastNetStatsJson string
 	lastNetStats     []net.IOCountersStat
+
+	ChannelTotalCount  int
+	ChannelOnlineCount int
 )
 
 const (
@@ -379,26 +384,40 @@ func StartStats() {
 			topStatsJson = string(marshal)
 		}
 
-		// 统计磁盘信息
-		count++
-		if count >= 5 {
-			count = 0
+		if count%5 == 0 {
+			// 统计磁盘信息
 			usage, err := stateDiskUsage()
 			if err != nil {
 				log.Sugar.Errorf("获取磁盘信息失败: %v", err)
-				continue
+			} else {
+				bytes, err := json.Marshal(common.MalformedRequest{
+					Code: http.StatusOK,
+					Msg:  "Success",
+					Data: usage,
+				})
+				if err != nil {
+					log.Sugar.Errorf("序列化磁盘信息失败: %v", err)
+				} else {
+					diskStatsJson = string(bytes)
+				}
 			}
 
-			bytes, err := json.Marshal(common.MalformedRequest{
-				Code: http.StatusOK,
-				Msg:  "Success",
-				Data: usage,
-			})
+			// 统计通道总数和在线数
+			i, err := dao.Channel.TotalCount()
 			if err != nil {
-				log.Sugar.Errorf("序列化磁盘信息失败: %v", err)
+				log.Sugar.Errorf("获取通道总数失败: %v", err)
 			} else {
-				diskStatsJson = string(bytes)
+				ChannelTotalCount = i
+			}
+
+			onlineCount, err := dao.Channel.OnlineCount(stack.OnlineDeviceManager.GetDeviceIds())
+			if err != nil {
+				log.Sugar.Errorf("获取在线通道数失败: %v", err)
+			} else {
+				ChannelOnlineCount = onlineCount
 			}
 		}
+
+		count++
 	}
 }

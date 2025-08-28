@@ -30,7 +30,7 @@ func TestDecodeXML(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
-		handler := EventHandler{}
+		//handler := EventHandler{}
 		for i := 0; i < len(file); {
 			size := binary.BigEndian.Uint32(file[i:])
 			i += 4
@@ -42,7 +42,8 @@ func TestDecodeXML(t *testing.T) {
 				panic(err)
 			}
 
-			handler.OnCatalog(catalogResponse.DeviceID, catalogResponse)
+			println(string(body))
+			//handler.OnCatalog(catalogResponse.DeviceID, catalogResponse)
 		}
 	})
 

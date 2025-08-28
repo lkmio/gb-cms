@@ -9,7 +9,7 @@
   "alive_expires": 180,
   "mobile_position_interval": 10,
 
-  "media_server": "0.0.0.0:8080",
+  "media_server": "http://0.0.0.0:8080",
 
   "?auto_close_on_idle": "拉流空闲时, 立即关闭流",
   "auto_close_on_idle": true,

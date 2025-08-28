@@ -41,6 +41,16 @@ func (m *onlineDeviceManager) Count() int {
 	return len(m.devices)
 }
 
+func (m *onlineDeviceManager) GetDeviceIds() []string {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	ids := make([]string, 0, len(m.devices))
+	for id := range m.devices {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 func (m *onlineDeviceManager) Start(interval time.Duration, keepalive time.Duration, OnExpires func(platformId int, deviceId string)) {
 	// 精度有偏差
 	var timer *time.Timer

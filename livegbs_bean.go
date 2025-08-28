@@ -3,6 +3,7 @@ package main
 type LiveGBSDevice struct {
 	AlarmSubscribe     bool    `json:"AlarmSubscribe"`
 	CatalogInterval    int     `json:"CatalogInterval"`
+	CatalogProgress    string  `json:"CatalogProgress,omitempty"` // 查询目录进度recvSize/totalSize
 	CatalogSubscribe   bool    `json:"CatalogSubscribe"`
 	ChannelCount       int     `json:"ChannelCount"`
 	ChannelOverLoad    bool    `json:"ChannelOverLoad"`

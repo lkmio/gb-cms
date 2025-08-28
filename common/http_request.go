@@ -92,17 +92,6 @@ func WithJsonResponse[T any](f func(params T, w http.ResponseWriter, req *http.R
 	}
 }
 
-func WithJsonResponse2(f func(w http.ResponseWriter, req *http.Request) (interface{}, error)) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		responseBody, err := f(w, req)
-		if err != nil {
-			_ = HttpResponseError(w, err.Error())
-		} else if responseBody != nil {
-			_ = HttpResponseJson(w, responseBody)
-		}
-	}
-}
-
 func WithQueryStringParams[T any](f func(params T, w http.ResponseWriter, req *http.Request) (interface{}, error), params interface{}) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		var newParams T
@@ -125,7 +114,8 @@ func WithQueryStringParams[T any](f func(params T, w http.ResponseWriter, req *h
 
 		responseBody, err := f(result.(T), w, req)
 		if err != nil {
-			_ = HttpResponseError(w, err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			_ = HttpResponseJson(w, err.Error())
 		} else if responseBody != nil {
 			_ = HttpResponseJson(w, responseBody)
 		}
@@ -153,7 +143,7 @@ func WithFormDataParams[T any](f func(params T, w http.ResponseWriter, req *http
 
 		responseBody, err := f(result.(T), w, req)
 		if err != nil {
-			_ = HttpResponseError(w, err.Error())
+			_ = HttpResponseJson(w, err.Error())
 		} else if responseBody != nil {
 			_ = HttpResponseJson(w, responseBody)
 		}

@@ -65,6 +65,8 @@ func (d *ChannelModel) Online() bool {
 type DaoChannel interface {
 	SaveChannel(channel *ChannelModel) error
 
+	SaveChannels(channel []*ChannelModel) error
+
 	UpdateChannelStatus(deviceId, channelId, status string) error
 
 	QueryChannelByID(id uint) (*ChannelModel, error)
@@ -93,9 +95,15 @@ type DaoChannel interface {
 
 	DeleteChannel(deviceId string, channelId string) error
 
+	DeleteChannels(deviceId string) error
+
 	UpdateRootID(rootId, newRootId string) error
 
 	UpdateChannel(channel *ChannelModel) error
+
+	TotalCount() (int, error)
+
+	OnlineCount(ids []string) (int, error)
 }
 
 type daoChannel struct {
@@ -108,6 +116,12 @@ func (d *daoChannel) SaveChannel(channel *ChannelModel) error {
 			channel.ID = old.ID
 		}
 		return tx.Save(channel).Error
+	})
+}
+
+func (d *daoChannel) SaveChannels(channels []*ChannelModel) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Save(channels).Error
 	})
 }
 
@@ -235,6 +249,10 @@ func (d *daoChannel) SaveJTChannel(channel *ChannelModel) error {
 	})
 }
 
+func (d *daoChannel) DeleteChannels(deviceId string) error {
+	return db.Where("root_id =?", deviceId).Unscoped().Delete(&ChannelModel{}).Error
+}
+
 func (d *daoChannel) DeleteChannel(deviceId string, channelId string) error {
 	return db.Where("root_id =? and device_id =?", deviceId, channelId).Unscoped().Delete(&ChannelModel{}).Error
 }
@@ -261,4 +279,22 @@ func (d *daoChannel) UpdateChannel(channel *ChannelModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(channel).Where("id =?", channel.ID).Updates(channel).Error
 	})
+}
+
+func (d *daoChannel) TotalCount() (int, error) {
+	var total int64
+	tx := db.Model(&ChannelModel{}).Count(&total)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(total), nil
+}
+
+func (d *daoChannel) OnlineCount(ids []string) (int, error) {
+	var total int64
+	tx := db.Model(&ChannelModel{}).Where("status =? and root_id in ?", "ON", ids).Count(&total)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(total), nil
 }

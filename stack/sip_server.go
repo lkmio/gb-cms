@@ -97,7 +97,7 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 	}
 
 	if queryCatalog {
-		device.QueryCatalog()
+		_, _ = device.QueryCatalog(0)
 	}
 }
 
@@ -250,6 +250,8 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 			device = PlatformManager.Find(wrapper.req.Source())
 		} else if wrapper.fromJt {
 			device = JTDeviceManager.Find(deviceId)
+		} else {
+			device = DeviceManager.Find(deviceId)
 		}
 
 		if ok = device != nil; !ok {

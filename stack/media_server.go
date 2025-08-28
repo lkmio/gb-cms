@@ -79,7 +79,7 @@ func SendWithUrlParams(path string, body interface{}, values url.Values) (*http.
 		}
 	}
 
-	url := fmt.Sprintf("http://%s/%s", common.Config.MediaServer, path)
+	url := fmt.Sprintf("%s/%s", common.Config.MediaServer, path)
 
 	data, err := json.Marshal(body)
 	if err != nil {
