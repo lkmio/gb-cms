@@ -9,7 +9,7 @@ import (
 
 const (
 	DefaultDomainName   = "本域"
-	DefaultManufacturer = "github/lkmio"
+	DefaultManufacturer = "github.com/lkmio"
 	DefaultModel        = "gb-cms"
 	DefaultFirmware     = "dev"
 )

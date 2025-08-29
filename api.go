@@ -55,6 +55,7 @@ type QueryRecordParams struct {
 	StartTime string `json:"starttime"`
 	EndTime   string `json:"endtime"`
 	//Type_     string `json:"type"`
+	Command string `json:"command"` // 云台控制命令 left/up/right/down/zoomin/zoomout
 }
 
 type DeviceChannelID struct {
@@ -166,7 +167,7 @@ func startApiServer(addr string) {
 	// 统一处理live/playback/download请求
 	apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(common.WithFormDataParams(apiServer.OnInvite, InviteParams{})))
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
-	apiServer.router.HandleFunc("/api/v1/stream/close", common.WithJsonParams(apiServer.OnCloseStream, &StreamIDParams{}))
+	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
 
 	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))           // 查询设备列表
 	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))   // 查询通道列表
@@ -174,9 +175,9 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))    // 查询录像列表
 	apiServer.router.HandleFunc("/api/v1/stream/info", withVerify(apiServer.OnStreamInfo))
 
-	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{})) // 订阅移动位置
-	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))          // 回放seek
-	apiServer.router.HandleFunc("/api/v1/control/ptz", apiServer.OnPTZControl)                                                      // 云台控制
+	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))        // 订阅移动位置
+	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                 // 回放seek
+	apiServer.router.HandleFunc("/api/v1/control/ptz", withVerify(common.WithFormDataParams(apiServer.OnPTZControl, QueryRecordParams{}))) // 云台控制
 
 	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                                 // 级联设备列表
 	apiServer.router.HandleFunc("/api/v1/platform/add", common.WithJsonResponse(apiServer.OnPlatformAdd, &dao.PlatformModel{}))                    // 添加级联设备
@@ -563,15 +564,17 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 	return http.StatusOK, stream, nil
 }
 
-func (api *ApiServer) OnCloseStream(v *StreamIDParams, w http.ResponseWriter, _ *http.Request) {
-	//stream := StreamManager.Find(v.StreamID)
-	//
-	//// 等空闲或收流超时会自动关闭
-	//if stream != nil && stream.GetSinkCount() < 1 {
-	//	CloseStream(v.StreamID, true)
-	//}
+func (api *ApiServer) OnCloseStream(v *InviteParams, w http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	streamID := common.GenerateStreamID(common.InviteTypePlay, v.DeviceID, v.ChannelID, "", "")
+	mode, err := dao.Stream.DeleteStream(streamID)
+	if err != nil {
+		log.Sugar.Errorf("删除流失败 err: %s", err.Error())
+		return nil, err
+	}
 
-	_ = common.HttpResponseOK(w, nil)
+	(&stack.Stream{mode}).Close(true, true)
+
+	return "OK", nil
 }
 
 // QueryDeviceChannel 查询设备和通道的参数
@@ -718,6 +721,11 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter
 		registerWay, _ := strconv.Atoi(channel.RegisterWay)
 		secrecy, _ := strconv.Atoi(channel.Secrecy)
 
+		streamID := common.GenerateStreamID(common.InviteTypePlay, channel.RootID, channel.DeviceID, "", "")
+		if stream, err := dao.Stream.QueryStream(streamID); err != nil || stream == nil {
+			streamID = ""
+		}
+
 		response.ChannelList = append(response.ChannelList, LiveGBSChannel{
 			Address:            channel.Address,
 			Altitude:           0,
@@ -776,7 +784,7 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter
 			SnapURL:            "",
 			Speed:              0,
 			Status:             channel.Status.String(),
-			StreamID:           "",
+			StreamID:           string(streamID), // 实时流ID
 			SubCount:           channel.SubCount,
 			UpdatedAt:          channel.UpdatedAt.Format("2006-01-02 15:04:05"),
 		})
@@ -909,8 +917,19 @@ func (api *ApiServer) OnSeekPlayback(v *SeekParams, _ http.ResponseWriter, _ *ht
 	return nil, nil
 }
 
-func (api *ApiServer) OnPTZControl(_ http.ResponseWriter, _ *http.Request) {
+func (api *ApiServer) OnPTZControl(v *QueryRecordParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	log.Sugar.Debugf("PTZ控制 %v", *v)
 
+	model, _ := dao.Device.QueryDevice(v.DeviceID)
+	if model == nil || !model.Online() {
+		log.Sugar.Errorf("PTZ控制失败, 设备离线 device: %s", v.DeviceID)
+		return nil, fmt.Errorf("设备离线")
+	}
+
+	device := &stack.Device{model}
+	device.ControlPTZ(v.Command, v.ChannelID)
+
+	return "OK", nil
 }
 
 func (api *ApiServer) OnHangup(v *BroadcastParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {

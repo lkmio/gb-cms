@@ -14,7 +14,7 @@
     "keepalive_interval": 60,
     "name": "模拟1078设备4",
     "sim_number":"13800138000",
-    "manufacturer":"github/lkmio",
+    "manufacturer":"github.com/lkmio",
     "model":"gb-cms",
     "firmware":"dev"
 }
@@ -35,9 +35,9 @@ sim_number: 对应的部标设备sim卡号, 唯一键
     "root_id": "34020000001400000001",
     "device_id": "34020000001310000001",
     "name": "视频通道",
-    "manufacturer": "github/lkmio",
+    "manufacturer": "github.com/lkmio",
     "model": "gb-cms",
-    "owner": "github/lkmio",
+    "owner": "github.com/lkmio",
     "channel_number": 1
 }
 

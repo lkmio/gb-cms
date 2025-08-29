@@ -389,7 +389,7 @@ func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipServer, error) {
 	ua := gosip.NewServer(gosip.ServerConfig{
 		Host:      publicIP,
-		UserAgent: "github/lkmio",
+		UserAgent: "github.com/lkmio",
 	}, nil, nil, common.Logger)
 
 	addr := net.JoinHostPort(listenIP, strconv.Itoa(listenPort))
