@@ -9,15 +9,16 @@ import (
 
 type StreamModel struct {
 	GBModel
-	DeviceID  string                 // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
-	ChannelID string                 // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
-	StreamID  common.StreamID        `json:"stream_id"`          // 流ID
-	Protocol  int                    `json:"protocol,omitempty"` // 推流协议, rtmp/28181/1078/gb_talk
-	Dialog    *common.RequestWrapper `json:"dialog,omitempty"`   // 国标流的SipCall会话
-	SinkCount int32                  `json:"sink_count"`         // 拉流端计数(包含级联转发)
+	DeviceID  string                 `gorm:"index"`                  // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
+	ChannelID string                 `gorm:"index"`                  // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
+	StreamID  common.StreamID        `json:"stream_id" gorm:"index"` // 流ID
+	Protocol  int                    `json:"protocol,omitempty"`     // 推流协议, rtmp/28181/1078/gb_talk
+	Dialog    *common.RequestWrapper `json:"dialog,omitempty"`       // 国标流的SipCall会话
+	SinkCount int32                  `json:"sink_count"`             // 拉流端计数(包含级联转发)
 	SetupType common.SetupType
-	CallID    string   `json:"call_id"`
+	CallID    string   `json:"call_id" gorm:"index"`
 	Urls      []string `gorm:"serializer:json"` // 从流媒体服务器返回的拉流地址
+	Name      string   `gorm:"index"`           // 视频通道名
 }
 
 func (s *StreamModel) TableName() string {
@@ -44,6 +45,8 @@ type DaoStream interface {
 	DeleteStreamsByIds(ids []uint) error
 
 	QueryStream(streamId common.StreamID) (*StreamModel, error)
+
+	QueryStreams(keyword string, page, size int) ([]*StreamModel, int, error)
 
 	QueryStreamByCallID(callID string) (*StreamModel, error)
 
@@ -175,4 +178,29 @@ func (d *daoStream) DeleteStreamByDeviceID(deviceID string) ([]*StreamModel, err
 	})
 
 	return streams, nil
+}
+
+func (d *daoStream) QueryStreams(keyword string, page, size int) ([]*StreamModel, int, error) {
+	var streams []*StreamModel
+	var total int64
+
+	tx := db.Model(&StreamModel{}).Offset((page - 1) * size).Limit(size)
+	if keyword != "" {
+		tx.Where("name like ? or device_id like ? or channel_id like ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	if tx = tx.Find(&streams); tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	tx = db.Model(&StreamModel{})
+	if keyword != "" {
+		tx.Where("name like ? or device_id like ? or channel_id like ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	if tx = tx.Count(&total); tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	return streams, int(total), nil
 }

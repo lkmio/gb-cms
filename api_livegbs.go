@@ -43,6 +43,46 @@ type ModifyPasswordReq struct {
 	NewPwd string `json:"newpassword"`
 }
 
+type StreamInfo struct {
+	AudioEnable           bool   `json:"AudioEnable"`
+	CDN                   string `json:"CDN"`
+	CascadeSize           int    `json:"CascadeSize"`
+	ChannelID             string `json:"ChannelID"`
+	ChannelName           string `json:"ChannelName"`
+	CloudRecord           bool   `json:"CloudRecord"`
+	DecodeSize            int    `json:"DecodeSize"`
+	DeviceID              string `json:"DeviceID"`
+	Duration              int    `json:"Duration"`
+	FLV                   string `json:"FLV"`
+	HLS                   string `json:"HLS"`
+	InBitRate             int    `json:"InBitRate"`
+	InBytes               int    `json:"InBytes"`
+	NumOutputs            int    `json:"NumOutputs"`
+	Ondemand              bool   `json:"Ondemand"`
+	OutBytes              int    `json:"OutBytes"`
+	RTMP                  string `json:"RTMP"`
+	RTPCount              int    `json:"RTPCount"`
+	RTPLostCount          int    `json:"RTPLostCount"`
+	RTPLostRate           int    `json:"RTPLostRate"`
+	RTSP                  string `json:"RTSP"`
+	RecordStartAt         string `json:"RecordStartAt"`
+	RelaySize             int    `json:"RelaySize"`
+	SMSID                 string `json:"SMSID"`
+	SnapURL               string `json:"SnapURL"`
+	SourceAudioCodecName  string `json:"SourceAudioCodecName"`
+	SourceAudioSampleRate int    `json:"SourceAudioSampleRate"`
+	SourceVideoCodecName  string `json:"SourceVideoCodecName"`
+	SourceVideoFrameRate  int    `json:"SourceVideoFrameRate"`
+	SourceVideoHeight     int    `json:"SourceVideoHeight"`
+	SourceVideoWidth      int    `json:"SourceVideoWidth"`
+	StartAt               string `json:"StartAt"`
+	StreamID              string `json:"StreamID"`
+	Transport             string `json:"Transport"`
+	VideoFrameCount       int    `json:"VideoFrameCount"`
+	WEBRTC                string `json:"WEBRTC"`
+	WS_FLV                string `json:"WS_FLV"`
+}
+
 func GetUptime() time.Duration {
 	return time.Since(StartUpTime)
 }

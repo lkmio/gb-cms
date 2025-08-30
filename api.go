@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"gb-cms/common"
 	"gb-cms/dao"
@@ -15,6 +16,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -86,7 +88,7 @@ type RecordParams struct {
 }
 
 type StreamIDParams struct {
-	StreamID common.StreamID `json:"stream_id"`
+	StreamID string `json:"streamid"`
 }
 
 type PageQuery struct {
@@ -170,6 +172,8 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
 
 	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))           // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/device/session/list", withVerify(common.WithQueryStringParams(apiServer.OnSessionList, QueryDeviceChannel{})))  // 推流列表
+	apiServer.router.HandleFunc("/api/v1/device/session/stop", withVerify(common.WithFormDataParams(apiServer.OnSessionStop, StreamIDParams{})))         // 关闭流
 	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))   // 查询通道列表
 	apiServer.router.HandleFunc("/api/v1/device/fetchcatalog", withVerify(common.WithQueryStringParams(apiServer.OnCatalogQuery, QueryDeviceChannel{}))) // 更新通道
 	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))    // 查询录像列表
@@ -566,14 +570,7 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 
 func (api *ApiServer) OnCloseStream(v *InviteParams, w http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	streamID := common.GenerateStreamID(common.InviteTypePlay, v.DeviceID, v.ChannelID, "", "")
-	mode, err := dao.Stream.DeleteStream(streamID)
-	if err != nil {
-		log.Sugar.Errorf("删除流失败 err: %s", err.Error())
-		return nil, err
-	}
-
-	(&stack.Stream{mode}).Close(true, true)
-
+	stack.CloseStream(streamID, true)
 	return "OK", nil
 }
 
@@ -586,6 +583,9 @@ type QueryDeviceChannel struct {
 	Keyword     string `json:"q"`
 	Online      string `json:"online"`
 	ChannelType string `json:"channel_type"`
+	Order       string `json:"order"`
+	Sort        string `json:"sort"`
+	SMS         string `json:"sms"`
 
 	//pageNumber  int
 	//pageSize    int
@@ -1201,48 +1201,76 @@ func (api *ApiServer) OnCatalogQuery(params *QueryDeviceChannel, _ http.Response
 }
 
 func (api *ApiServer) OnStreamInfo(w http.ResponseWriter, r *http.Request) {
-	// 构建目标URL
-	targetURL := common.Config.MediaServer + r.URL.Path
-	if r.URL.RawQuery != "" {
-		targetURL += "?" + r.URL.RawQuery
-	}
-
-	// 创建转发请求
-	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
+	response, err := stack.MSQueryStreamInfo(r.Header, r.URL.RawQuery)
 	if err != nil {
-		http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 
-	// 复制请求头
-	for name, values := range r.Header {
-		for _, value := range values {
-			proxyReq.Header.Add(name, value)
-		}
-	}
-
-	// 发送请求
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		http.Error(w, "Error forwarding request", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
+	defer response.Body.Close()
 
 	// 复制响应头
-	for name, values := range resp.Header {
+	for name, values := range response.Header {
 		for _, value := range values {
 			w.Header().Add(name, value)
 		}
 	}
 
 	// 设置状态码并转发响应体
-	w.WriteHeader(resp.StatusCode)
-	_, err = io.Copy(w, resp.Body)
+	w.WriteHeader(response.StatusCode)
+	_, err = io.Copy(w, response.Body)
 	if err != nil {
 		log.Sugar.Errorf("Failed to copy response body: %v", err)
 	}
+}
+
+func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
+	streams, _, err := dao.Stream.QueryStreams(q.Keyword, (q.Start/q.Limit)+1, q.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	response := struct {
+		SessionCount int
+		SessionList  []*StreamInfo
+	}{}
+
+	bytes := make([]byte, 4096)
+	for _, stream := range streams {
+		values := url.Values{}
+		values.Set("streamid", string(stream.StreamID))
+		resp, err := stack.MSQueryStreamInfo(r.Header, values.Encode())
+		if err != nil {
+			return nil, err
+		}
+
+		var n int
+		n, err = resp.Body.Read(bytes)
+		resp.Body.Close()
+		if n < 1 {
+			break
+		}
+
+		info := &StreamInfo{}
+		err = json.Unmarshal(bytes[:n], info)
+		if err != nil {
+			return nil, err
+		}
+
+		info.ChannelName = stream.Name
+		response.SessionList = append(response.SessionList, info)
+	}
+
+	response.SessionCount = len(response.SessionList)
+	return &response, nil
+}
+
+func (api *ApiServer) OnSessionStop(params *StreamIDParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	err := stack.MSCloseSource(params.StreamID)
+	if err != nil {
+		return nil, err
+	}
+
+	return "OK", nil
 }

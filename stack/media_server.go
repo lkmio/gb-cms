@@ -240,3 +240,31 @@ func MSAddForwardSink(protocol int, source, addr, offerSetup, answerSetup, ssrc,
 	port, _ := strconv.Atoi(p)
 	return host, uint16(port), data.Data.Sink, data.Data.SSRC, nil
 }
+
+func MSQueryStreamInfo(header http.Header, queryParams string) (*http.Response, error) {
+	// 构建目标URL
+	targetURL := common.Config.MediaServer + "/api/v1/stream/info"
+	if queryParams != "" {
+		targetURL += "?" + queryParams
+	}
+
+	// 创建转发请求
+	proxyReq, err := http.NewRequest("POST", targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// 复制请求头
+	for name, values := range header {
+		for _, value := range values {
+			proxyReq.Header.Add(name, value)
+		}
+	}
+
+	// 发送请求
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	return client.Do(proxyReq)
+}
