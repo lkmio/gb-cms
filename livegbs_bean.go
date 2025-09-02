@@ -152,3 +152,22 @@ type LiveGBSStream struct {
 	WEBRTC                string `json:"WEBRTC"`
 	WS_FLV                string `json:"WS_FLV"`
 }
+
+type LiveGBSDeviceTree struct {
+	Code           string  `json:"code"`
+	Custom         bool    `json:"custom"`
+	CustomID       string  `json:"customID"`
+	CustomName     string  `json:"customName"`
+	ID             string  `json:"id"`
+	Latitude       float64 `json:"latitude"`
+	Longitude      float64 `json:"longitude"`
+	Manufacturer   string  `json:"manufacturer"`
+	Name           string  `json:"name"`
+	OnlineSubCount int     `json:"onlineSubCount"`
+	Parental       bool    `json:"parental"`
+	PtzType        int     `json:"ptzType"`
+	Serial         string  `json:"serial"`
+	Status         string  `json:"status"`
+	SubCount       int     `json:"subCount"`       // 包含目录的总数
+	SubCountDevice int     `json:"subCountDevice"` // 不包含目录的总数
+}

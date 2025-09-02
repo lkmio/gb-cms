@@ -5,6 +5,8 @@ import (
 	"gb-cms/dao"
 	"gb-cms/log"
 	"github.com/lkmio/avformat/utils"
+	"net"
+	"strconv"
 	"time"
 )
 
@@ -12,7 +14,7 @@ import (
 type Handler interface {
 	OnUnregister(id string)
 
-	OnRegister(id, transport, addr string) (int, GBDevice, bool)
+	OnRegister(id, transport, addr string, userAgent string) (int, GBDevice, bool)
 
 	OnKeepAlive(id string) bool
 
@@ -32,12 +34,16 @@ func (e *EventHandler) OnUnregister(id string) {
 	_ = dao.Device.UpdateDeviceStatus(id, common.OFF)
 }
 
-func (e *EventHandler) OnRegister(id, transport, addr string) (int, GBDevice, bool) {
+func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, GBDevice, bool) {
 	now := time.Now()
+	host, p, _ := net.SplitHostPort(addr)
+	port, _ := strconv.Atoi(p)
 	device := &dao.DeviceModel{
 		DeviceID:      id,
 		Transport:     transport,
-		RemoteAddr:    addr,
+		RemoteIP:      host,
+		RemotePort:    port,
+		UserAgent:     userAgent,
 		Status:        common.ON,
 		RegisterTime:  now,
 		LastHeartbeat: now,
@@ -47,7 +53,7 @@ func (e *EventHandler) OnRegister(id, transport, addr string) (int, GBDevice, bo
 		log.Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
 	}
 
-	count, _ := dao.Channel.QueryChanelCount(id)
+	count, _ := dao.Channel.QueryChanelCount(id, true)
 	return 3600, &Device{device}, count < 1
 }
 

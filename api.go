@@ -111,6 +111,28 @@ type SetMediaTransportReq struct {
 	MediaTransportMode string `json:"media_transport_mode"`
 }
 
+// QueryDeviceChannel 查询设备和通道的参数
+type QueryDeviceChannel struct {
+	DeviceID    string `json:"serial"`
+	GroupID     string `json:"dir_serial"`
+	PCode       string `json:"pcode"`
+	Start       int    `json:"start"`
+	Limit       int    `json:"limit"`
+	Keyword     string `json:"q"`
+	Online      string `json:"online"`
+	ChannelType string `json:"channel_type"`
+	Order       string `json:"order"` // asc/desc
+	Sort        string `json:"sort"`  // Channel-根据数据库ID排序/iD-根据通道ID排序
+	SMS         string `json:"sms"`
+}
+
+type DeleteDevice struct {
+	DeviceID string `json:"serial"`
+	IP       string `json:"ip"`
+	Forbid   bool   `json:"forbid"`
+	UA       string `json:"ua"`
+}
+
 var apiServer *ApiServer
 
 func init() {
@@ -172,18 +194,21 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
 
 	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))           // 查询设备列表
-	apiServer.router.HandleFunc("/api/v1/device/session/list", withVerify(common.WithQueryStringParams(apiServer.OnSessionList, QueryDeviceChannel{})))  // 推流列表
-	apiServer.router.HandleFunc("/api/v1/device/session/stop", withVerify(common.WithFormDataParams(apiServer.OnSessionStop, StreamIDParams{})))         // 关闭流
+	apiServer.router.HandleFunc("/api/v1/device/channeltree", withVerify(common.WithQueryStringParams(apiServer.OnDeviceTree, QueryDeviceChannel{})))    // 设备树
 	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))   // 查询通道列表
 	apiServer.router.HandleFunc("/api/v1/device/fetchcatalog", withVerify(common.WithQueryStringParams(apiServer.OnCatalogQuery, QueryDeviceChannel{}))) // 更新通道
-	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{})))    // 查询录像列表
+	apiServer.router.HandleFunc("/api/v1/device/remove", withVerify(common.WithFormDataParams(apiServer.OnDeviceRemove, DeleteDevice{})))                // 更新通道
+
+	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{}))) // 查询录像列表
 	apiServer.router.HandleFunc("/api/v1/stream/info", withVerify(apiServer.OnStreamInfo))
+	apiServer.router.HandleFunc("/api/v1/device/session/list", withVerify(common.WithQueryStringParams(apiServer.OnSessionList, QueryDeviceChannel{}))) // 推流列表
+	apiServer.router.HandleFunc("/api/v1/device/session/stop", withVerify(common.WithFormDataParams(apiServer.OnSessionStop, StreamIDParams{})))        // 关闭流
 
 	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))        // 订阅移动位置
 	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                 // 回放seek
 	apiServer.router.HandleFunc("/api/v1/control/ptz", withVerify(common.WithFormDataParams(apiServer.OnPTZControl, QueryRecordParams{}))) // 云台控制
 
-	apiServer.router.HandleFunc("/api/v1/platform/list", apiServer.OnPlatformList)                                                                 // 级联设备列表
+	apiServer.router.HandleFunc("/api/v1/cascade/list", apiServer.OnPlatformList)                                                                  // 级联设备列表
 	apiServer.router.HandleFunc("/api/v1/platform/add", common.WithJsonResponse(apiServer.OnPlatformAdd, &dao.PlatformModel{}))                    // 添加级联设备
 	apiServer.router.HandleFunc("/api/v1/platform/remove", common.WithJsonResponse(apiServer.OnPlatformRemove, &dao.PlatformModel{}))              // 删除级联设备
 	apiServer.router.HandleFunc("/api/v1/platform/channel/bind", common.WithJsonResponse(apiServer.OnPlatformChannelBind, &PlatformChannel{}))     // 级联绑定通道
@@ -274,11 +299,6 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 		return
 	}
 
-	// 已经存在，累加计数
-	if stream, _ := dao.Stream.QueryStream(params.Stream); stream != nil {
-		return
-	}
-
 	deviceId := sourceStream[0]
 	channelId := sourceStream[1]
 	if len(channelId) > 20 {
@@ -304,6 +324,14 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 			log.Sugar.Errorf("通知1078信令服务器失败. 响应状态码: %d sim number: %s channel number: %s", response.StatusCode, simNumber, channelNumber)
 		}
 	} else {
+
+		// livegbs前端即使退出的播放，还是会拉流. 如果在hook中发起invite, 会造成不必要的请求.
+		// 流不存在, 返回404
+		if stream, _ := dao.Stream.QueryStream(params.Stream); stream == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
 		inviteParams := &InviteParams{
 			DeviceID:  deviceId,
 			ChannelID: channelId,
@@ -574,26 +602,6 @@ func (api *ApiServer) OnCloseStream(v *InviteParams, w http.ResponseWriter, _ *h
 	return "OK", nil
 }
 
-// QueryDeviceChannel 查询设备和通道的参数
-type QueryDeviceChannel struct {
-	DeviceID    string `json:"serial"`
-	GroupID     string `json:"dir_serial"`
-	Start       int    `json:"start"`
-	Limit       int    `json:"limit"`
-	Keyword     string `json:"q"`
-	Online      string `json:"online"`
-	ChannelType string `json:"channel_type"`
-	Order       string `json:"order"`
-	Sort        string `json:"sort"`
-	SMS         string `json:"sms"`
-
-	//pageNumber  int
-	//pageSize    int
-	//keyword     string
-	//online      string // true/false
-	//channelType string // device/dir, 查询通道列表使用
-}
-
 func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	values := r.URL.Query()
 
@@ -607,7 +615,11 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 		status = "OFF"
 	}
 
-	devices, total, err := dao.Device.QueryDevices((q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
+	if "desc" != q.Order {
+		q.Order = "asc"
+	}
+
+	devices, total, err := dao.Device.QueryDevices((q.Start/q.Limit)+1, q.Limit, status, q.Keyword, q.Order)
 	if err != nil {
 		log.Sugar.Errorf("查询设备列表失败 err: %s", err.Error())
 		return nil, err
@@ -620,11 +632,9 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 		DeviceCount: total,
 	}
 
+	// livgbs设备离线后的最后心跳时间, 涉及到是否显示非法设备的批量删除按钮
+	offlineTime := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02 15:04:05")
 	for _, device := range devices {
-		split := strings.Split(device.RemoteAddr, ":")
-		remoteIP := split[0]
-		remotePort, _ := strconv.Atoi(split[1])
-
 		// 更新正在查询通道的进度
 		var catalogProgress string
 		data := stack.UniqueTaskManager.Find(stack.GenerateCatalogTaskID(device.GetID()))
@@ -636,28 +646,36 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			}
 		}
 
+		var lastKeealiveTime string
+		if device.Online() {
+			lastKeealiveTime = device.LastHeartbeat.Format("2006-01-02 15:04:05")
+		} else {
+			lastKeealiveTime = offlineTime
+		}
+
 		response.DeviceList_ = append(response.DeviceList_, LiveGBSDevice{
-			AlarmSubscribe:     false, // 报警订阅
-			CatalogInterval:    3600,  // 目录刷新时间
-			CatalogProgress:    catalogProgress,
-			CatalogSubscribe:   false, // 目录订阅
-			ChannelCount:       device.ChannelsTotal,
-			ChannelOverLoad:    false,
-			Charset:            "GB2312",
-			CivilCodeFirst:     false,
-			CommandTransport:   device.Transport,
-			ContactIP:          "",
-			CreatedAt:          device.CreatedAt.Format("2006-01-02 15:04:05"),
-			CustomName:         "",
-			DropChannelType:    "",
-			GBVer:              "",
-			ID:                 device.GetID(),
-			KeepOriginalTree:   false,
-			LastKeepaliveAt:    device.LastHeartbeat.Format("2006-01-02 15:04:05"),
-			LastRegisterAt:     device.RegisterTime.Format("2006-01-02 15:04:05"),
-			Latitude:           0,
-			Longitude:          0,
-			Manufacturer:       device.Manufacturer,
+			AlarmSubscribe:   false, // 报警订阅
+			CatalogInterval:  3600,  // 目录刷新时间
+			CatalogProgress:  catalogProgress,
+			CatalogSubscribe: false, // 目录订阅
+			ChannelCount:     device.ChannelsTotal,
+			ChannelOverLoad:  false,
+			Charset:          "GB2312",
+			CivilCodeFirst:   false,
+			CommandTransport: device.Transport,
+			ContactIP:        "",
+			CreatedAt:        device.CreatedAt.Format("2006-01-02 15:04:05"),
+			CustomName:       "",
+			DropChannelType:  "",
+			GBVer:            "",
+			ID:               device.GetID(),
+			KeepOriginalTree: false,
+			LastKeepaliveAt:  lastKeealiveTime,
+			LastRegisterAt:   device.RegisterTime.Format("2006-01-02 15:04:05"),
+			Latitude:         0,
+			Longitude:        0,
+			//Manufacturer:       device.Manufacturer,
+			Manufacturer:       device.UserAgent,
 			MediaTransport:     device.Setup.Transport(),
 			MediaTransportMode: device.Setup.String(),
 			Name:               device.Name,
@@ -668,8 +686,8 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			RecordCenter:       false,
 			RecordIndistinct:   false,
 			RecvStreamIP:       "",
-			RemoteIP:           remoteIP,
-			RemotePort:         remotePort,
+			RemoteIP:           device.RemoteIP,
+			RemotePort:         device.RemotePort,
 			RemoteRegion:       "",
 			SMSGroupID:         "",
 			SMSID:              "",
@@ -701,7 +719,11 @@ func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter
 		status = "OFF"
 	}
 
-	channels, total, err := dao.Channel.QueryChannels(q.DeviceID, q.GroupID, (q.Start/q.Limit)+1, q.Limit, status, q.Keyword)
+	if "desc" != q.Order {
+		q.Order = "asc"
+	}
+
+	channels, total, err := dao.Channel.QueryChannels(q.DeviceID, q.GroupID, (q.Start/q.Limit)+1, q.Limit, status, q.Keyword, q.Order, q.Sort)
 	if err != nil {
 		log.Sugar.Errorf("查询通道列表失败 err: %s", err.Error())
 		return nil, err
@@ -1270,6 +1292,75 @@ func (api *ApiServer) OnSessionStop(params *StreamIDParams, w http.ResponseWrite
 	err := stack.MSCloseSource(params.StreamID)
 	if err != nil {
 		return nil, err
+	}
+
+	return "OK", nil
+}
+
+func (api *ApiServer) OnDeviceTree(q *QueryDeviceChannel, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	var response []*LiveGBSDeviceTree
+
+	// 查询所有设备
+	if q.DeviceID == "" && q.PCode == "" {
+		devices, err := dao.Device.LoadDevices()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, model := range devices {
+			count, _ := dao.Channel.QueryChanelCount(model.DeviceID, true)
+			deviceCount, _ := dao.Channel.QueryChanelCount(model.DeviceID, false)
+			onlineCount, _ := dao.Channel.QueryOnlineChanelCount(model.DeviceID, false)
+			response = append(response, &LiveGBSDeviceTree{Code: "", Custom: false, CustomID: "", CustomName: "", ID: model.DeviceID, Latitude: 0, Longitude: 0, Manufacturer: model.Manufacturer, Name: model.Name, OnlineSubCount: onlineCount, Parental: true, PtzType: 0, Serial: model.DeviceID, Status: model.Status.String(), SubCount: count, SubCountDevice: deviceCount})
+		}
+	} else {
+		// 查询设备下的某个目录的所有通道
+		if q.PCode == "" {
+			q.PCode = q.DeviceID
+		}
+		channels, _, _ := dao.Channel.QueryChannels(q.DeviceID, q.PCode, -1, 0, "", "", "asc", "")
+		for _, channel := range channels {
+			id := channel.RootID + ":" + channel.DeviceID
+			latitude, _ := strconv.ParseFloat(channel.Latitude, 10)
+			longitude, _ := strconv.ParseFloat(channel.Longitude, 10)
+
+			var deviceCount int
+			var onlineCount int
+			if channel.SubCount > 0 {
+				deviceCount, _ = dao.Channel.QuerySubChannelCount(channel.RootID, channel.DeviceID, false)
+				onlineCount, _ = dao.Channel.QueryOnlineSubChannelCount(channel.RootID, channel.DeviceID, false)
+			}
+
+			response = append(response, &LiveGBSDeviceTree{Code: channel.DeviceID, Custom: false, CustomID: "", CustomName: "", ID: id, Latitude: latitude, Longitude: longitude, Manufacturer: channel.Manufacturer, Name: channel.Name, OnlineSubCount: onlineCount, Parental: false, PtzType: 0, Serial: channel.RootID, Status: channel.Status.String(), SubCount: channel.SubCount, SubCountDevice: deviceCount})
+		}
+	}
+
+	return &response, nil
+}
+
+func (api *ApiServer) OnDeviceRemove(q *DeleteDevice, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	var err error
+	if q.IP != "" {
+		// 删除IP下的所有设备
+		err = dao.Device.DeleteDevicesByIP(q.IP)
+	} else if q.UA != "" {
+		//  删除UA下的所有设备
+		err = dao.Device.DeleteDevicesByUA(q.UA)
+	} else {
+		// 删除单个设备
+		err = dao.Device.DeleteDevice(q.DeviceID)
+	}
+
+	if err != nil {
+		return nil, err
+	} else if q.Forbid {
+		if q.IP != "" {
+			// 拉黑IP
+			err = dao.Blacklist.SaveIP(q.IP)
+		} else if q.UA != "" {
+			// 拉黑UA
+			err = dao.Blacklist.SaveUA(q.UA)
+		}
 	}
 
 	return "OK", nil

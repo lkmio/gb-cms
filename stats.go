@@ -25,8 +25,8 @@ var (
 	lastNetStatsJson string
 	lastNetStats     []net.IOCountersStat
 
-	ChannelTotalCount  int
-	ChannelOnlineCount int
+	ChannelTotalCount  int // 包含目录
+	ChannelOnlineCount int // 不包含目录
 )
 
 const (

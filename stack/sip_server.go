@@ -77,8 +77,14 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 		log2.Sugar.Infof("设备注销 Device: %s", id)
 		s.handler.OnUnregister(id)
 	} else /*if authorizationHeader == nil*/ {
+		var userAgent string
+		userAgentHeader := wrapper.req.GetHeaders("User-Agent")
+		if len(userAgentHeader) > 0 {
+			userAgent = userAgentHeader[0].(*sip.UserAgentHeader).Value()
+		}
+
 		var expires int
-		expires, device, queryCatalog = s.handler.OnRegister(id, wrapper.req.Transport(), wrapper.req.Source())
+		expires, device, queryCatalog = s.handler.OnRegister(id, wrapper.req.Transport(), wrapper.req.Source(), userAgent)
 		if device != nil {
 			log2.Sugar.Infof("注册成功 Device: %s addr: %s", id, wrapper.req.Source())
 			expiresHeader := sip.Expires(expires)
@@ -349,6 +355,20 @@ func (s *sipServer) ListenAddr() string {
 // 过滤SIP消息、超找消息来源
 func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 	return func(req sip.Request, tx sip.ServerTransaction) {
+		userAgent := req.GetHeaders("User-Agent")
+
+		// 过滤黑名单
+		if _, err := dao.Blacklist.QueryIP(req.Source()); err == nil {
+			SendResponseWithStatusCode(req, tx, http.StatusForbidden)
+			log2.Sugar.Errorf("处理%s请求失败, IP被黑名单过滤: %s request: %s ", req.Method(), req.Source(), req.String())
+			return
+		} else if len(userAgent) > 0 {
+			if _, err = dao.Blacklist.QueryUA(userAgent[0].Value()); err == nil {
+				SendResponseWithStatusCode(req, tx, http.StatusForbidden)
+				log2.Sugar.Errorf("处理%s请求失败, UA被黑名单过滤: %s request: %s ", req.Method(), userAgent[0].Value(), req.String())
+				return
+			}
+		}
 
 		source := req.Source()
 		// 是否是级联上级下发的请求

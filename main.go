@@ -65,6 +65,20 @@ func main() {
 
 	PwdMD5 = md5
 
+	// 加载黑名单
+	blacklists, err := dao.Blacklist.Load()
+	if err != nil {
+		log.Sugar.Errorf("加载黑名单失败 err: %s", err.Error())
+	} else {
+		for _, blacklist := range blacklists {
+			if blacklist.Rule == "ip" {
+				_ = dao.BlacklistManager.SaveIP(blacklist.Key)
+			} else if blacklist.Rule == "ua" {
+				_ = dao.BlacklistManager.SaveUA(blacklist.Key)
+			}
+		}
+	}
+
 	// 启动session超时管理
 	go TokenManager.Start(5 * time.Minute)
 

@@ -10,9 +10,7 @@ import (
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
 	"math"
-	"net"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -125,10 +123,8 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 
 			// 手动替换ack请求目标地址, answer的contact可能不对.
 			recipient := ackRequest.Recipient()
-			remoteIP, remotePortStr, _ := net.SplitHostPort(d.RemoteAddr)
-			remotePort, _ := strconv.Atoi(remotePortStr)
-			sipPort := sip.Port(remotePort)
-			recipient.SetHost(remoteIP)
+			sipPort := sip.Port(d.RemotePort)
+			recipient.SetHost(d.RemoteIP)
 			recipient.SetPort(&sipPort)
 
 			log.Sugar.Infof("send ack %s", ackRequest.String())

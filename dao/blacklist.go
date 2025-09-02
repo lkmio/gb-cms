@@ -1,0 +1,96 @@
+package dao
+
+import "gorm.io/gorm"
+
+type BlacklistModel struct {
+	GBModel
+	Rule string
+	Key  string `gorm:"uniqueIndex:idx_rule_key"` // 唯一
+}
+
+func (d *BlacklistModel) TableName() string {
+	return "lkm_blacklist"
+}
+
+type DaoBlacklist interface {
+	Load() ([]*BlacklistModel, error)
+
+	SaveIP(ip string) error
+
+	DeleteIP(ip string) error
+
+	SaveUA(ua string) error
+
+	DeleteUA(ua string) error
+
+	QueryIP(ip string) (*BlacklistModel, error)
+
+	QueryUA(ua string) (*BlacklistModel, error)
+}
+
+type daoBlacklist struct {
+}
+
+func (d daoBlacklist) SaveIP(ip string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		err := tx.Create(&BlacklistModel{
+			Key:  ip,
+			Rule: "ip",
+		}).Error
+		if err == nil {
+			_ = BlacklistManager.SaveIP(ip)
+		}
+		return err
+	})
+}
+
+func (d daoBlacklist) DeleteIP(ip string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		err := tx.Delete(&BlacklistModel{}, "key = ? and rule = ?", ip, "ip").Error
+		if err == nil {
+			_ = BlacklistManager.DeleteIP(ip)
+		}
+		return err
+	})
+}
+
+func (d daoBlacklist) SaveUA(ua string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		err := tx.Create(&BlacklistModel{
+			Key:  ua,
+			Rule: "ua",
+		}).Error
+
+		if err == nil {
+			_ = BlacklistManager.SaveUA(ua)
+		}
+		return err
+	})
+}
+
+func (d daoBlacklist) DeleteUA(ua string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		err := tx.Delete(&BlacklistModel{}, "key = ? and rule = ?", ua, "ua").Error
+		if err == nil {
+			_ = BlacklistManager.DeleteUA(ua)
+		}
+		return err
+	})
+}
+
+func (d daoBlacklist) QueryIP(ip string) (*BlacklistModel, error) {
+	return BlacklistManager.QueryIP(ip)
+}
+
+func (d daoBlacklist) QueryUA(ua string) (*BlacklistModel, error) {
+	return BlacklistManager.QueryUA(ua)
+}
+
+func (d daoBlacklist) Load() ([]*BlacklistModel, error) {
+	var models []*BlacklistModel
+	err := db.Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	return models, nil
+}

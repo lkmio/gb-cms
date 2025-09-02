@@ -96,7 +96,7 @@ type Device struct {
 }
 
 func (d *Device) BuildMessageRequest(to, body string) sip.Request {
-	request, err := BuildMessageRequest(common.Config.SipID, net.JoinHostPort(GlobalContactAddress.Uri.Host(), GlobalContactAddress.Uri.Port().String()), to, d.RemoteAddr, d.Transport, body)
+	request, err := BuildMessageRequest(common.Config.SipID, net.JoinHostPort(GlobalContactAddress.Uri.Host(), GlobalContactAddress.Uri.Port().String()), to, net.JoinHostPort(d.RemoteIP, strconv.Itoa(d.RemotePort)), d.Transport, body)
 	if err != nil {
 		panic(err)
 	}
@@ -190,7 +190,7 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 
 		// 如果查询不完整, 并且数据库中通道列表不为空, 则丢弃本次查询的数据, 否则依旧入库
 		var oldChannelCount int
-		oldChannelCount, err = dao.Channel.QueryChanelCount(d.DeviceID)
+		oldChannelCount, err = dao.Channel.QueryChanelCount(d.DeviceID, true)
 		if err != nil {
 			log.Sugar.Errorf("query channel count failed, device: %s, err: %s", d.DeviceID, err.Error())
 			return
@@ -230,8 +230,14 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 	return result, err
 }
 
+func IsDir(typeCode int) bool {
+	return typeCode < 131 || typeCode > 199
+}
+
 func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, error) {
 	var channels []*dao.ChannelModel
+	// 目录
+	dirs := make(map[string]*dao.ChannelModel)
 	for _, response := range list {
 		for _, channel := range response.DeviceList.Devices {
 			// 状态转为大写
@@ -256,6 +262,7 @@ func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, err
 				log.Sugar.Errorf("保存通道时, 获取设备类型失败 device: %s", channel.DeviceID)
 			}
 
+			// 通道所属组, ParentID优先, 其次BusinessGroupID
 			var groupId string
 			if channel.ParentID != "" {
 				layers := strings.Split(channel.ParentID, "/")
@@ -269,6 +276,30 @@ func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, err
 			channel.TypeCode = code
 			channel.GroupID = groupId
 			channels = append(channels, channel)
+
+			dirs[channel.RootID+"/"+channel.DeviceID] = channel
+		}
+	}
+
+	// 父通道不是目录, 归属到最近的目录或设备, 所有外围设备同级
+	for _, channel := range channels {
+		for {
+			parentChannel, ok := dirs[channel.RootID+"/"+channel.GroupID]
+			if !ok {
+				break
+			} else if !IsDir(parentChannel.TypeCode) {
+				channel.GroupID = parentChannel.GroupID
+			} else {
+				break
+			}
+		}
+	}
+
+	// 统计目录的子通道数量
+	for _, channel := range channels {
+		if parentChannel, ok := dirs[channel.RootID+"/"+channel.GroupID]; ok && IsDir(parentChannel.TypeCode) {
+			parentChannel.IsDir = true
+			parentChannel.SubCount++
 		}
 	}
 
@@ -356,13 +387,11 @@ func (d *Device) NewRequestBuilder(method sip.RequestMethod, fromUser, realm, to
 	builder := d.NewSIPRequestBuilderWithTransport()
 	builder.SetMethod(method)
 
-	host, p, _ := net.SplitHostPort(d.RemoteAddr)
-	port, _ := strconv.Atoi(p)
-	sipPort := sip.Port(port)
+	sipPort := sip.Port(d.RemotePort)
 
 	requestUri := &sip.SipUri{
 		FUser: sip.String{Str: toUser},
-		FHost: host,
+		FHost: d.RemoteIP,
 		FPort: &sipPort,
 	}
 
@@ -458,5 +487,5 @@ func CreateDialogRequestFromAnswer(message sip.Response, uas bool, remoteAddr st
 }
 
 func (d *Device) CreateDialogRequestFromAnswer(message sip.Response, uas bool) sip.Request {
-	return CreateDialogRequestFromAnswer(message, uas, d.RemoteAddr)
+	return CreateDialogRequestFromAnswer(message, uas, net.JoinHostPort(d.RemoteIP, strconv.Itoa(d.RemotePort)))
 }

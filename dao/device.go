@@ -3,6 +3,8 @@ package dao
 import (
 	"gb-cms/common"
 	"gorm.io/gorm"
+	"net"
+	"strconv"
 	"time"
 )
 
@@ -14,10 +16,12 @@ type DeviceModel struct {
 	GBModel
 	DeviceID      string              `json:"device_id" gorm:"index"`
 	Name          string              `json:"name" gorm:"index"`
-	RemoteAddr    string              `json:"remote_addr"`
-	Transport     string              `json:"transport"` // 信令传输模式
+	RemoteIP      string              `json:"remote_ip"`
+	RemotePort    int                 `json:"remote_port"`
+	Transport     string              `json:"transport"` // 信令传输模式 UDP/TCP
 	Status        common.OnlineStatus `json:"status"`    // 在线状态 ON-在线/OFF-离线
 	Manufacturer  string              `json:"manufacturer"`
+	UserAgent     string              `json:"user_agent"`
 	Model         string              `json:"model"`
 	Firmware      string              `json:"firmware"`
 	RegisterTime  time.Time           `json:"register_time"`  // 注册时间
@@ -51,7 +55,7 @@ type DaoDevice interface {
 
 	QueryDevice(id string) (*DeviceModel, error)
 
-	QueryDevices(page int, size int) ([]*DeviceModel, int, error)
+	QueryDevices(page int, size int, status string, keyword string, order string) ([]*DeviceModel, int, error)
 
 	UpdateDeviceStatus(deviceId string, status common.OnlineStatus) error
 
@@ -62,6 +66,12 @@ type DaoDevice interface {
 	ExistDevice(deviceId string) bool
 
 	UpdateMediaTransport(deviceId string, setupType common.SetupType) error
+
+	DeleteDevice(deviceId string) error
+
+	DeleteDevicesByIP(ip string) error
+
+	DeleteDevicesByUA(ua string) error
 }
 
 type daoDevice struct {
@@ -143,10 +153,13 @@ func (d *daoDevice) RefreshHeartbeat(deviceId string, now time.Time, addr string
 		return tx.Error
 	}
 	return DBTransaction(func(tx *gorm.DB) error {
+		host, p, _ := net.SplitHostPort(addr)
+		port, _ := strconv.Atoi(p)
 		return tx.Model(&DeviceModel{}).Select("LastHeartbeat", "Status", "RemoteAddr").Where("device_id =?", deviceId).Updates(&DeviceModel{
 			LastHeartbeat: now,
 			Status:        common.ON,
-			RemoteAddr:    addr,
+			RemoteIP:      host,
+			RemotePort:    port,
 		}).Error
 	})
 }
@@ -161,7 +174,7 @@ func (d *daoDevice) QueryDevice(id string) (*DeviceModel, error) {
 	return &device, nil
 }
 
-func (d *daoDevice) QueryDevices(page int, size int, status string, keyword string) ([]*DeviceModel, int, error) {
+func (d *daoDevice) QueryDevices(page int, size int, status string, keyword string, order string) ([]*DeviceModel, int, error) {
 	var cond = make(map[string]interface{})
 	if status != "" {
 		cond["status"] = status
@@ -173,7 +186,7 @@ func (d *daoDevice) QueryDevices(page int, size int, status string, keyword stri
 	}
 
 	var devices []*DeviceModel
-	if tx := devicesTx.Find(&devices); tx.Error != nil {
+	if tx := devicesTx.Order("device_id " + order).Find(&devices); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 
@@ -188,8 +201,8 @@ func (d *daoDevice) QueryDevices(page int, size int, status string, keyword stri
 	}
 
 	for _, device := range devices {
-		count, _ := Channel.QueryChanelCount(device.DeviceID)
-		online, _ := Channel.QueryOnlineChanelCount(device.DeviceID)
+		count, _ := Channel.QueryChanelCount(device.DeviceID, true)
+		online, _ := Channel.QueryOnlineChanelCount(device.DeviceID, true)
 		device.ChannelsOnline = online
 		device.ChannelsTotal = count
 	}
@@ -212,8 +225,32 @@ func (d *daoDevice) ExistDevice(deviceId string) bool {
 
 	return true
 }
+
 func (d *daoDevice) UpdateMediaTransport(deviceId string, setupType common.SetupType) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("setup", setupType).Error
+	})
+}
+
+func (d *daoDevice) DeleteDevice(deviceId string) error {
+	err := DBTransaction(func(tx *gorm.DB) error {
+		return tx.Where("device_id =?", deviceId).Unscoped().Delete(&DeviceModel{}).Error
+	})
+	if err != nil {
+		return err
+	}
+
+	return Channel.DeleteChannels(deviceId)
+}
+
+func (d *daoDevice) DeleteDevicesByIP(ip string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Where("remote_ip =?", ip).Unscoped().Delete(&DeviceModel{}).Error
+	})
+}
+
+func (d *daoDevice) DeleteDevicesByUA(ua string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Where("user_agent =?", ua).Unscoped().Delete(&DeviceModel{}).Error
 	})
 }

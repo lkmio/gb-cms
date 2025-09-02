@@ -138,8 +138,15 @@ func updateDevicesStatus() {
 		}
 
 		if len(offlineDevices) > 0 {
-			if err = dao.Device.UpdateOfflineDevices(offlineDevices); err != nil {
-				log.Sugar.Errorf("更新设备状态失败 device: %s", offlineDevices)
+			// 每次更新100个
+			for i := 0; i < len(offlineDevices); i += 100 {
+				end := i + 100
+				if end > len(offlineDevices) {
+					end = len(offlineDevices)
+				}
+				if err = dao.Device.UpdateOfflineDevices(offlineDevices[i:end]); err != nil {
+					log.Sugar.Errorf("更新设备状态失败 device: %s", offlineDevices[i:end])
+				}
 			}
 		}
 	}

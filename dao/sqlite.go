@@ -23,6 +23,7 @@ var (
 	Stream    = &daoStream{}
 	Sink      = &daoSink{}
 	JTDevice  = &daoJTDevice{}
+	Blacklist = &daoBlacklist{}
 )
 
 func init() {
@@ -72,6 +73,8 @@ func init() {
 	} else if err = db.AutoMigrate(&PlatformChannelModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&JTDeviceModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&BlacklistModel{}); err != nil {
 		panic(err)
 	}
 

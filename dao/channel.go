@@ -51,7 +51,8 @@ type ChannelModel struct {
 	Latitude        string              `json:"latitude" xml:"Latitude,omitempty"`
 	Setup           common.SetupType    `json:"setup,omitempty"`
 	ChannelNumber   int                 `json:"channel_number" xml:"-"` // 对应1078的通道号
-	SubCount        int                 `json:"-" xml:"-" gorm:"-"`     // 子节点数量
+	SubCount        int                 `json:"-" xml:"-"`              // 子节点数量
+	IsDir           bool                `json:"-" xml:"-"`              // 是否是目录
 }
 
 func (d *ChannelModel) TableName() string {
@@ -73,15 +74,19 @@ type DaoChannel interface {
 
 	QueryChannel(deviceId string, channelId string) (*ChannelModel, error)
 
-	QueryChannels(deviceId, groupId, string, page, size int) ([]*ChannelModel, int, error)
+	QueryChannels(deviceId, groupId, string, page, size int, keyword string, order string) ([]*ChannelModel, int, error)
 
 	QueryChannelsByRootID(rootId string) ([]*ChannelModel, error)
 
 	QueryChannelsByChannelID(channelId string) ([]*ChannelModel, error)
 
-	QueryChanelCount(deviceId string) (int, error)
+	QueryChanelCount(deviceId string, hasDir bool) (int, error)
 
-	QueryOnlineChanelCount(deviceId string) (int, error)
+	QuerySubChannelCount(deviceId string, groupId string, hasDir bool) (int, error)
+
+	QueryOnlineChanelCount(deviceId string, hasDir bool) (int, error)
+
+	QueryOnlineSubChannelCount(deviceId string, groupId string, hasDir bool) (int, error)
 
 	QueryChannelByTypeCode(codecs ...int) ([]*ChannelModel, error)
 
@@ -147,7 +152,7 @@ func (d *daoChannel) QueryChannel(deviceId string, channelId string) (*ChannelMo
 	return &channel, nil
 }
 
-func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, status string, keyword string) ([]*ChannelModel, int, error) {
+func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, status string, keyword string, order, sort string) ([]*ChannelModel, int, error) {
 	conditions := map[string]interface{}{}
 	conditions["root_id"] = deviceId
 	if groupId != "" {
@@ -157,14 +162,24 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, sta
 		conditions["status"] = status
 	}
 
-	cTx := db.Limit(size).Offset((page - 1) * size).Where(conditions)
+	cTx := db.Where(conditions)
+
+	if page > 0 {
+		cTx.Limit(size).Offset((page - 1) * size)
+	}
 	if keyword != "" {
 		cTx.Where("name like ? or device_id like ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
 
 	var channels []*ChannelModel
-	if tx := cTx.Find(&channels); tx.Error != nil {
-		return nil, 0, tx.Error
+	if sort != "iD" {
+		if tx := cTx.Order("device_id " + order).Find(&channels); tx.Error != nil {
+			return nil, 0, tx.Error
+		}
+	} else {
+		if tx := cTx.Order("id " + order).Find(&channels); tx.Error != nil {
+			return nil, 0, tx.Error
+		}
 	}
 
 	countTx := db.Model(&ChannelModel{}).Select("id").Where(conditions)
@@ -175,17 +190,6 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, sta
 	var total int64
 	if tx := countTx.Count(&total); tx.Error != nil {
 		return nil, 0, tx.Error
-	}
-
-	// 查询每个通道的子节点通道数量
-	for _, channel := range channels {
-		// 查询子节点数量
-		var subCount int64
-		tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =?", deviceId, channel.DeviceID).Count(&subCount)
-		if tx.Error != nil {
-			return nil, 0, tx.Error
-		}
-		channel.SubCount = int(subCount)
 	}
 
 	return channels, int(total), nil
@@ -200,19 +204,27 @@ func (d *daoChannel) QueryChannelsByRootID(rootId string) ([]*ChannelModel, erro
 	return channels, nil
 }
 
-func (d *daoChannel) QueryChanelCount(deviceId string) (int, error) {
+func (d *daoChannel) QueryChanelCount(deviceId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =?", deviceId).Count(&total)
-	if tx.Error != nil {
+	tx := db.Model(&ChannelModel{}).Where("root_id =?", deviceId)
+	if !hasDir {
+		tx.Where("is_dir =?", 0)
+	}
+
+	if tx = tx.Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 	return int(total), nil
 }
 
-func (d *daoChannel) QueryOnlineChanelCount(deviceId string) (int, error) {
+func (d *daoChannel) QueryOnlineChanelCount(deviceId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =? and status =?", deviceId, "ON").Count(&total)
-	if tx.Error != nil {
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and status =?", deviceId, "ON")
+	if !hasDir {
+		tx.Where("is_dir =?", 0)
+	}
+
+	if tx = tx.Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 
@@ -294,6 +306,31 @@ func (d *daoChannel) OnlineCount(ids []string) (int, error) {
 	var total int64
 	tx := db.Model(&ChannelModel{}).Where("status =? and root_id in ?", "ON", ids).Count(&total)
 	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(total), nil
+}
+
+func (d *daoChannel) QuerySubChannelCount(rootId string, groupId string, hasDir bool) (int, error) {
+	var total int64
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =?", rootId, groupId)
+	if !hasDir {
+		tx.Where("is_dir =?", 0)
+	}
+
+	if tx = tx.Count(&total); tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(total), nil
+}
+
+func (d *daoChannel) QueryOnlineSubChannelCount(rootId string, groupId string, hasDir bool) (int, error) {
+	var total int64
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =? and status =?", rootId, groupId, "ON")
+	if !hasDir {
+		tx.Where("is_dir =?", 0)
+	}
+	if tx = tx.Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 	return int(total), nil
