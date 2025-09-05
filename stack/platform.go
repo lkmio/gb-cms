@@ -88,7 +88,7 @@ func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
 	sink := &dao.SinkModel{
 		StreamID:   streamId,
 		ServerAddr: g.ServerAddr,
-		Protocol:   "gb_cascaded"}
+		Protocol:   TransStreamGBCascaded}
 
 	// 添加转发sink到流媒体服务器
 	response, err := AddForwardSink(TransStreamGBCascaded, request, user, &Sink{sink}, streamId, gbSdp, inviteType, "96 PS/90000")

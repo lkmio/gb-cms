@@ -36,12 +36,7 @@ const (
 
 func init() {
 	topStats = &TopStats{
-		Load: []struct {
-			Time   string  `json:"time"`
-			Load   float64 `json:"load"`
-			Serial string  `json:"serial"`
-			Name   string  `json:"name"`
-		}{
+		Load: []*StreamStats{
 			{
 				Time:   time.Now().Format("2006-01-02 15:04:05"),
 				Load:   0,
@@ -83,18 +78,20 @@ func init() {
 	}
 }
 
+type StreamStats struct {
+	Time   string  `json:"time"`
+	Load   float64 `json:"load"`
+	Serial string  `json:"serial"`
+	Name   string  `json:"name"`
+}
+
 type TopStats struct {
 	CPU []struct {
 		Time string  `json:"time"`
 		Use  float64 `json:"use"`
 	} `json:"cpuData"`
 
-	Load []struct {
-		Time   string  `json:"time"`
-		Load   float64 `json:"load"`
-		Serial string  `json:"serial"`
-		Name   string  `json:"name"`
-	} `json:"loadData"`
+	Load []*StreamStats `json:"loadData"`
 
 	Mem []struct {
 		Time string  `json:"time"`
@@ -373,6 +370,38 @@ func StartStats() {
 			}
 		}
 
+		// 统计流
+		var liveStreamCount, playbackStreamCount, playStreamCount, recordStreamCount, h265StreamCount, cascadeStreamCount int
+		streamCount, err := dao.Stream.Count()
+		if streamCount > 0 {
+			liveStreamCount, _ = dao.Stream.QueryStreamCountByType("play")
+			playbackStreamCount, _ = dao.Stream.QueryStreamCountByType("playback")
+
+			if i, _ := dao.Sink.Count(); i > 0 {
+				// 查询级联
+				cascadeStreamCount, _ = dao.Sink.QuerySinkCountByProtocol(stack.TransStreamGBCascaded)
+				playStreamCount = i - cascadeStreamCount
+			}
+		}
+
+		for _, s := range topStats.Load {
+			s.Time = now
+			if "直播" == s.Name {
+				s.Load = float64(liveStreamCount)
+			} else if "回放" == s.Name {
+				s.Load = float64(playbackStreamCount)
+			} else if "播放" == s.Name {
+				s.Load = float64(playStreamCount)
+			} else if "录像" == s.Name {
+				s.Load = float64(recordStreamCount)
+			} else if "H265" == s.Name {
+				s.Load = float64(h265StreamCount)
+			} else if "级联" == s.Name {
+				s.Load = float64(cascadeStreamCount)
+			}
+		}
+
+		// json序列化
 		marshal, err := json.Marshal(common.MalformedRequest{
 			Code: http.StatusOK,
 			Msg:  "Success",

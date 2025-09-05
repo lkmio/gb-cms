@@ -127,6 +127,7 @@ type QueryDeviceChannel struct {
 	Order       string `json:"order"`        // asc/desc
 	Sort        string `json:"sort"`         // Channel-根据数据库ID排序/iD-根据通道ID排序
 	SMS         string `json:"sms"`
+	Filter      string `json:"filter"`
 }
 
 type DeleteDevice struct {
@@ -213,7 +214,7 @@ func withVerify2(onSuccess func(w http.ResponseWriter, req *http.Request), onFai
 }
 
 func startApiServer(addr string) {
-	apiServer.router.HandleFunc("/api/v1/hook/on_play", common.WithJsonParams(apiServer.OnPlay, &StreamParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_play", common.WithJsonParams(apiServer.OnPlay, &PlayDoneParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", common.WithJsonParams(apiServer.OnPlayDone, &PlayDoneParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_publish", common.WithJsonParams(apiServer.OnPublish, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_publish_done", common.WithJsonParams(apiServer.OnPublishDone, &StreamParams{}))
@@ -321,7 +322,7 @@ func startApiServer(addr string) {
 	}
 }
 
-func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *http.Request) {
+func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
 	log.Sugar.Infof("播放事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
 	// [注意]: windows上使用cmd/power shell推拉流如果要携带多个参数, 请用双引号将与号引起来("&")
@@ -379,15 +380,20 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 			if TokenManager.Find(streamToken) == nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				log.Sugar.Errorf("播放鉴权失败, token不存在 token: %s", streamToken)
-				return
-			}
-
-			if stream, _ := dao.Stream.QueryStream(params.Stream); stream == nil {
+			} else if stream, _ := dao.Stream.QueryStream(params.Stream); stream == nil {
 				w.WriteHeader(http.StatusNotFound)
-				return
+			} else {
+				_ = dao.Sink.SaveForwardSink(&dao.SinkModel{
+					SinkID:     params.Sink,
+					StreamID:   params.Stream,
+					Protocol:   params.Protocol,
+					RemoteAddr: params.RemoteAddr,
+				})
 			}
+			return
 		}
 
+		// 对讲/级联, 在此处请求流
 		inviteParams := &InviteParams{
 			DeviceID:  deviceId,
 			ChannelID: channelId,
@@ -414,6 +420,13 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 			utils.Assert(http.StatusOK != code)
 		} else if http.StatusOK == code {
 			_ = stream.ID
+
+			_ = dao.Sink.SaveForwardSink(&dao.SinkModel{
+				SinkID:     params.Sink,
+				StreamID:   params.Stream,
+				Protocol:   params.Protocol,
+				RemoteAddr: params.RemoteAddr,
+			})
 		}
 	}
 
@@ -423,7 +436,7 @@ func (api *ApiServer) OnPlay(params *StreamParams, w http.ResponseWriter, r *htt
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, _ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	sink, _ := dao.Sink.DeleteForwardSink(params.Stream, params.Sink)
+	sink, _ := dao.Sink.DeleteForwardSink(params.Sink)
 	if sink == nil {
 		return
 	}
@@ -994,13 +1007,13 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, _ http.ResponseWriter, r *
 	sink := &dao.SinkModel{
 		StreamID:     v.StreamId,
 		SinkStreamID: sinkStreamId,
-		Protocol:     "gb_talk",
+		Protocol:     stack.SourceTypeGBTalk,
 		CreateTime:   time.Now().Unix(),
 		SetupType:    setupType,
 	}
 
 	streamWaiting := &stack.StreamWaiting{Data: sink}
-	if err := dao.Sink.SaveForwardSink(v.StreamId, sink); err != nil {
+	if err := dao.Sink.SaveForwardSink(sink); err != nil {
 		log.Sugar.Errorf("广播失败, 设备正在广播中. stream: %s", sinkStreamId)
 		return nil, fmt.Errorf("设备正在广播中")
 	} else if _, ok = stack.EarlyDialogs.Add(InviteSourceId, streamWaiting); !ok {
@@ -1312,7 +1325,31 @@ func (api *ApiServer) OnStreamInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
-	streams, _, err := dao.Stream.QueryStreams(q.Keyword, (q.Start/q.Limit)+1, q.Limit)
+	//filter := q.Filter // playing-正在播放/stream-不包含回放和下载/record-正在回放的流/hevc-h265流/cascade-级联
+	var streams []*dao.StreamModel
+	var err error
+	if "cascade" == q.Filter {
+		protocols := []int{stack.TransStreamGBCascaded}
+		var ids []string
+		ids, _, err = dao.Sink.QueryStreamIds(protocols, (q.Start/q.Limit)+1, q.Limit)
+		if len(ids) > 0 {
+			streams, err = dao.Stream.QueryStreamsByIds(ids)
+		}
+	} else if "stream" == q.Filter {
+		streams, _, err = dao.Stream.QueryStreams(q.Keyword, (q.Start/q.Limit)+1, q.Limit, "play")
+	} else if "record" == q.Filter {
+		streams, _, err = dao.Stream.QueryStreams(q.Keyword, (q.Start/q.Limit)+1, q.Limit, "playback")
+	} else if "playing" == q.Filter {
+		protocols := []int{stack.TransStreamRtmp, stack.TransStreamFlv, stack.TransStreamRtsp, stack.TransStreamHls, stack.TransStreamRtc}
+		var ids []string
+		ids, _, err = dao.Sink.QueryStreamIds(protocols, (q.Start/q.Limit)+1, q.Limit)
+		if len(ids) > 0 {
+			streams, err = dao.Stream.QueryStreamsByIds(ids)
+		}
+	} else {
+		streams, _, err = dao.Stream.QueryStreams(q.Keyword, (q.Start/q.Limit)+1, q.Limit, "")
+	}
+
 	if err != nil {
 		return nil, err
 	}

@@ -48,7 +48,7 @@ func (g *JTDevice) OnInvite(request sip.Request, user string) sip.Response {
 	sink := &dao.SinkModel{
 		StreamID:   streamId,
 		ServerAddr: g.ServerAddr,
-		Protocol:   "gb_gateway"}
+		Protocol:   TransStreamGBGateway}
 
 	response, err := AddForwardSink(TransStreamGBGateway, request, user, &Sink{sink}, streamId, gbsdp, inviteType, "96 PS/90000")
 	if err != nil {

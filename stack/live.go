@@ -23,11 +23,12 @@ func (d *Device) StartStream(inviteType common.InviteType, streamId common.Strea
 	}
 
 	stream := &dao.StreamModel{
-		DeviceID:  streamId.DeviceID(),
-		ChannelID: streamId.ChannelID(),
-		StreamID:  streamId,
-		Protocol:  SourceType28181,
-		Name:      channel.Name,
+		DeviceID:   streamId.DeviceID(),
+		ChannelID:  streamId.ChannelID(),
+		StreamID:   streamId,
+		Protocol:   SourceType28181,
+		StreamType: string(inviteType),
+		Name:       channel.Name,
 	}
 
 	// 先添加占位置, 防止重复请求

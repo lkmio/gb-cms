@@ -9,16 +9,17 @@ import (
 
 type StreamModel struct {
 	GBModel
-	DeviceID  string                 `gorm:"index"`                         // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
-	ChannelID string                 `gorm:"index"`                         // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
-	StreamID  common.StreamID        `json:"stream_id" gorm:"index,unique"` // 流ID
-	Protocol  int                    `json:"protocol,omitempty"`            // 推流协议, rtmp/28181/1078/gb_talk
-	Dialog    *common.RequestWrapper `json:"dialog,omitempty"`              // 国标流的SipCall会话
-	SinkCount int32                  `json:"sink_count"`                    // 拉流端计数(包含级联转发)
-	SetupType common.SetupType
-	CallID    string   `json:"call_id" gorm:"index"`
-	Urls      []string `gorm:"serializer:json"` // 从流媒体服务器返回的拉流地址
-	Name      string   `gorm:"index"`           // 视频通道名
+	DeviceID   string                 `gorm:"index"`                         // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
+	ChannelID  string                 `gorm:"index"`                         // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
+	StreamID   common.StreamID        `json:"stream_id" gorm:"index,unique"` // 流ID
+	Protocol   int                    `json:"protocol,omitempty"`            // 推流协议, @See stack.SourceTypeRtmp
+	StreamType string                 // play/playback/download
+	Dialog     *common.RequestWrapper `json:"dialog,omitempty"` // 国标流的SipCall会话
+	SetupType  common.SetupType       // 取流方式
+	CallID     string                 `json:"call_id" gorm:"index"`
+	Urls       []string               `gorm:"serializer:json"` // 从流媒体服务器返回的拉流地址
+	Name       string                 `gorm:"index"`           // 视频通道名
+	RemoteAddr string
 }
 
 func (s *StreamModel) TableName() string {
@@ -156,13 +157,16 @@ func (d *daoStream) DeleteStreamByDeviceID(deviceID string) ([]*StreamModel, err
 	return streams, nil
 }
 
-func (d *daoStream) QueryStreams(keyword string, page, size int) ([]*StreamModel, int, error) {
+func (d *daoStream) QueryStreams(keyword string, page, size int, streamType string) ([]*StreamModel, int, error) {
 	var streams []*StreamModel
 	var total int64
 
 	tx := db.Model(&StreamModel{}).Offset((page - 1) * size).Limit(size)
 	if keyword != "" {
 		tx.Where("name like ? or device_id like ? or channel_id like ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+	}
+	if streamType != "" {
+		tx.Where("stream_type = ?", streamType)
 	}
 
 	if tx = tx.Find(&streams); tx.Error != nil {
@@ -174,9 +178,40 @@ func (d *daoStream) QueryStreams(keyword string, page, size int) ([]*StreamModel
 		tx.Where("name like ? or device_id like ? or channel_id like ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
 	}
 
+	if streamType != "" {
+		tx.Where("stream_type = ?", streamType)
+	}
+
 	if tx = tx.Count(&total); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
 
 	return streams, int(total), nil
+}
+
+// QueryStreamsByIds 通过ids查询stream列表
+func (d *daoStream) QueryStreamsByIds(ids []string) ([]*StreamModel, error) {
+	var streams []*StreamModel
+	tx := db.Where("stream_id in ?", ids).Find(&streams)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return streams, nil
+}
+
+// QueryStreamCountByType 根据streamType计数stream
+func (d *daoStream) QueryStreamCountByType(streamType string) (int, error) {
+	var count int64
+	tx := db.Model(&StreamModel{}).Where("stream_type = ?", streamType).Count(&count)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(count), nil
+}
+
+// Count 返回表记录数
+func (d *daoStream) Count() (int, error) {
+	var count int64
+	db.Model(&StreamModel{}).Count(&count)
+	return int(count), nil
 }

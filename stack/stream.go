@@ -7,7 +7,6 @@ import (
 	"gb-cms/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/ghettovoice/gosip/sip/parser"
-	"sync/atomic"
 )
 
 type Stream struct {
@@ -57,25 +56,6 @@ func (s *Stream) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-func (s *Stream) GetSinkCount() int32 {
-	return atomic.LoadInt32(&s.SinkCount)
-}
-
-func (s *Stream) IncreaseSinkCount() int32 {
-	value := atomic.AddInt32(&s.SinkCount, 1)
-	//Sugar.Infof("拉流计数: %d stream: %s ", value, s.StreamID)
-	// 启动协程去更新拉流计数, 可能会不一致
-	//go Stream.SaveStream(s)
-	return value
-}
-
-func (s *Stream) DecreaseSinkCount() int32 {
-	value := atomic.AddInt32(&s.SinkCount, -1)
-	//Sugar.Infof("拉流计数: %d stream: %s ", value, s.StreamID)
-	//go Stream.SaveStream(s)
-	return value
 }
 
 func (s *Stream) Close(bye, ms bool) {

@@ -1,7 +1,6 @@
 package dao
 
 import (
-	"fmt"
 	"gb-cms/common"
 	"gorm.io/gorm"
 )
@@ -10,14 +9,15 @@ import (
 type SinkModel struct {
 	GBModel
 	SinkID       string                 `json:"sink_id"`            // 流媒体服务器中的sink id
-	StreamID     common.StreamID        `json:"stream_id"`          // 推流ID
+	StreamID     common.StreamID        `json:"stream_id"`          // 所属的推流ID
 	SinkStreamID common.StreamID        `json:"sink_stream_id"`     // 广播使用, 每个广播设备的唯一ID
-	Protocol     string                 `json:"protocol,omitempty"` // 转发流协议, gb_cascaded/gb_talk/gb_gateway
+	Protocol     int                    `json:"protocol,omitempty"` // 拉流协议, @See stack.TransStreamRtmp
 	Dialog       *common.RequestWrapper `json:"dialog,omitempty"`
 	CallID       string                 `json:"call_id,omitempty"`
 	ServerAddr   string                 `json:"server_addr,omitempty"` // 级联上级地址
 	CreateTime   int64                  `json:"create_time"`
 	SetupType    common.SetupType       // 流转发类型
+	RemoteAddr   string
 }
 
 func (d *SinkModel) TableName() string {
@@ -61,19 +61,13 @@ func (d *daoSink) QueryForwardSinks(stream common.StreamID) (map[string]*SinkMod
 	return sinkMap, nil
 }
 
-func (d *daoSink) SaveForwardSink(stream common.StreamID, sink *SinkModel) error {
-	var old SinkModel
-	tx := db.Select("id").Where("sink_id =?", sink.SinkID).Take(&old)
-	if tx.Error == nil {
-		return fmt.Errorf("sink already exists")
-	}
-
+func (d *daoSink) SaveForwardSink(sink *SinkModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		return tx.Save(sink).Error
+		return tx.Create(sink).Error
 	})
 }
 
-func (d *daoSink) DeleteForwardSink(stream common.StreamID, sinkId string) (*SinkModel, error) {
+func (d *daoSink) DeleteForwardSink(sinkId string) (*SinkModel, error) {
 	var sink SinkModel
 	tx := db.Where("sink_id =?", sinkId).Take(&sink)
 	if tx.Error != nil {
@@ -158,4 +152,41 @@ func (d *daoSink) DeleteForwardSinksByServerAddr(addr string) ([]*SinkModel, err
 	return sinks, DBTransaction(func(tx *gorm.DB) error {
 		return tx.Where("server_addr =?", addr).Unscoped().Delete(&SinkModel{}).Error
 	})
+}
+
+func (d *daoSink) QuerySinkCountByProtocol(protocol int) (int, error) {
+	var count int64
+	tx := db.Model(&SinkModel{}).Where("protocol = ?", protocol).Count(&count)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(count), nil
+}
+
+func (d *daoSink) Count() (int, error) {
+	var count int64
+	tx := db.Model(&SinkModel{}).Count(&count)
+	if tx.Error != nil {
+		return 0, tx.Error
+	}
+	return int(count), nil
+}
+
+// QueryStreamIds 指定多个protocol查询streamIds
+func (d *daoSink) QueryStreamIds(protocols []int, page, size int) ([]string, int, error) {
+	// 查询总数
+	var total int64
+	tx := db.Model(&SinkModel{}).Where("protocol in ?", protocols).Group("stream_id").Count(&total)
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	var streamIds []string
+	// 分页查询
+	tx = db.Model(&SinkModel{}).Select("stream_id").Where("protocol in ?", protocols).Group("stream_id").Offset((page - 1) * size).Limit(size).Find(&streamIds)
+	if tx.Error != nil {
+		return nil, 0, tx.Error
+	}
+
+	return streamIds, int(total), nil
 }

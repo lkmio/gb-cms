@@ -121,7 +121,7 @@ func AddForwardSink(forwardType int, request sip.Request, user string, sink *Sin
 
 	sink.SetDialog(CreateDialogRequestFromAnswer(response, true, request.Source()))
 
-	if err = dao.Sink.SaveForwardSink(streamId, sink.SinkModel); err != nil {
+	if err = dao.Sink.SaveForwardSink(sink.SinkModel); err != nil {
 		log.Sugar.Errorf("保存sink到数据库失败, stream: %s sink: %s err: %s", streamId, sink.SinkID, err.Error())
 	}
 
