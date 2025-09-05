@@ -29,7 +29,7 @@ func ReadTempPwd() (plaintext string, md5Hex string) {
 	pwd, err := os.ReadFile("./data/pwd.txt")
 	if err != nil {
 		// 生成密码
-		plaintext = GenerateTempPwd()
+		plaintext = "admin"
 
 		// 计算md5
 		hash := md5.Sum([]byte(plaintext))

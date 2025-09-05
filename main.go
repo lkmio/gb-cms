@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"gb-cms/common"
 	"gb-cms/dao"
@@ -17,6 +19,7 @@ import (
 )
 
 var (
+	AdminMD5    string // 明文密码"admin"的MD5值
 	PwdMD5      string
 	StartUpTime time.Time
 	KernelArch  string
@@ -57,6 +60,9 @@ func main() {
 	if config.Hooks.OnInvite != "" {
 		hook.RegisterEventUrl(hook.EventTypeDeviceOnInvite, config.Hooks.OnInvite)
 	}
+
+	hash := md5.Sum([]byte("admin"))
+	AdminMD5 = hex.EncodeToString(hash[:])
 
 	plaintext, md5 := ReadTempPwd()
 	if plaintext != "" {

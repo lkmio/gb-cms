@@ -192,6 +192,9 @@ func withVerify(f func(w http.ResponseWriter, req *http.Request)) func(http.Resp
 		if !ok {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
+		} else if AdminMD5 == PwdMD5 && req.URL.Path != "/api/v1/modifypassword" && req.URL.Path != "/api/v1/userinfo" {
+			// 如果没有修改默认密码, 只允许放行这2个接口
+			return
 		}
 
 		f(w, req)
@@ -225,11 +228,12 @@ func startApiServer(addr string) {
 	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
 	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
 
-	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))           // 查询设备列表
-	apiServer.router.HandleFunc("/api/v1/device/channeltree", withVerify(common.WithQueryStringParams(apiServer.OnDeviceTree, QueryDeviceChannel{})))    // 设备树
-	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))   // 查询通道列表
-	apiServer.router.HandleFunc("/api/v1/device/fetchcatalog", withVerify(common.WithQueryStringParams(apiServer.OnCatalogQuery, QueryDeviceChannel{}))) // 更新通道
-	apiServer.router.HandleFunc("/api/v1/device/remove", withVerify(common.WithFormDataParams(apiServer.OnDeviceRemove, DeleteDevice{})))                // 更新通道
+	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))                          // 查询设备列表
+	apiServer.router.HandleFunc("/api/v1/device/channeltree", withVerify(common.WithQueryStringParams(apiServer.OnDeviceTree, QueryDeviceChannel{})))                   // 设备树
+	apiServer.router.HandleFunc("/api/v1/device/channellist", withVerify(common.WithQueryStringParams(apiServer.OnChannelList, QueryDeviceChannel{})))                  // 查询通道列表
+	apiServer.router.HandleFunc("/api/v1/device/fetchcatalog", withVerify(common.WithQueryStringParams(apiServer.OnCatalogQuery, QueryDeviceChannel{})))                // 更新通道
+	apiServer.router.HandleFunc("/api/v1/device/remove", withVerify(common.WithFormDataParams(apiServer.OnDeviceRemove, DeleteDevice{})))                               // 删除设备
+	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(common.WithFormDataParams(apiServer.OnDeviceMediaTransportSet, SetMediaTransportReq{}))) // 设置设备媒体传输模式
 
 	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{}))) // 查询录像列表
 	apiServer.router.HandleFunc("/api/v1/stream/info", withVerify(apiServer.OnStreamInfo))
@@ -270,7 +274,15 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/jt/channel/add", common.WithJsonResponse(apiServer.OnVirtualChannelAdd, &dao.ChannelModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/edit", common.WithJsonResponse(apiServer.OnVirtualChannelEdit, &dao.ChannelModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/channel/remove", common.WithJsonResponse(apiServer.OnVirtualChannelRemove, &dao.ChannelModel{}))
-	apiServer.router.HandleFunc("/api/v1/device/setmediatransport", withVerify(common.WithFormDataParams(apiServer.OnDeviceMediaTransportSet, SetMediaTransportReq{})))
+	apiServer.router.HandleFunc("/logout", func(writer http.ResponseWriter, req *http.Request) {
+		cookie, err := req.Cookie("token")
+		if err == nil {
+			TokenManager.Remove(cookie.Value)
+			writer.Header().Set("Location", "/login.html")
+			writer.WriteHeader(http.StatusFound)
+			return
+		}
+	})
 
 	registerLiveGBSApi()
 

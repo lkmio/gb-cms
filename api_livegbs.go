@@ -189,6 +189,7 @@ func registerLiveGBSApi() {
 			HasAllChannel bool     `json:"HasAllChannel"`
 			LoginAt       string   `json:"LoginAt"`
 			RemoteIP      string   `json:"RemoteIP"`
+			PwdModReq     bool     `json:"PwdModReq"`
 		}{
 			Token:         cookie.Value,
 			ID:            1,
@@ -197,6 +198,7 @@ func registerLiveGBSApi() {
 			HasAllChannel: true,
 			LoginAt:       session.LoginTime.Format("2006-01-02 15:04:05"),
 			RemoteIP:      request.RemoteAddr,
+			PwdModReq:     AdminMD5 == PwdMD5,
 		}
 
 		_ = common.HttpResponseJson(writer, response)
@@ -204,7 +206,7 @@ func registerLiveGBSApi() {
 
 	apiServer.router.HandleFunc("/api/v1/ispasswordchanged", func(writer http.ResponseWriter, request *http.Request) {
 		_ = common.HttpResponseJson(writer, map[string]bool{
-			"PasswordChanged": true,
+			"PasswordChanged": AdminMD5 != PwdMD5,
 			"UserChanged":     false,
 		})
 	})
@@ -265,7 +267,8 @@ func (api *ApiServer) OnLogin(v *LoginReq, w http.ResponseWriter, r *http.Reques
 func (api *ApiServer) OnModifyPassword(v *ModifyPasswordReq, w http.ResponseWriter, r *http.Request) (interface{}, error) {
 	ModifyPasswordLock.Lock()
 	defer ModifyPasswordLock.Unlock()
-	if PwdMD5 != v.OldPwd {
+	// 如果是首次修改密码, livegbs前端旧密码携带的是空密码, 所以首次修改不检验旧密码
+	if AdminMD5 != PwdMD5 && PwdMD5 != v.OldPwd {
 		log.Sugar.Errorf("修改密码失败, 旧密码错误 oldPwd: %s remote addr: %s", v.OldPwd, r.RemoteAddr)
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte("原密码不正确"))
