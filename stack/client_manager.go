@@ -91,7 +91,7 @@ func (p *ClientManager) ExistClientByServerAddr(addr string) bool {
 }
 
 func RemovePlatform(key string) (GBClient, error) {
-	err := dao.Platform.DeleteUAByAddr(key)
+	err := dao.Platform.DeletePlatformByAddr(key)
 	if err != nil {
 		return nil, err
 	}

@@ -24,34 +24,6 @@ func (d *SinkModel) TableName() string {
 	return "lkm_sink"
 }
 
-type DaoSink interface {
-	LoadForwardSinks() (map[string]*SinkModel, error)
-
-	// QueryForwardSink 查询转发流Sink
-	QueryForwardSink(stream common.StreamID, sink string) (*SinkModel, error)
-
-	QueryForwardSinks(stream common.StreamID) (map[string]*SinkModel, error)
-
-	// SaveForwardSink 保存转发流Sink
-	SaveForwardSink(stream common.StreamID, sink *SinkModel) error
-
-	DeleteForwardSink(stream common.StreamID, sink string) (*SinkModel, error)
-
-	DeleteForwardSinksByStreamID(stream common.StreamID) ([]*SinkModel, error)
-
-	DeleteForwardSinks() ([]*SinkModel, error)
-
-	DeleteForwardSinksByIds(ids []uint) error
-
-	QueryForwardSinkByCallID(callID string) (*SinkModel, error)
-
-	DeleteForwardSinkByCallID(callID string) (*SinkModel, error)
-
-	DeleteForwardSinkBySinkStreamID(sinkStreamID common.StreamID) (*SinkModel, error)
-
-	DeleteForwardSinksByServerAddr(addr string) ([]*SinkModel, error)
-}
-
 type daoSink struct {
 }
 

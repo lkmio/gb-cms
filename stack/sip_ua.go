@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"gb-cms/common"
+	"gb-cms/log"
 	"github.com/ghettovoice/gosip/sip"
 	"github.com/lkmio/avformat/utils"
 	"math"
@@ -87,10 +88,10 @@ func (g *sipUA) doRegister(request sip.Request) bool {
 	hop.Params.Add("received", &empty)
 
 	for i := 0; i < 2; i++ {
-		//发起注册, 第一次未携带授权头, 第二次携带授权头
+		// 发起注册, 第一次未携带授权头, 第二次携带授权头
 		clientTransaction := g.stack.SendRequest(request)
 
-		//等待响应
+		// 等待响应
 		responses := clientTransaction.Responses()
 		var response sip.Response
 		select {
@@ -112,6 +113,12 @@ func (g *sipUA) doRegister(request sip.Request) bool {
 			}
 			return true
 		} else if response.StatusCode() == 401 || response.StatusCode() == 407 {
+			if i == 1 {
+				// 密码错误
+				log.Sugar.Errorf("注册失败, 密码错误. username: %s, server id: %s, server addr: %s password: %s", g.Username, g.ServerID, g.ServerAddr, g.Password)
+				return false
+			}
+
 			authorizer := sip.DefaultAuthorizer{Password: sip.String{Str: g.Password}, User: sip.String{Str: g.Username}}
 			if err := authorizer.AuthorizeRequest(request, response); err != nil {
 				break

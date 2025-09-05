@@ -27,6 +27,16 @@ func parseQueryParams(c func(key string) string, v interface{}) (interface{}, er
 		field := typ.Field(i)
 		fieldValue := val.Field(i)
 
+		// 处理组合字段
+		if field.Anonymous {
+			embedded := reflect.New(field.Type).Elem()
+			if _, err := parseQueryParams(c, embedded.Addr().Interface()); err != nil {
+				return nil, err
+			}
+			fieldValue.Set(embedded)
+			continue
+		}
+
 		// 获取字段名
 		fieldName := field.Tag.Get("json")
 		if fieldName == "" {

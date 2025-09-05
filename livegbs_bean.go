@@ -1,5 +1,12 @@
 package main
 
+import (
+	"gb-cms/common"
+	"gb-cms/dao"
+	"gb-cms/stack"
+	"strconv"
+)
+
 type LiveGBSDevice struct {
 	AlarmSubscribe     bool    `json:"AlarmSubscribe"`
 	CatalogInterval    int     `json:"CatalogInterval"`
@@ -44,67 +51,67 @@ type LiveGBSDevice struct {
 }
 
 type LiveGBSChannel struct {
-	Address            string `json:"Address"`
-	Altitude           int    `json:"Altitude"`
-	AudioEnable        bool   `json:"AudioEnable"`
-	BatteryLevel       int    `json:"BatteryLevel"`
-	Block              string `json:"Block"`
-	Channel            int    `json:"Channel"`
-	CivilCode          string `json:"CivilCode"`
-	CloudRecord        bool   `json:"CloudRecord"`
-	CreatedAt          string `json:"CreatedAt"`
-	Custom             bool   `json:"Custom"`
-	CustomAddress      string `json:"CustomAddress"`
-	CustomBlock        string `json:"CustomBlock"`
-	CustomCivilCode    string `json:"CustomCivilCode"`
-	CustomFirmware     string `json:"CustomFirmware"`
-	CustomID           string `json:"CustomID"`
-	CustomIPAddress    string `json:"CustomIPAddress"`
-	CustomLatitude     int    `json:"CustomLatitude"`
-	CustomLongitude    int    `json:"CustomLongitude"`
-	CustomManufacturer string `json:"CustomManufacturer"`
-	CustomModel        string `json:"CustomModel"`
-	CustomName         string `json:"CustomName"`
-	CustomPTZType      int    `json:"CustomPTZType"`
-	CustomParentID     string `json:"CustomParentID"`
-	CustomPort         int    `json:"CustomPort"`
-	CustomSerialNumber string `json:"CustomSerialNumber"`
-	CustomStatus       string `json:"CustomStatus"`
-	Description        string `json:"Description"`
-	DeviceCustomName   string `json:"DeviceCustomName"`
-	DeviceID           string `json:"DeviceID"`
-	DeviceName         string `json:"DeviceName"`
-	DeviceOnline       bool   `json:"DeviceOnline"`
-	DeviceType         string `json:"DeviceType"`
-	Direction          int    `json:"Direction"`
-	DownloadSpeed      string `json:"DownloadSpeed"`
-	Firmware           string `json:"Firmware"`
-	ID                 string `json:"ID"`
-	IPAddress          string `json:"IPAddress"`
-	Latitude           int    `json:"Latitude"`
-	Longitude          int    `json:"Longitude"`
-	Manufacturer       string `json:"Manufacturer"`
-	Model              string `json:"Model"`
-	Name               string `json:"Name"`
-	NumOutputs         int    `json:"NumOutputs"`
-	Ondemand           bool   `json:"Ondemand"`
-	Owner              string `json:"Owner"`
-	PTZType            int    `json:"PTZType"`
-	ParentID           string `json:"ParentID"`
-	Parental           int    `json:"Parental"`
-	Port               int    `json:"Port"`
-	Quality            string `json:"Quality"`
-	RegisterWay        int    `json:"RegisterWay"`
-	Secrecy            int    `json:"Secrecy"`
-	SerialNumber       string `json:"SerialNumber"`
-	Shared             bool   `json:"Shared"`
-	SignalLevel        int    `json:"SignalLevel"`
-	SnapURL            string `json:"SnapURL"`
-	Speed              int    `json:"Speed"`
-	Status             string `json:"Status"`
-	StreamID           string `json:"StreamID"`
-	SubCount           int    `json:"SubCount"`
-	UpdatedAt          string `json:"UpdatedAt"`
+	Address            string  `json:"Address"`
+	Altitude           int     `json:"Altitude"`
+	AudioEnable        bool    `json:"AudioEnable"`
+	BatteryLevel       int     `json:"BatteryLevel"`
+	Block              string  `json:"Block"`
+	Channel            int     `json:"Channel"`
+	CivilCode          string  `json:"CivilCode"`
+	CloudRecord        bool    `json:"CloudRecord"`
+	CreatedAt          string  `json:"CreatedAt"`
+	Custom             bool    `json:"Custom"`
+	CustomAddress      string  `json:"CustomAddress"`
+	CustomBlock        string  `json:"CustomBlock"`
+	CustomCivilCode    string  `json:"CustomCivilCode"`
+	CustomFirmware     string  `json:"CustomFirmware"`
+	CustomID           string  `json:"CustomID"`
+	CustomIPAddress    string  `json:"CustomIPAddress"`
+	CustomLatitude     int     `json:"CustomLatitude"`
+	CustomLongitude    int     `json:"CustomLongitude"`
+	CustomManufacturer string  `json:"CustomManufacturer"`
+	CustomModel        string  `json:"CustomModel"`
+	CustomName         string  `json:"CustomName"`
+	CustomPTZType      int     `json:"CustomPTZType"`
+	CustomParentID     string  `json:"CustomParentID"`
+	CustomPort         int     `json:"CustomPort"`
+	CustomSerialNumber string  `json:"CustomSerialNumber"`
+	CustomStatus       string  `json:"CustomStatus"`
+	Description        string  `json:"Description"`
+	DeviceCustomName   string  `json:"DeviceCustomName"`
+	DeviceID           string  `json:"DeviceID"`
+	DeviceName         string  `json:"DeviceName"`
+	DeviceOnline       bool    `json:"DeviceOnline"`
+	DeviceType         string  `json:"DeviceType"`
+	Direction          int     `json:"Direction"`
+	DownloadSpeed      string  `json:"DownloadSpeed"`
+	Firmware           string  `json:"Firmware"`
+	ID                 string  `json:"ID"`
+	IPAddress          string  `json:"IPAddress"`
+	Latitude           float64 `json:"Latitude"`
+	Longitude          float64 `json:"Longitude"`
+	Manufacturer       string  `json:"Manufacturer"`
+	Model              string  `json:"Model"`
+	Name               string  `json:"Name"`
+	NumOutputs         int     `json:"NumOutputs"`
+	Ondemand           bool    `json:"Ondemand"`
+	Owner              string  `json:"Owner"`
+	PTZType            int     `json:"PTZType"`
+	ParentID           string  `json:"ParentID"`
+	Parental           int     `json:"Parental"`
+	Port               int     `json:"Port"`
+	Quality            string  `json:"Quality"`
+	RegisterWay        int     `json:"RegisterWay"`
+	Secrecy            int     `json:"Secrecy"`
+	SerialNumber       string  `json:"SerialNumber"`
+	Shared             bool    `json:"Shared"`
+	SignalLevel        int     `json:"SignalLevel"`
+	SnapURL            string  `json:"SnapURL"`
+	Speed              int     `json:"Speed"`
+	Status             string  `json:"Status"`
+	StreamID           string  `json:"StreamID"`
+	SubCount           int     `json:"SubCount"`
+	UpdatedAt          string  `json:"UpdatedAt"`
 }
 
 type LiveGBSStreamStart struct {
@@ -170,4 +177,136 @@ type LiveGBSDeviceTree struct {
 	Status         string  `json:"status"`
 	SubCount       int     `json:"subCount"`       // 包含目录的总数
 	SubCountDevice int     `json:"subCountDevice"` // 不包含目录的总数
+}
+
+type LiveGBSCascade struct {
+	Load              int
+	Manufacturer      string
+	ID                string
+	Enable            bool // 是否启用
+	Name              string
+	Serial            string // 上级ID
+	Realm             string // 上级域
+	Host              string // 上级IP
+	Port              int    // 上级端口
+	LocalSerial       string
+	LocalHost         string
+	LocalPort         int
+	Username          string // 向上级sip通信的用户名
+	Password          string // 向上级注册的密码
+	Online            bool
+	Status            common.OnlineStatus
+	RegisterTimeout   int
+	KeepaliveInterval int
+	RegisterInterval  int
+	StreamKeepalive   bool
+	StreamReader      bool
+	BindLocalIP       bool
+	AllowControl      bool
+	ShareRecord       bool
+	MergeRecord       bool
+	ShareAllChannel   bool
+	CommandTransport  string
+	Charset           string
+	CatalogGroupSize  int
+	LoadLimit         int
+	CivilCodeLimit    int
+	DigestAlgorithm   string
+	GM                bool
+	Cert              string
+	CreateAt          string
+	UpdateAt          string
+}
+
+func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, deviceName string) []*LiveGBSChannel {
+	var ChannelList []*LiveGBSChannel
+
+	for _, channel := range channels {
+		parental, _ := strconv.Atoi(channel.Parental)
+		port, _ := strconv.Atoi(channel.Port)
+		registerWay, _ := strconv.Atoi(channel.RegisterWay)
+		secrecy, _ := strconv.Atoi(channel.Secrecy)
+
+		streamID := common.GenerateStreamID(common.InviteTypePlay, channel.RootID, channel.DeviceID, "", "")
+		if stream, err := dao.Stream.QueryStream(streamID); err != nil || stream == nil {
+			streamID = ""
+		}
+
+		_, online := stack.OnlineDeviceManager.Find(channel.RootID)
+		// 转换经纬度
+		latitude, _ := strconv.ParseFloat(channel.Latitude, 64)
+		longitude, _ := strconv.ParseFloat(channel.Longitude, 64)
+
+		var customID string
+		if channel.CustomID != nil {
+			customID = *channel.CustomID
+		}
+
+		ChannelList = append(ChannelList, &LiveGBSChannel{
+			Address:            channel.Address,
+			Altitude:           0,
+			AudioEnable:        true,
+			BatteryLevel:       0,
+			Channel:            index,
+			CivilCode:          channel.CivilCode,
+			CloudRecord:        false,
+			CreatedAt:          channel.CreatedAt.Format("2006-01-02 15:04:05"),
+			Custom:             false,
+			CustomAddress:      "",
+			CustomBlock:        "",
+			CustomCivilCode:    "",
+			CustomFirmware:     "",
+			CustomID:           customID,
+			CustomIPAddress:    "",
+			CustomLatitude:     0,
+			CustomLongitude:    0,
+			CustomManufacturer: "",
+			CustomModel:        "",
+			CustomName:         "",
+			CustomPTZType:      0,
+			CustomParentID:     "",
+			CustomPort:         0,
+			CustomSerialNumber: "",
+			CustomStatus:       "",
+			Description:        "",
+			DeviceCustomName:   "",
+			DeviceID:           channel.RootID,
+			DeviceName:         deviceName,
+			DeviceOnline:       online,
+			DeviceType:         "GB",
+			Direction:          0,
+			DownloadSpeed:      "",
+			Firmware:           "",
+			ID:                 channel.DeviceID,
+			IPAddress:          channel.IPAddress,
+			Latitude:           latitude,
+			Longitude:          longitude,
+			Manufacturer:       channel.Manufacturer,
+			Model:              channel.Model,
+			Name:               channel.Name,
+			NumOutputs:         0,
+			Ondemand:           true,
+			Owner:              channel.Owner,
+			PTZType:            0,
+			ParentID:           channel.ParentID,
+			Parental:           parental,
+			Port:               port,
+			Quality:            "",
+			RegisterWay:        registerWay,
+			Secrecy:            secrecy,
+			SerialNumber:       "",
+			Shared:             false,
+			SignalLevel:        0,
+			SnapURL:            "",
+			Speed:              0,
+			Status:             channel.Status.String(),
+			StreamID:           string(streamID), // 实时流ID
+			SubCount:           channel.SubCount,
+			UpdatedAt:          channel.UpdatedAt.Format("2006-01-02 15:04:05"),
+		})
+
+		index++
+	}
+
+	return ChannelList
 }

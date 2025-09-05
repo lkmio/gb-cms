@@ -74,6 +74,7 @@ func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
 		return CreateResponseWithStatusCode(request, http.StatusNotFound)
 	}
 
+	// 解析sdp
 	gbSdp, err := ParseGBSDP(request.Body())
 	if err != nil {
 		log.Sugar.Errorf("处理上级Invite失败,err: %s sdp: %s", err.Error(), request.Body())
@@ -84,24 +85,16 @@ func (g *Platform) OnInvite(request sip.Request, user string) sip.Response {
 	inviteType.SessionName2Type(strings.ToLower(gbSdp.SDP.Session))
 	streamId := common.GenerateStreamID(inviteType, channel.RootID, channel.DeviceID, gbSdp.StartTime, gbSdp.StopTime)
 
-	// 如果流不存在, 向通道发送Invite请求
-	stream, _ := dao.Stream.QueryStream(streamId)
-	if stream == nil {
-		stream, err = (&Device{device}).StartStream(inviteType, streamId, user, gbSdp.StartTime, gbSdp.StopTime, channel.Setup.String(), 0, true)
-		if err != nil {
-			log.Sugar.Errorf("处理上级Invite失败 err: %s stream: %s", err.Error(), streamId)
-			return CreateResponseWithStatusCode(request, http.StatusBadRequest)
-		}
-	}
-
 	sink := &dao.SinkModel{
 		StreamID:   streamId,
 		ServerAddr: g.ServerAddr,
 		Protocol:   "gb_cascaded"}
 
+	// 添加转发sink到流媒体服务器
 	response, err := AddForwardSink(TransStreamGBCascaded, request, user, &Sink{sink}, streamId, gbSdp, inviteType, "96 PS/90000")
 	if err != nil {
 		log.Sugar.Errorf("处理上级Invite失败 err: %s stream: %s", err.Error(), streamId)
+		response = CreateResponseWithStatusCode(request, http.StatusInternalServerError)
 	}
 
 	return response

@@ -358,12 +358,12 @@ func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 		userAgent := req.GetHeaders("User-Agent")
 
 		// 过滤黑名单
-		if _, err := dao.Blacklist.QueryIP(req.Source()); err == nil {
+		if model, _ := dao.Blacklist.QueryIP(req.Source()); model != nil {
 			SendResponseWithStatusCode(req, tx, http.StatusForbidden)
 			log2.Sugar.Errorf("处理%s请求失败, IP被黑名单过滤: %s request: %s ", req.Method(), req.Source(), req.String())
 			return
 		} else if len(userAgent) > 0 {
-			if _, err = dao.Blacklist.QueryUA(userAgent[0].Value()); err == nil {
+			if model, _ = dao.Blacklist.QueryUA(userAgent[0].Value()); model != nil {
 				SendResponseWithStatusCode(req, tx, http.StatusForbidden)
 				log2.Sugar.Errorf("处理%s请求失败, UA被黑名单过滤: %s request: %s ", req.Method(), userAgent[0].Value(), req.String())
 				return

@@ -9,12 +9,12 @@ import (
 
 type StreamModel struct {
 	GBModel
-	DeviceID  string                 `gorm:"index"`                  // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
-	ChannelID string                 `gorm:"index"`                  // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
-	StreamID  common.StreamID        `json:"stream_id" gorm:"index"` // 流ID
-	Protocol  int                    `json:"protocol,omitempty"`     // 推流协议, rtmp/28181/1078/gb_talk
-	Dialog    *common.RequestWrapper `json:"dialog,omitempty"`       // 国标流的SipCall会话
-	SinkCount int32                  `json:"sink_count"`             // 拉流端计数(包含级联转发)
+	DeviceID  string                 `gorm:"index"`                         // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
+	ChannelID string                 `gorm:"index"`                         // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
+	StreamID  common.StreamID        `json:"stream_id" gorm:"index,unique"` // 流ID
+	Protocol  int                    `json:"protocol,omitempty"`            // 推流协议, rtmp/28181/1078/gb_talk
+	Dialog    *common.RequestWrapper `json:"dialog,omitempty"`              // 国标流的SipCall会话
+	SinkCount int32                  `json:"sink_count"`                    // 拉流端计数(包含级联转发)
 	SetupType common.SetupType
 	CallID    string   `json:"call_id" gorm:"index"`
 	Urls      []string `gorm:"serializer:json"` // 从流媒体服务器返回的拉流地址
@@ -29,30 +29,6 @@ func (s *StreamModel) SetDialog(dialog sip.Request) {
 	s.Dialog = &common.RequestWrapper{dialog}
 	id, _ := dialog.CallID()
 	s.CallID = id.Value()
-}
-
-type DaoStream interface {
-	LoadStreams() (map[string]*StreamModel, error)
-
-	SaveStream(stream *StreamModel) (*StreamModel, bool)
-
-	UpdateStream(stream *StreamModel) error
-
-	DeleteStream(streamId common.StreamID) (*StreamModel, error)
-
-	DeleteStreams() ([]*StreamModel, error)
-
-	DeleteStreamsByIds(ids []uint) error
-
-	QueryStream(streamId common.StreamID) (*StreamModel, error)
-
-	QueryStreams(keyword string, page, size int) ([]*StreamModel, int, error)
-
-	QueryStreamByCallID(callID string) (*StreamModel, error)
-
-	DeleteStreamByCallID(callID string) (*StreamModel, error)
-
-	DeleteStreamByDeviceID(deviceID string) ([]*StreamModel, error)
 }
 
 type daoStream struct {

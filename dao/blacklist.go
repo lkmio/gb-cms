@@ -12,22 +12,6 @@ func (d *BlacklistModel) TableName() string {
 	return "lkm_blacklist"
 }
 
-type DaoBlacklist interface {
-	Load() ([]*BlacklistModel, error)
-
-	SaveIP(ip string) error
-
-	DeleteIP(ip string) error
-
-	SaveUA(ua string) error
-
-	DeleteUA(ua string) error
-
-	QueryIP(ip string) (*BlacklistModel, error)
-
-	QueryUA(ua string) (*BlacklistModel, error)
-}
-
 type daoBlacklist struct {
 }
 

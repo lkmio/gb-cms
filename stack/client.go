@@ -51,6 +51,11 @@ func (g *gbClient) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
 	for i, _ := range channels {
 		channel := *channels[i]
 
+		// 向上级推送自定义的通道ID
+		if channel.CustomID != nil {
+			channel.DeviceID = *channel.CustomID
+		}
+
 		response.DeviceList.Devices = nil
 		response.DeviceList.Num = 1 // 一次发一个通道
 		response.DeviceList.Devices = append(response.DeviceList.Devices, &channel)

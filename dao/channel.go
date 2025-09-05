@@ -53,6 +53,7 @@ type ChannelModel struct {
 	ChannelNumber   int                 `json:"channel_number" xml:"-"` // 对应1078的通道号
 	SubCount        int                 `json:"-" xml:"-"`              // 子节点数量
 	IsDir           bool                `json:"-" xml:"-"`              // 是否是目录
+	CustomID        *string             `gorm:"unique"`                 // 自定义通道ID
 }
 
 func (d *ChannelModel) TableName() string {
@@ -61,54 +62,6 @@ func (d *ChannelModel) TableName() string {
 
 func (d *ChannelModel) Online() bool {
 	return d.Status == common.ON
-}
-
-type DaoChannel interface {
-	SaveChannel(channel *ChannelModel) error
-
-	SaveChannels(channel []*ChannelModel) error
-
-	UpdateChannelStatus(deviceId, channelId, status string) error
-
-	QueryChannelByID(id uint) (*ChannelModel, error)
-
-	QueryChannel(deviceId string, channelId string) (*ChannelModel, error)
-
-	QueryChannels(deviceId, groupId, string, page, size int, keyword string, order string) ([]*ChannelModel, int, error)
-
-	QueryChannelsByRootID(rootId string) ([]*ChannelModel, error)
-
-	QueryChannelsByChannelID(channelId string) ([]*ChannelModel, error)
-
-	QueryChanelCount(deviceId string, hasDir bool) (int, error)
-
-	QuerySubChannelCount(deviceId string, groupId string, hasDir bool) (int, error)
-
-	QueryOnlineChanelCount(deviceId string, hasDir bool) (int, error)
-
-	QueryOnlineSubChannelCount(deviceId string, groupId string, hasDir bool) (int, error)
-
-	QueryChannelByTypeCode(codecs ...int) ([]*ChannelModel, error)
-
-	ExistChannel(channelId string) bool
-
-	SaveJTChannel(channel *ChannelModel) error
-
-	ExistJTChannel(simNumber string, channelNumber int) bool
-
-	QueryJTChannelBySimNumber(simNumber string) (*ChannelModel, error)
-
-	DeleteChannel(deviceId string, channelId string) error
-
-	DeleteChannels(deviceId string) error
-
-	UpdateRootID(rootId, newRootId string) error
-
-	UpdateChannel(channel *ChannelModel) error
-
-	TotalCount() (int, error)
-
-	OnlineCount(ids []string) (int, error)
 }
 
 type daoChannel struct {
@@ -152,14 +105,20 @@ func (d *daoChannel) QueryChannel(deviceId string, channelId string) (*ChannelMo
 	return &channel, nil
 }
 
-func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, status string, keyword string, order, sort string) ([]*ChannelModel, int, error) {
+func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, status string, keyword string, order, sort string, isDir bool) ([]*ChannelModel, int, error) {
 	conditions := map[string]interface{}{}
-	conditions["root_id"] = deviceId
+	if deviceId != "" {
+		conditions["root_id"] = deviceId
+	}
+
 	if groupId != "" {
 		conditions["group_id"] = groupId
 	}
 	if status != "" {
 		conditions["status"] = status
+	}
+	if isDir {
+		conditions["is_dir"] = 1
 	}
 
 	cTx := db.Where(conditions)
@@ -278,6 +237,16 @@ func (d *daoChannel) QueryChannelsByChannelID(channelId string) ([]*ChannelModel
 	return channels, nil
 }
 
+// QueryChannelByCustomID 根据自定义通道ID查询通道
+func (d *daoChannel) QueryChannelByCustomID(customID string) (*ChannelModel, error) {
+	var channel ChannelModel
+	tx := db.Where("custom_id =?", customID).Take(&channel)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return &channel, nil
+}
+
 func (d *daoChannel) UpdateRootID(rootId, newRootId string) error {
 	channel := &ChannelModel{
 		RootID:   newRootId,
@@ -334,4 +303,9 @@ func (d *daoChannel) QueryOnlineSubChannelCount(rootId string, groupId string, h
 		return 0, tx.Error
 	}
 	return int(total), nil
+}
+
+// UpdateCustomID 更新自定义通道ID
+func (d *daoChannel) UpdateCustomID(rootId, channelId string, customID string) error {
+	return db.Model(&ChannelModel{}).Where("root_id =? and device_id =?", rootId, channelId).Update("custom_id", customID).Error
 }

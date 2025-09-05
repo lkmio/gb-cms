@@ -30,29 +30,6 @@ func (g *JTDeviceModel) TableName() string {
 	return "lkm_jt_device"
 }
 
-// DaoJTDevice 保存级联和1078设备的sipua参数项
-type DaoJTDevice interface {
-	LoadDevices() ([]*JTDeviceModel, error)
-
-	UpdateOnlineStatus(status common.OnlineStatus, username string) error
-
-	QueryDevice(user string) (*JTDeviceModel, error)
-
-	QueryDeviceBySimNumber(simNumber string) (*JTDeviceModel, error)
-
-	QueryDeviceByID(id uint) (*JTDeviceModel, error)
-
-	ExistDevice(username, simNumber string) bool
-
-	DeleteDevice(username string) error
-
-	SaveDevice(model *JTDeviceModel) error
-
-	UpdateDevice(model *JTDeviceModel) error
-
-	QueryDevices(page int, size int) ([]*JTDeviceModel, int, error)
-}
-
 type daoJTDevice struct {
 }
 

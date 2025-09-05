@@ -44,36 +44,6 @@ func (d *DeviceModel) GetID() string {
 	return d.DeviceID
 }
 
-type DaoDevice interface {
-	LoadOnlineDevices() (map[string]*DeviceModel, error)
-
-	LoadDevices() (map[string]*DeviceModel, error)
-
-	SaveDevice(device *DeviceModel) error
-
-	RefreshHeartbeat(deviceId string, now time.Time, addr string) error
-
-	QueryDevice(id string) (*DeviceModel, error)
-
-	QueryDevices(page int, size int, status string, keyword string, order string) ([]*DeviceModel, int, error)
-
-	UpdateDeviceStatus(deviceId string, status common.OnlineStatus) error
-
-	UpdateDeviceInfo(deviceId string, device *DeviceModel) error
-
-	UpdateOfflineDevices(deviceIds []string) error
-
-	ExistDevice(deviceId string) bool
-
-	UpdateMediaTransport(deviceId string, setupType common.SetupType) error
-
-	DeleteDevice(deviceId string) error
-
-	DeleteDevicesByIP(ip string) error
-
-	DeleteDevicesByUA(ua string) error
-}
-
 type daoDevice struct {
 }
 
@@ -113,7 +83,7 @@ func (d *daoDevice) SaveDevice(device *DeviceModel) error {
 			}
 			return err
 		} else {
-			return tx.Model(device).Select("Transport", "RemoteAddr", "Status", "RegisterTime", "LastHeartbeat").Updates(*device).Error
+			return tx.Model(device).Select("Transport", "RemoteIP", "RemotePort", "Status", "RegisterTime", "LastHeartbeat").Updates(*device).Error
 		}
 	})
 }

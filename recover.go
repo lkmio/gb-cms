@@ -18,14 +18,18 @@ func startPlatformDevices() {
 	}
 
 	for _, record := range platforms {
+		if err := dao.Platform.UpdateOnlineStatus(common.OFF, record.ServerAddr); err != nil {
+			log.Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.ServerID)
+		}
+
+		if !record.Enable {
+			continue
+		}
+
 		platform, err := stack.NewPlatform(&record.SIPUAOptions, common.SipStack)
 		// 都入库了不允许失败, 程序有BUG, 及时修复
 		utils.Assert(err == nil)
 		utils.Assert(stack.PlatformManager.Add(platform.ServerAddr, platform))
-
-		if err := dao.Platform.UpdateOnlineStatus(common.OFF, record.ServerAddr); err != nil {
-			log.Sugar.Infof("更新级联设备状态失败 err: %s device: %s", err.Error(), record.ServerID)
-		}
 
 		platform.Start()
 	}
