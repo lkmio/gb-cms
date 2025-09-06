@@ -38,27 +38,27 @@ func (d *Device) ControlPTZ(command string, channelId string) {
 	switch command {
 	case "right":
 		cmd |= 1 << 0
-		horizontalSpeed = 30
+		horizontalSpeed = 0x81
 		break
 	case "left":
 		cmd |= 1 << 1
-		horizontalSpeed = 30
+		horizontalSpeed = 0x81
 		break
 	case "down":
 		cmd |= 1 << 2
-		verticalSpeed = 30
+		verticalSpeed = 0x81
 		break
 	case "up":
 		cmd |= 1 << 3
-		verticalSpeed = 30
+		verticalSpeed = 0x81
 		break
 	case "zoomin":
 		cmd |= 1 << 4
-		zoomSpeed = 30
+		zoomSpeed = 0x10
 		break
 	case "zoomout":
 		cmd |= 1 << 5
-		zoomSpeed = 30
+		zoomSpeed = 0x10
 		break
 	case "stop":
 		break
