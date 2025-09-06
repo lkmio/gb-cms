@@ -1,3 +1,16 @@
+## 简介
+基于Go语言实现的GB28181信令服务器, 支持常见的GB功能, 以及JT1078转GB28181等功能。API适配LiveGBS开源的前端项目, 运行效果如下:
+
+<img width="2518" height="1054" alt="image" src="https://github.com/user-attachments/assets/6c732800-36a7-41c7-be49-92f65b9c2f02" />
+
+
+<img width="2518" height="1054" alt="image" src="https://github.com/user-attachments/assets/a92d4b26-6e64-437a-944e-0e1f28d113d7" />
+
+## 安装使用
+1. 运行lkm流媒体程序, 注意需要[开启http hook](https://github.com/lkmio/lkm/blob/7150525c205d209925b3c88a9dcf0a437a31cbc0/config.json#L58);
+2. gb-cms[配置流媒体接口地址](https://github.com/lkmio/gb-cms/blob/b933857d3d7a7178314b58762a7eebafde2d8fc7/config.json#L12), 对应lkm的[http参数项](https://github.com/lkmio/lkm/blob/7150525c205d209925b3c88a9dcf0a437a31cbc0/config.json#L13);
+3. 运行gb-cms, 浏览器打开http://localhost:9000
+
 ## JT1078转GB28181流程
 
 ### 1. 创建GB28181 UA
