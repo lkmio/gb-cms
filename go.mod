@@ -49,10 +49,11 @@ require (
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/gomodule/redigo v1.9.2
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/lkmio/avformat v0.0.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	gorm.io/gorm v1.26.1
 )
+
+replace github.com/ghettovoice/gosip => github.com/lkmio/gosip v0.0.0-20250907014334-8cd203aeab7a
