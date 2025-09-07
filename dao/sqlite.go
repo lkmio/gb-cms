@@ -6,6 +6,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
+	"os"
 	"time"
 )
 
@@ -27,6 +28,12 @@ var (
 )
 
 func init() {
+	// 创建data目录
+	err := os.MkdirAll("./data", 0755)
+	if err != nil {
+		panic(err)
+	}
+
 	db_, err := gorm.Open(sqlite.Open(DBNAME), &gorm.Config{
 		NamingStrategy: schema.NamingStrategy{
 			SingularTable: true,
