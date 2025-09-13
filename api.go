@@ -18,6 +18,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
@@ -38,6 +39,7 @@ type InviteParams struct {
 	Setup     string `json:"setup"`
 	Speed     string `json:"speed"`
 	Token     string `json:"token"`
+	Download  bool   `json:"download"`
 	streamId  common.StreamID
 }
 
@@ -225,9 +227,11 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
 	// 统一处理live/playback/download请求
-	apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(common.WithFormDataParams(apiServer.OnInvite, InviteParams{})))
-	// 关闭国标流. 如果是实时流, 等收流或空闲超时自行删除. 回放或下载流立即删除.
+	//apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(common.WithFormDataParams(apiServer.OnInvite, InviteParams{})))
+
+	apiServer.router.HandleFunc("/api/v1/stream/start", withVerify(common.WithFormDataParams(apiServer.OnStreamStart, InviteParams{}))) // 实时预览
 	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
+	apiServer.router.HandleFunc("/api/v1/playback/start", withVerify(common.WithFormDataParams(apiServer.OnPlaybackStart, InviteParams{}))) // 回放/下载
 
 	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))                          // 查询设备列表
 	apiServer.router.HandleFunc("/api/v1/device/channeltree", withVerify(common.WithQueryStringParams(apiServer.OnDeviceTree, QueryDeviceChannel{})))                   // 设备树
@@ -262,6 +266,9 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/cloudrecord/querychannels", withVerify(func(w http.ResponseWriter, req *http.Request) {})) // 云端录像
 	apiServer.router.HandleFunc("/api/v1/user/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                 // 用户管理
 	apiServer.router.HandleFunc("/api/v1/log/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 操作日志
+
+	apiServer.router.HandleFunc("/api/v1/record/start", withVerify(apiServer.OnRecordStart)) // 开启录制
+	apiServer.router.HandleFunc("/api/v1/record/stop", withVerify(apiServer.OnRecordStop))   // 关闭录制
 
 	apiServer.router.HandleFunc("/api/v1/broadcast/invite", common.WithJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &common.DefaultSetupType})) // 发起语音广播
 	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", common.WithJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                                   // 挂断广播会话
@@ -521,10 +528,19 @@ func (api *ApiServer) OnRecord(params *RecordParams, _ http.ResponseWriter, _ *h
 	log.Sugar.Infof("录制事件. protocol: %s stream: %s path:%s ", params.Protocol, params.Stream, params.Path)
 }
 
-func (api *ApiServer) OnInvite(v *InviteParams, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
-	vars := mux.Vars(r)
-	action := strings.ToLower(vars["action"])
+func (api *ApiServer) OnStreamStart(v *InviteParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	return api.DoStreamStart(v, w, r, "stream")
+}
 
+func (api *ApiServer) OnPlaybackStart(v *InviteParams, w http.ResponseWriter, r *http.Request) (interface{}, error) {
+	if v.Download {
+		return api.DoStreamStart(v, w, r, "download")
+	} else {
+		return api.DoStreamStart(v, w, r, "playback")
+	}
+}
+
+func (api *ApiServer) DoStreamStart(v *InviteParams, _ http.ResponseWriter, _ *http.Request, action string) (interface{}, error) {
 	var code int
 	var stream *dao.StreamModel
 	var err error
@@ -1603,4 +1619,30 @@ func (api *ApiServer) OnCustomChannelSet(q *CustomChannel, w http.ResponseWriter
 
 func (api *ApiServer) OnCatalogPush(q *SetEnable, w http.ResponseWriter, req *http.Request) (interface{}, error) {
 	return "OK", nil
+}
+
+func (api *ApiServer) OnRecordStart(writer http.ResponseWriter, request *http.Request) {
+	target, _ := url.Parse(fmt.Sprintf("%s/api/v1/record/start", common.Config.MediaServer))
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = target
+			req.Host = target.Host
+			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
+		},
+	}
+
+	proxy.ServeHTTP(writer, request)
+}
+
+func (api *ApiServer) OnRecordStop(writer http.ResponseWriter, request *http.Request) {
+	target, _ := url.Parse(fmt.Sprintf("%s/api/v1/record/stop", common.Config.MediaServer))
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = target
+			req.Host = target.Host
+			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
+		},
+	}
+
+	proxy.ServeHTTP(writer, request)
 }
