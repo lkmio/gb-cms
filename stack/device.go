@@ -43,6 +43,8 @@ var (
 	XmlMessageType sip.ContentType = "Application/MANSCDP+xml"
 
 	SDPMessageType sip.ContentType = "application/sdp"
+
+	RTSPMessageType sip.ContentType = "application/RTSP"
 )
 
 type GBDevice interface {
@@ -456,7 +458,6 @@ func CreateDialogRequestFromAnswer(message sip.Response, uas bool, remoteAddr st
 	id, _ := message.CallID()
 
 	requestLine := &sip.SipUri{}
-	requestLine.SetUser(from.Address.User())
 	host, port, _ := net.SplitHostPort(remoteAddr)
 	portInt, _ := strconv.Atoi(port)
 	sipPort := sip.Port(portInt)
@@ -467,9 +468,11 @@ func CreateDialogRequestFromAnswer(message sip.Response, uas bool, remoteAddr st
 
 	builder := NewSIPRequestBuilderWithTransport(message.Transport())
 	if uas {
+		requestLine.SetUser(from.Address.User())
 		builder.SetFrom(sip.NewAddressFromToHeader(to))
 		builder.SetTo(sip.NewAddressFromFromHeader(from))
 	} else {
+		requestLine.SetUser(to.Address.User())
 		builder.SetFrom(sip.NewAddressFromFromHeader(from))
 		builder.SetTo(sip.NewAddressFromToHeader(to))
 	}

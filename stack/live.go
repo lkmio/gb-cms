@@ -88,7 +88,7 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 	}()
 
 	// 告知流媒体服务创建国标源, 返回收流地址信息
-	ip, port, urls, ssrc, msErr := MSCreateGBSource(string(streamId), setup, "", string(inviteType), speed)
+	ip, port, urls, ssrc, msErr := MSCreateGBSource(string(streamId), setup, "", string(inviteType), float64(speed))
 	if msErr != nil {
 		log.Sugar.Errorf("创建GBSource失败 err: %s", msErr.Error())
 		return nil, nil, msErr

@@ -88,7 +88,7 @@ type RecordParams struct {
 type StreamIDParams struct {
 	StreamID common.StreamID `json:"streamid"`
 	Command  string          `json:"command"`
-	Scale    int             `json:"scale"`
+	Scale    float64         `json:"scale"`
 }
 
 type PageQuery struct {
@@ -1680,6 +1680,30 @@ func (api *ApiServer) OnRecordStop(writer http.ResponseWriter, request *http.Req
 	common.HttpForwardTo("/api/v1/record/stop", writer, request)
 }
 
-func (api *ApiServer) OnPlaybackControl(params *StreamParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	if "scale" != params.Command || params.Scale <= 0 || params.Scale > 4 {
+		return nil, errors.New("scale error")
+	}
+
+	stream, err := dao.Stream.QueryStream(params.StreamID)
+	if err != nil {
+		return nil, err
+	} else if stream.Dialog == nil {
+		return nil, errors.New("stream not found")
+	}
+
+	// 查找設備
+	device, err := dao.Device.QueryDevice(stream.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	s := stack.Device{device}
+	s.ScalePlayback(stream.Dialog, params.Scale)
+	err = stack.MSSpeedSet(string(params.StreamID), params.Scale)
+	if err != nil {
+		return nil, err
+	}
+
 	return "OK", nil
 }

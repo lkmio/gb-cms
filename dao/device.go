@@ -125,7 +125,7 @@ func (d *daoDevice) RefreshHeartbeat(deviceId string, now time.Time, addr string
 	return DBTransaction(func(tx *gorm.DB) error {
 		host, p, _ := net.SplitHostPort(addr)
 		port, _ := strconv.Atoi(p)
-		return tx.Model(&DeviceModel{}).Select("LastHeartbeat", "Status", "RemoteAddr").Where("device_id =?", deviceId).Updates(&DeviceModel{
+		return tx.Model(&DeviceModel{}).Select("LastHeartbeat", "Status", "RemoteIP", "RemotePort").Where("device_id =?", deviceId).Updates(&DeviceModel{
 			LastHeartbeat: now,
 			Status:        common.ON,
 			RemoteIP:      host,

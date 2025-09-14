@@ -49,15 +49,15 @@ type SinkDetails struct {
 }
 
 type SDP struct {
-	SessionName string `json:"session_name,omitempty"` // play/download/playback/talk/broadcast
-	Addr        string `json:"addr,omitempty"`         // 连接地址
-	SSRC        string `json:"ssrc,omitempty"`
-	Setup       string `json:"setup,omitempty"`     // active/passive
-	Transport   string `json:"transport,omitempty"` // tcp/udp
-	Speed       int    `json:"speed"`
-	StartTime   int    `json:"start_time,omitempty"`
-	EndTime     int    `json:"end_time,omitempty"`
-	FileSize    int    `json:"file_size,omitempty"`
+	SessionName string  `json:"session_name,omitempty"` // play/download/playback/talk/broadcast
+	Addr        string  `json:"addr,omitempty"`         // 连接地址
+	SSRC        string  `json:"ssrc,omitempty"`
+	Setup       string  `json:"setup,omitempty"`     // active/passive
+	Transport   string  `json:"transport,omitempty"` // tcp/udp
+	Speed       float64 `json:"speed"`
+	StartTime   int     `json:"start_time,omitempty"`
+	EndTime     int     `json:"end_time,omitempty"`
+	FileSize    int     `json:"file_size,omitempty"`
 }
 
 type SourceSDP struct {
@@ -103,7 +103,7 @@ func SendWithUrlParams(path string, body interface{}, values url.Values) (*http.
 	return client.Do(request)
 }
 
-func MSCreateGBSource(id, setup string, ssrc string, sessionName string, speed int) (string, uint16, []string, string, error) {
+func MSCreateGBSource(id, setup string, ssrc string, sessionName string, speed float64) (string, uint16, []string, string, error) {
 	v := &SourceSDP{
 		Source: id,
 		SDP: SDP{
@@ -273,4 +273,16 @@ func MSQueryStreamInfo(header http.Header, queryParams string) (*http.Response, 
 	}
 
 	return client.Do(proxyReq)
+}
+
+func MSSpeedSet(id string, speed float64) error {
+	v := &SourceSDP{
+		Source: id,
+		SDP: SDP{
+			Speed: speed,
+		},
+	}
+
+	_, err := Send("api/v1/gb28181/speed/set", v)
+	return err
 }

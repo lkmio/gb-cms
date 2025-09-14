@@ -53,18 +53,35 @@ func parseQueryParams(c func(key string) string, v interface{}) (interface{}, er
 		switch fieldValue.Kind() {
 		case reflect.String:
 			fieldValue.SetString(value)
+			break
 		case reflect.Int:
 			intValue, err := strconv.Atoi(value)
 			if err != nil {
 				return nil, err
 			}
 			fieldValue.SetInt(int64(intValue))
+			break
 		case reflect.Bool:
 			boolValue, err := strconv.ParseBool(value)
 			if err != nil {
 				return nil, err
 			}
 			fieldValue.SetBool(boolValue)
+			break
+		case reflect.Float64:
+			floatValue, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return nil, err
+			}
+			fieldValue.SetFloat(floatValue)
+			break
+		case reflect.Float32:
+			floatValue, err := strconv.ParseFloat(value, 32)
+			if err != nil {
+				return nil, err
+			}
+			fieldValue.SetFloat(floatValue)
+			break
 		}
 	}
 
