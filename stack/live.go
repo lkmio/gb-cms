@@ -9,8 +9,8 @@ import (
 	"gb-cms/sdp"
 	"github.com/ghettovoice/gosip"
 	"github.com/ghettovoice/gosip/sip"
-	"math"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -88,7 +88,7 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 	}()
 
 	// 告知流媒体服务创建国标源, 返回收流地址信息
-	ip, port, urls, ssrc, msErr := MSCreateGBSource(string(streamId), setup, "", string(inviteType))
+	ip, port, urls, ssrc, msErr := MSCreateGBSource(string(streamId), setup, "", string(inviteType), speed)
 	if msErr != nil {
 		log.Sugar.Errorf("创建GBSource失败 err: %s", msErr.Error())
 		return nil, nil, msErr
@@ -99,7 +99,6 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 	if common.InviteTypePlayback == inviteType {
 		inviteRequest, err = d.BuildPlaybackRequest(channelId, ip, port, startTime, stopTime, setup, ssrc)
 	} else if common.InviteTypeDownload == inviteType {
-		speed = int(math.Min(4, float64(speed)))
 		inviteRequest, err = d.BuildDownloadRequest(channelId, ip, port, startTime, stopTime, setup, speed, ssrc)
 	} else {
 		inviteRequest, err = d.BuildLiveRequest(channelId, ip, port, setup, ssrc)
@@ -129,7 +128,7 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 			recipient.SetPort(&sipPort)
 
 			log.Sugar.Infof("send ack %s", ackRequest.String())
-
+			// 发送ack
 			err = common.SipStack.Send(ackRequest)
 			if err != nil {
 				cancel()
@@ -149,7 +148,7 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 	} else if dialogRequest == nil {
 		// invite 没有收到任何应答
 		return nil, nil, fmt.Errorf("invite request timeout")
-	} else if "active" == setup {
+	} else if "active" == setup || common.InviteTypeDownload == inviteType {
 		// 如果是TCP主动拉流, 还需要将拉流地址告知给流媒体服务
 		var answer *sdp.SDP
 		answer, err = sdp.Parse(body)
@@ -157,8 +156,20 @@ func (d *Device) Invite(inviteType common.InviteType, streamId common.StreamID, 
 			return nil, nil, err
 		}
 
+		// 解析下载的文件大小
+		var fileSize int
+		if common.InviteTypeDownload == inviteType {
+			for _, attr := range answer.Attrs {
+				if "filesize" != attr[0] {
+					continue
+				}
+
+				fileSize, _ = strconv.Atoi(attr[1])
+			}
+		}
+
 		addr := fmt.Sprintf("%s:%d", answer.Addr, answer.Video.Port)
-		if err = MSConnectGBSource(string(streamId), addr); err != nil {
+		if err = MSConnectGBSource(string(streamId), addr, fileSize); err != nil {
 			log.Sugar.Errorf("设置GB28181连接地址失败 err: %s addr: %s", err.Error(), addr)
 			return nil, nil, err
 		}

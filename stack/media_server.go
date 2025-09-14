@@ -54,6 +54,10 @@ type SDP struct {
 	SSRC        string `json:"ssrc,omitempty"`
 	Setup       string `json:"setup,omitempty"`     // active/passive
 	Transport   string `json:"transport,omitempty"` // tcp/udp
+	Speed       int    `json:"speed"`
+	StartTime   int    `json:"start_time,omitempty"`
+	EndTime     int    `json:"end_time,omitempty"`
+	FileSize    int    `json:"file_size,omitempty"`
 }
 
 type SourceSDP struct {
@@ -99,13 +103,14 @@ func SendWithUrlParams(path string, body interface{}, values url.Values) (*http.
 	return client.Do(request)
 }
 
-func MSCreateGBSource(id, setup string, ssrc string, sessionName string) (string, uint16, []string, string, error) {
+func MSCreateGBSource(id, setup string, ssrc string, sessionName string, speed int) (string, uint16, []string, string, error) {
 	v := &SourceSDP{
 		Source: id,
 		SDP: SDP{
 			Setup:       setup,
 			SSRC:        ssrc,
 			SessionName: sessionName,
+			Speed:       speed,
 		},
 	}
 
@@ -134,11 +139,12 @@ func MSCreateGBSource(id, setup string, ssrc string, sessionName string) (string
 	return host, uint16(port), data.Data.Urls, data.Data.SSRC, err
 }
 
-func MSConnectGBSource(id, addr string) error {
+func MSConnectGBSource(id, addr string, fileSize int) error {
 	v := &SourceSDP{
 		Source: id,
 		SDP: SDP{
-			Addr: addr,
+			Addr:     addr,
+			FileSize: fileSize,
 		},
 	}
 

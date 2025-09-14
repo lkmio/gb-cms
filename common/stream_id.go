@@ -2,7 +2,9 @@ package common
 
 import (
 	"github.com/lkmio/avformat/utils"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type StreamID string // 目前目涉及转码，多路流, 与SourceID相同
@@ -24,6 +26,19 @@ func GenerateStreamID(inviteType InviteType, deviceId, channelId string, startTi
 	}
 
 	streamId = append(streamId, channelId)
+
+	// 转换时间戳
+	if startTime != "" {
+		if t, err := time.Parse("2006-01-02T15:04:05", startTime); err == nil {
+			startTime = strconv.FormatInt(t.Unix(), 10)
+		}
+	}
+	if endTime != "" {
+		if t, err := time.Parse("2006-01-02T15:04:05", endTime); err == nil {
+			endTime = strconv.FormatInt(t.Unix(), 10)
+		}
+	}
+
 	if InviteTypePlayback == inviteType {
 		return StreamID(strings.Join(streamId, "/") + ".playback" + "." + startTime + "." + endTime)
 	} else if InviteTypeDownload == inviteType {

@@ -37,6 +37,7 @@ const (
 	CmdMobilePosition = "MobilePosition"
 	CmdKeepalive      = "Keepalive"
 	CmdBroadcast      = "Broadcast"
+	CmdMediaStatus    = "MediaStatus"
 )
 
 type sipServer struct {
@@ -293,6 +294,11 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 		if CmdKeepalive == cmd {
 			// 下级设备心跳通知
 			ok = s.handler.OnKeepAlive(deviceId, wrapper.req.Source())
+		} else if CmdMediaStatus == cmd {
+			// 回放/下载结束
+			ok = true
+			id, _ := wrapper.req.CallID()
+			CloseStreamByCallID(id.Value())
 		}
 
 		break
@@ -429,6 +435,7 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipSe
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdKeepalive):      reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdMobilePosition): reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameResponse, CmdBroadcast):    reflect.TypeOf(BaseMessage{}),
+		fmt.Sprintf("%s.%s", XmlNameNotify, CmdMediaStatus):    reflect.TypeOf(BaseMessage{}),
 	}}
 
 	utils.Assert(ua.OnRequest(sip.REGISTER, filterRequest(server.OnRegister)) == nil)

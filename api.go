@@ -14,15 +14,14 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"github.com/lkmio/avformat/utils"
-	"io"
 	"math"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,11 +73,6 @@ type SeekParams struct {
 	Seconds  int             `json:"seconds"`
 }
 
-type PlatformChannel struct {
-	ServerAddr string      `json:"server_addr"`
-	Channels   [][2]string `json:"channels"` //二维数组, 索引0-设备ID/索引1-通道ID
-}
-
 type BroadcastParams struct {
 	DeviceID  string            `json:"device_id"`
 	ChannelID string            `json:"channel_id"`
@@ -92,7 +86,9 @@ type RecordParams struct {
 }
 
 type StreamIDParams struct {
-	StreamID string `json:"streamid"`
+	StreamID common.StreamID `json:"streamid"`
+	Command  string          `json:"command"`
+	Scale    int             `json:"scale"`
 }
 
 type PageQuery struct {
@@ -101,12 +97,6 @@ type PageQuery struct {
 	TotalPages int         `json:"total_pages"` // 总页数
 	TotalCount int         `json:"total_count"` // 总记录数
 	Data       interface{} `json:"data"`
-}
-
-type PageQueryChannel struct {
-	PageQuery
-	DeviceID string `json:"device_id"`
-	GroupID  string `json:"group_id"`
 }
 
 type SetMediaTransportReq struct {
@@ -223,15 +213,13 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_idle_timeout", common.WithJsonParams(apiServer.OnIdleTimeout, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", common.WithJsonParams(apiServer.OnReceiveTimeout, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_record", common.WithJsonParams(apiServer.OnRecord, &RecordParams{}))
-
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
 
-	// 统一处理live/playback/download请求
-	//apiServer.router.HandleFunc("/api/v1/{action}/start", withVerify(common.WithFormDataParams(apiServer.OnInvite, InviteParams{})))
-
-	apiServer.router.HandleFunc("/api/v1/stream/start", withVerify(common.WithFormDataParams(apiServer.OnStreamStart, InviteParams{}))) // 实时预览
-	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, InviteParams{})))
-	apiServer.router.HandleFunc("/api/v1/playback/start", withVerify(common.WithFormDataParams(apiServer.OnPlaybackStart, InviteParams{}))) // 回放/下载
+	apiServer.router.HandleFunc("/api/v1/stream/start", withVerify(common.WithFormDataParams(apiServer.OnStreamStart, InviteParams{})))           // 实时预览
+	apiServer.router.HandleFunc("/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseLiveStream, InviteParams{})))        // 关闭实时预览
+	apiServer.router.HandleFunc("/api/v1/playback/start", withVerify(common.WithFormDataParams(apiServer.OnPlaybackStart, InviteParams{})))       // 回放/下载
+	apiServer.router.HandleFunc("/api/v1/playback/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseStream, StreamIDParams{})))        // 关闭回放/下载
+	apiServer.router.HandleFunc("/api/v1/playback/control", withVerify(common.WithFormDataParams(apiServer.OnPlaybackControl, StreamIDParams{}))) // 回放控制
 
 	apiServer.router.HandleFunc("/api/v1/device/list", withVerify(common.WithQueryStringParams(apiServer.OnDeviceList, QueryDeviceChannel{})))                          // 查询设备列表
 	apiServer.router.HandleFunc("/api/v1/device/channeltree", withVerify(common.WithQueryStringParams(apiServer.OnDeviceTree, QueryDeviceChannel{})))                   // 设备树
@@ -242,6 +230,7 @@ func startApiServer(addr string) {
 
 	apiServer.router.HandleFunc("/api/v1/playback/recordlist", withVerify(common.WithQueryStringParams(apiServer.OnRecordList, QueryRecordParams{}))) // 查询录像列表
 	apiServer.router.HandleFunc("/api/v1/stream/info", withVerify(apiServer.OnStreamInfo))
+	apiServer.router.HandleFunc("/api/v1/playback/streaminfo", withVerify(apiServer.OnStreamInfo))
 	apiServer.router.HandleFunc("/api/v1/device/session/list", withVerify(common.WithQueryStringParams(apiServer.OnSessionList, QueryDeviceChannel{}))) // 推流列表
 	apiServer.router.HandleFunc("/api/v1/device/session/stop", withVerify(common.WithFormDataParams(apiServer.OnSessionStop, StreamIDParams{})))        // 关闭流
 	apiServer.router.HandleFunc("/api/v1/device/setchannelid", withVerify(common.WithFormDataParams(apiServer.OnCustomChannelSet, CustomChannel{})))    // 关闭流
@@ -272,7 +261,7 @@ func startApiServer(addr string) {
 
 	apiServer.router.HandleFunc("/api/v1/broadcast/invite", common.WithJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &common.DefaultSetupType})) // 发起语音广播
 	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", common.WithJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                                   // 挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/talk", apiServer.OnTalk)                                                                                              // 语音对讲
+	apiServer.router.HandleFunc("/api/v1/control/ws-talk/{device}/{channel}", withVerify(apiServer.OnTalk))                                                    // 语音对讲
 
 	apiServer.router.HandleFunc("/api/v1/jt/device/add", common.WithJsonResponse(apiServer.OnVirtualDeviceAdd, &dao.JTDeviceModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/device/edit", common.WithJsonResponse(apiServer.OnVirtualDeviceEdit, &dao.JTDeviceModel{}))
@@ -540,7 +529,7 @@ func (api *ApiServer) OnPlaybackStart(v *InviteParams, w http.ResponseWriter, r 
 	}
 }
 
-func (api *ApiServer) DoStreamStart(v *InviteParams, _ http.ResponseWriter, _ *http.Request, action string) (interface{}, error) {
+func (api *ApiServer) DoStreamStart(v *InviteParams, w http.ResponseWriter, r *http.Request, action string) (interface{}, error) {
 	var code int
 	var stream *dao.StreamModel
 	var err error
@@ -557,6 +546,17 @@ func (api *ApiServer) DoStreamStart(v *InviteParams, _ http.ResponseWriter, _ *h
 	if http.StatusOK != code {
 		log.Sugar.Errorf("请求流失败 err: %s", err.Error())
 		return nil, err
+	}
+
+	// 录像下载, 转发到streaminfo接口
+	if "download" == action {
+		if r.URL.RawQuery == "" {
+			r.URL.RawQuery = "streamid=" + string(v.streamId)
+		} else if r.URL.RawQuery != "" {
+			r.URL.RawQuery += "&streamid=" + string(v.streamId)
+		}
+		common.HttpForwardTo("/api/v1/stream/info", w, r)
+		return nil, nil
 	}
 
 	var urls map[string]string
@@ -671,7 +671,9 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 
 	// 解析回放或下载速度参数
 	speed, _ := strconv.Atoi(params.Speed)
-	speed = int(math.Min(4, float64(speed)))
+	if speed < 1 {
+		speed = 4
+	}
 	d := stack.Device{device}
 	stream, err := d.StartStream(inviteType, params.streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
 	if err != nil {
@@ -681,9 +683,14 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 	return http.StatusOK, stream, nil
 }
 
-func (api *ApiServer) OnCloseStream(v *InviteParams, w http.ResponseWriter, _ *http.Request) (interface{}, error) {
-	streamID := common.GenerateStreamID(common.InviteTypePlay, v.DeviceID, v.ChannelID, "", "")
-	stack.CloseStream(streamID, true)
+func (api *ApiServer) OnCloseStream(v *StreamIDParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	stack.CloseStream(v.StreamID, true)
+	return "OK", nil
+}
+
+func (api *ApiServer) OnCloseLiveStream(v *InviteParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	id := common.GenerateStreamID(common.InviteTypePlay, v.DeviceID, v.ChannelID, "", "")
+	stack.CloseStream(id, true)
 	return "OK", nil
 }
 
@@ -1077,8 +1084,73 @@ func (api *ApiServer) OnBroadcast(v *BroadcastParams, _ http.ResponseWriter, r *
 	return nil, nil
 }
 
-func (api *ApiServer) OnTalk(_ http.ResponseWriter, _ *http.Request) {
+func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
+	//vars := mux.Vars(r)
+	//device := vars["device"]
+	//channel := vars["channel"]
+	format := r.URL.Query().Get("format")
 
+	// 升级HTTP连接到WebSocket
+	conn, err := api.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Sugar.Errorf("WebSocket升级失败: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	parse, err := url.Parse(common.Config.MediaServer)
+	if err != nil {
+		return
+	}
+
+	// 目标WebSocket服务地址
+	targetURL := fmt.Sprintf("ws://%s%s?format=%s", parse.Host, r.URL.Path, format)
+
+	// 连接到目标WebSocket服务
+	targetConn, _, err := websocket.DefaultDialer.Dial(targetURL, nil)
+	if err != nil {
+		log.Sugar.Errorf("连接目标WebSocket失败: %v", err)
+		return
+	}
+	defer targetConn.Close()
+
+	group := sync.WaitGroup{}
+	group.Add(2)
+
+	// 启动两个goroutine双向转发数据
+	// 从客户端转发到目标服务
+	go func() {
+		defer group.Done()
+		for {
+			messageType, p, err := conn.ReadMessage()
+			if err != nil {
+				log.Sugar.Debugf("读取客户端消息错误: %v", err)
+				return
+			}
+			if err := targetConn.WriteMessage(messageType, p); err != nil {
+				log.Sugar.Debugf("写入目标服务消息错误: %v", err)
+				return
+			}
+		}
+	}()
+
+	// 从目标服务转发到客户端
+	go func() {
+		defer group.Done()
+		for {
+			messageType, p, err := targetConn.ReadMessage()
+			if err != nil {
+				log.Sugar.Debugf("读取目标服务消息错误: %v", err)
+				return
+			}
+			if err := conn.WriteMessage(messageType, p); err != nil {
+				log.Sugar.Debugf("写入客户端消息错误: %v", err)
+				return
+			}
+		}
+	}()
+
+	group.Wait()
 }
 
 func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
@@ -1316,28 +1388,7 @@ func (api *ApiServer) OnCatalogQuery(params *QueryDeviceChannel, _ http.Response
 }
 
 func (api *ApiServer) OnStreamInfo(w http.ResponseWriter, r *http.Request) {
-	response, err := stack.MSQueryStreamInfo(r.Header, r.URL.RawQuery)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
-
-	defer response.Body.Close()
-
-	// 复制响应头
-	for name, values := range response.Header {
-		for _, value := range values {
-			w.Header().Add(name, value)
-		}
-	}
-
-	// 设置状态码并转发响应体
-	w.WriteHeader(response.StatusCode)
-	_, err = io.Copy(w, response.Body)
-	if err != nil {
-		log.Sugar.Errorf("Failed to copy response body: %v", err)
-	}
+	common.HttpForwardTo("/api/v1/stream/info", w, r)
 }
 
 func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
@@ -1406,7 +1457,7 @@ func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter
 }
 
 func (api *ApiServer) OnSessionStop(params *StreamIDParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
-	err := stack.MSCloseSource(params.StreamID)
+	err := stack.MSCloseSource(string(params.StreamID))
 	if err != nil {
 		return nil, err
 	}
@@ -1622,27 +1673,13 @@ func (api *ApiServer) OnCatalogPush(q *SetEnable, w http.ResponseWriter, req *ht
 }
 
 func (api *ApiServer) OnRecordStart(writer http.ResponseWriter, request *http.Request) {
-	target, _ := url.Parse(fmt.Sprintf("%s/api/v1/record/start", common.Config.MediaServer))
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL = target
-			req.Host = target.Host
-			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
-		},
-	}
-
-	proxy.ServeHTTP(writer, request)
+	common.HttpForwardTo("/api/v1/record/start", writer, request)
 }
 
 func (api *ApiServer) OnRecordStop(writer http.ResponseWriter, request *http.Request) {
-	target, _ := url.Parse(fmt.Sprintf("%s/api/v1/record/stop", common.Config.MediaServer))
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL = target
-			req.Host = target.Host
-			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
-		},
-	}
+	common.HttpForwardTo("/api/v1/record/stop", writer, request)
+}
 
-	proxy.ServeHTTP(writer, request)
+func (api *ApiServer) OnPlaybackControl(params *StreamParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	return "OK", nil
 }
