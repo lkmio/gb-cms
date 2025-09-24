@@ -29,6 +29,7 @@ func (s *Sink) Close(bye, ms bool) {
 
 	// 目前只有一对一对讲, 断开就删除整个websocket对讲流
 	if s.Protocol == TransStreamGBTalk {
+		_, _ = dao.Sink.DeleteSinkBySinkStreamID(s.SinkStreamID)
 		_, _ = dao.Stream.DeleteStream(s.StreamID)
 		// 删除流媒体source
 		_ = MSCloseSource(string(s.StreamID))

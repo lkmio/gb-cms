@@ -40,7 +40,7 @@ func (d *Device) StartBroadcast(streamId common.StreamID, deviceId, channelId st
 	sink := &dao.SinkModel{
 		SinkStreamID: sinkStreamId,
 		StreamID:     streamId,
-		Protocol:     SourceTypeGBTalk,
+		Protocol:     TransStreamGBTalk,
 		CreateTime:   time.Now().Unix(),
 		SetupType:    common.SetupTypePassive,
 	}
