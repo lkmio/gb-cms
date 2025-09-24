@@ -26,6 +26,13 @@ func (s *Sink) Close(bye, ms bool) {
 	if ms {
 		go MSCloseSink(string(s.StreamID), s.SinkID)
 	}
+
+	// 目前只有一对一对讲, 断开就删除整个websocket对讲流
+	if s.Protocol == TransStreamGBTalk {
+		_, _ = dao.Stream.DeleteStream(s.StreamID)
+		// 删除流媒体source
+		_ = MSCloseSource(string(s.StreamID))
+	}
 }
 
 func (s *Sink) MarshalJSON() ([]byte, error) {
@@ -121,7 +128,7 @@ func AddForwardSink(forwardType int, request sip.Request, user string, sink *Sin
 
 	sink.SetDialog(CreateDialogRequestFromAnswer(response, true, request.Source()))
 
-	if err = dao.Sink.SaveForwardSink(sink.SinkModel); err != nil {
+	if err = dao.Sink.SaveSink(sink.SinkModel); err != nil {
 		log.Sugar.Errorf("保存sink到数据库失败, stream: %s sink: %s err: %s", streamId, sink.SinkID, err.Error())
 	}
 

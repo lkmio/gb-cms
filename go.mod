@@ -52,6 +52,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/lkmio/avformat v0.0.1
+	github.com/pretty66/websocketproxy v0.0.0-20220507015215-930b3a686308
 	github.com/shirou/gopsutil/v3 v3.24.5
 	gorm.io/gorm v1.26.1
 )

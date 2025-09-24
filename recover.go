@@ -66,7 +66,7 @@ func recoverStreams() (map[string]*dao.StreamModel, map[string]*dao.SinkModel) {
 		return nil, nil
 	}
 
-	dbSinks, _ := dao.Sink.LoadForwardSinks()
+	dbSinks, _ := dao.Sink.LoadSinks()
 
 	// 查询流媒体服务器中的推流源列表
 	msSources, err := stack.MSQuerySourceList()
@@ -118,7 +118,7 @@ func recoverStreams() (map[string]*dao.StreamModel, map[string]*dao.SinkModel) {
 	}
 
 	_ = dao.Stream.DeleteStreamsByIds(invalidStreamIds)
-	_ = dao.Sink.DeleteForwardSinksByIds(invalidSinkIds)
+	_ = dao.Sink.DeleteSinksByIds(invalidSinkIds)
 	return dbStreams, dbSinks
 }
 

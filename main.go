@@ -9,7 +9,9 @@ import (
 	"gb-cms/hook"
 	"gb-cms/log"
 	"gb-cms/stack"
+	"github.com/pretty66/websocketproxy"
 	"github.com/shirou/gopsutil/v3/host"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"net"
 	"net/http"
@@ -38,6 +40,7 @@ func init() {
 	}
 
 	log.InitLogger(zapcore.Level(logConfig.Level), logConfig.Name, logConfig.MaxSize, logConfig.MaxBackup, logConfig.MaxAge, logConfig.Compress)
+	websocketproxy.SetLogger(zap.NewStdLog(log.Sugar.Desugar()))
 }
 
 func main() {

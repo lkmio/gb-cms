@@ -3,10 +3,12 @@ package common
 import (
 	"bytes"
 	"fmt"
+	"github.com/pretty66/websocketproxy"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 )
 
 func HttpForwardTo(path string, w http.ResponseWriter, r *http.Request) {
@@ -51,4 +53,23 @@ func HttpForwardTo(path string, w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(w, r)
+}
+
+func WSForwardTo(path string, w http.ResponseWriter, r *http.Request) error {
+	hostport := Config.MediaServer
+	if strings.HasPrefix(Config.MediaServer, "https") {
+		hostport = "wss" + Config.MediaServer[5:]
+	} else if strings.HasPrefix(Config.MediaServer, "http") {
+		hostport = "ws" + Config.MediaServer[4:]
+	}
+
+	wp, err := websocketproxy.NewProxy(fmt.Sprintf("%s%s", hostport, path), func(r *http.Request) error {
+		return nil
+	})
+
+	if err == nil {
+		wp.Proxy(w, r)
+	}
+
+	return err
 }

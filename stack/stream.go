@@ -116,7 +116,7 @@ func CloseStreamByCallID(callId string) {
 
 // CloseStreamSinks 关闭某个流的所有sink
 func CloseStreamSinks(StreamID common.StreamID, bye, ms bool) []*dao.SinkModel {
-	sinks, _ := dao.Sink.DeleteForwardSinksByStreamID(StreamID)
+	sinks, _ := dao.Sink.DeleteSinksByStreamID(StreamID)
 	for _, sink := range sinks {
 		(&Sink{sink}).Close(bye, ms)
 	}

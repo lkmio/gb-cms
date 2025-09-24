@@ -144,6 +144,19 @@ func (d *daoDevice) QueryDevice(id string) (*DeviceModel, error) {
 	return &device, nil
 }
 
+// QueryDeviceByAddr 根据地址查询设备
+func (d *daoDevice) QueryDeviceByAddr(addr string) (*DeviceModel, error) {
+	host, p, _ := net.SplitHostPort(addr)
+	port, _ := strconv.Atoi(p)
+	var device DeviceModel
+	tx := db.Where("remote_ip = ? and remote_port = ?", host, port).Take(&device)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+
+	return &device, nil
+}
+
 func (d *daoDevice) QueryDevices(page int, size int, status string, keyword string, order string) ([]*DeviceModel, int, error) {
 	var cond = make(map[string]interface{})
 	if status != "" {

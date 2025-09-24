@@ -131,12 +131,9 @@ func (s *sipServer) OnInvite(wrapper *SipRequestSource) {
 			device = JTDeviceManager.Find(channels[0].RootID)
 		}
 	} else {
-		if session := EarlyDialogs.Find(user); session != nil {
+		if model, _ := dao.Device.QueryDeviceByAddr(wrapper.req.Source()); model != nil {
 			// 语音广播设备
-			model, _ := dao.Device.QueryDevice(session.Data.(*Sink).SinkStreamID.DeviceID())
-			if model != nil {
-				device = &Device{model}
-			}
+			device = &Device{model}
 		} else {
 			// 根据Subject头域查找设备
 			headers := wrapper.req.GetHeaders("Subject")
@@ -179,7 +176,7 @@ func (s *sipServer) OnBye(wrapper *SipRequestSource) {
 		// 下级设备挂断, 关闭流
 		deviceId = stream.StreamID.DeviceID()
 		(&Stream{stream}).Close(false, true)
-	} else if sink, _ := dao.Sink.DeleteForwardSinkByCallID(id.Value()); sink != nil {
+	} else if sink, _ := dao.Sink.DeleteSinkByCallID(id.Value()); sink != nil {
 		(&Sink{sink}).Close(false, true)
 	}
 
@@ -360,9 +357,9 @@ func (s *sipServer) ListenAddr() string {
 // 过滤SIP消息、超找消息来源
 func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 	return func(req sip.Request, tx sip.ServerTransaction) {
-		userAgent := req.GetHeaders("User-Agent")
 
 		// 过滤黑名单
+		userAgent := req.GetHeaders("User-Agent")
 		if model, _ := dao.Blacklist.QueryIP(req.Source()); model != nil {
 			SendResponseWithStatusCode(req, tx, http.StatusForbidden)
 			log2.Sugar.Errorf("处理%s请求失败, IP被黑名单过滤: %s request: %s ", req.Method(), req.Source(), req.String())
@@ -375,6 +372,7 @@ func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 			}
 		}
 
+		// 查找请求来源: 下级设备/级联上级/1078转GB28181的上级
 		source := req.Source()
 		// 是否是级联上级下发的请求
 		platform := PlatformManager.Find(source)

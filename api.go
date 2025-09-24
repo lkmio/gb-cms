@@ -21,7 +21,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -261,7 +260,7 @@ func startApiServer(addr string) {
 
 	apiServer.router.HandleFunc("/api/v1/broadcast/invite", common.WithJsonResponse(apiServer.OnBroadcast, &BroadcastParams{Setup: &common.DefaultSetupType})) // 发起语音广播
 	apiServer.router.HandleFunc("/api/v1/broadcast/hangup", common.WithJsonResponse(apiServer.OnHangup, &BroadcastParams{}))                                   // 挂断广播会话
-	apiServer.router.HandleFunc("/api/v1/control/ws-talk/{device}/{channel}", withVerify(apiServer.OnTalk))                                                    // 语音对讲
+	apiServer.router.HandleFunc("/api/v1/control/ws-talk/{device}/{channel}", withVerify(apiServer.OnTalk))                                                    // 一对一语音对讲
 
 	apiServer.router.HandleFunc("/api/v1/jt/device/add", common.WithJsonResponse(apiServer.OnVirtualDeviceAdd, &dao.JTDeviceModel{}))
 	apiServer.router.HandleFunc("/api/v1/jt/device/edit", common.WithJsonResponse(apiServer.OnVirtualDeviceEdit, &dao.JTDeviceModel{}))
@@ -379,7 +378,7 @@ func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *h
 			} else if stream, _ := dao.Stream.QueryStream(params.Stream); stream == nil {
 				w.WriteHeader(http.StatusNotFound)
 			} else {
-				_ = dao.Sink.SaveForwardSink(&dao.SinkModel{
+				_ = dao.Sink.CreateSink(&dao.SinkModel{
 					SinkID:     params.Sink,
 					StreamID:   params.Stream,
 					Protocol:   params.Protocol,
@@ -387,9 +386,13 @@ func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *h
 				})
 			}
 			return
+		} else if stack.TransStreamGBTalk == params.Protocol {
+			// 对讲/广播
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 
-		// 对讲/级联, 在此处请求流
+		// 级联, 在此处请求流
 		inviteParams := &InviteParams{
 			DeviceID:  deviceId,
 			ChannelID: channelId,
@@ -417,7 +420,7 @@ func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *h
 		} else if http.StatusOK == code {
 			_ = stream.ID
 
-			_ = dao.Sink.SaveForwardSink(&dao.SinkModel{
+			_ = dao.Sink.CreateSink(&dao.SinkModel{
 				SinkID:     params.Sink,
 				StreamID:   params.Stream,
 				Protocol:   params.Protocol,
@@ -432,7 +435,7 @@ func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *h
 func (api *ApiServer) OnPlayDone(params *PlayDoneParams, _ http.ResponseWriter, _ *http.Request) {
 	log.Sugar.Debugf("播放结束事件. protocol: %s stream: %s", params.Protocol, params.Stream)
 
-	sink, _ := dao.Sink.DeleteForwardSink(params.Sink)
+	sink, _ := dao.Sink.DeleteSink(params.Sink)
 	if sink == nil {
 		return
 	}
@@ -561,38 +564,38 @@ func (api *ApiServer) DoStreamStart(v *InviteParams, w http.ResponseWriter, r *h
 
 	var urls map[string]string
 	urls = make(map[string]string, 10)
-	for _, url := range stream.Urls {
+	for _, streamUrl := range stream.Urls {
 		var streamName string
 
-		if strings.HasPrefix(url, "ws") {
+		if strings.HasPrefix(streamUrl, "ws") {
 			streamName = "WS_FLV"
-		} else if strings.HasSuffix(url, ".flv") {
+		} else if strings.HasSuffix(streamUrl, ".flv") {
 			streamName = "FLV"
-		} else if strings.HasSuffix(url, ".m3u8") {
+		} else if strings.HasSuffix(streamUrl, ".m3u8") {
 			streamName = "HLS"
-		} else if strings.HasSuffix(url, ".rtc") {
+		} else if strings.HasSuffix(streamUrl, ".rtc") {
 			streamName = "WEBRTC"
-		} else if strings.HasPrefix(url, "rtmp") {
+		} else if strings.HasPrefix(streamUrl, "rtmp") {
 			streamName = "RTMP"
-		} else if strings.HasPrefix(url, "rtsp") {
+		} else if strings.HasPrefix(streamUrl, "rtsp") {
 			streamName = "RTSP"
 		}
 
 		// 加上登录的token, 播放授权
-		url += "?stream_token=" + v.Token
+		streamUrl += "?stream_token=" + v.Token
 
 		// 兼容livegbs前端播放webrtc
 		if streamName == "WEBRTC" {
-			if strings.HasPrefix(url, "http") {
-				url = strings.Replace(url, "http", "webrtc", 1)
-			} else if strings.HasPrefix(url, "https") {
-				url = strings.Replace(url, "https", "webrtcs", 1)
+			if strings.HasPrefix(streamUrl, "http") {
+				streamUrl = strings.Replace(streamUrl, "http", "webrtc", 1)
+			} else if strings.HasPrefix(streamUrl, "https") {
+				streamUrl = strings.Replace(streamUrl, "https", "webrtcs", 1)
 			}
 
-			url += "&wf=livegbs"
+			streamUrl += "&wf=livegbs"
 		}
 
-		urls[streamName] = url
+		urls[streamName] = streamUrl
 	}
 
 	response := LiveGBSStream{
@@ -674,7 +677,7 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 	if speed < 1 {
 		speed = 4
 	}
-	d := stack.Device{device}
+	d := &stack.Device{DeviceModel: device}
 	stream, err := d.StartStream(inviteType, params.streamId, params.ChannelID, startTimeSeconds, endTimeSeconds, params.Setup, speed, sync)
 	if err != nil {
 		return http.StatusInternalServerError, nil, err
@@ -844,7 +847,7 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, _ http.ResponseWriter, 
 		return nil, fmt.Errorf("设备离线")
 	}
 
-	device := &stack.Device{model}
+	device := &stack.Device{DeviceModel: model}
 	sn := stack.GetSN()
 	err := device.QueryRecord(v.ChannelID, v.StartTime, v.EndTime, sn, "all")
 	if err != nil {
@@ -927,7 +930,7 @@ func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, _ http.ResponseWri
 		return nil, fmt.Errorf("设备离线")
 	}
 
-	device := &stack.Device{model}
+	device := &stack.Device{DeviceModel: model}
 	if err := device.SubscribePosition(v.ChannelID); err != nil {
 		log.Sugar.Errorf("订阅位置失败 err: %s", err.Error())
 		return nil, err
@@ -945,7 +948,7 @@ func (api *ApiServer) OnSeekPlayback(v *SeekParams, _ http.ResponseWriter, _ *ht
 		return nil, fmt.Errorf("stream不存在")
 	}
 
-	stream := &stack.Stream{model}
+	stream := &stack.Stream{StreamModel: model}
 	seekRequest := stream.CreateRequestFromDialog(sip.INFO)
 	seq, _ := seekRequest.CSeq()
 	body := fmt.Sprintf(stack.SeekBodyFormat, seq.SeqNo, v.Seconds)
@@ -966,7 +969,7 @@ func (api *ApiServer) OnPTZControl(v *QueryRecordParams, _ http.ResponseWriter, 
 		return nil, fmt.Errorf("设备离线")
 	}
 
-	device := &stack.Device{model}
+	device := &stack.Device{DeviceModel: model}
 	device.ControlPTZ(v.Command, v.ChannelID)
 
 	return "OK", nil
@@ -976,8 +979,8 @@ func (api *ApiServer) OnHangup(v *BroadcastParams, _ http.ResponseWriter, _ *htt
 	log.Sugar.Debugf("广播挂断 %v", *v)
 
 	id := common.GenerateStreamID(common.InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
-	if sink, _ := dao.Sink.DeleteForwardSinkBySinkStreamID(id); sink != nil {
-		(&stack.Sink{sink}).Close(true, true)
+	if sink, _ := dao.Sink.DeleteSinkBySinkStreamID(id); sink != nil {
+		(&stack.Sink{SinkModel: sink}).Close(true, true)
 	}
 
 	return nil, nil
@@ -986,171 +989,62 @@ func (api *ApiServer) OnHangup(v *BroadcastParams, _ http.ResponseWriter, _ *htt
 func (api *ApiServer) OnBroadcast(v *BroadcastParams, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
 	log.Sugar.Debugf("广播邀请 %v", *v)
 
-	var sinkStreamId common.StreamID
-	var InviteSourceId string
-	var ok bool
-	// 响应错误消息
-	defer func() {
-		if !ok {
-			if InviteSourceId != "" {
-				stack.EarlyDialogs.Remove(InviteSourceId)
-			}
-
-			if sinkStreamId != "" {
-				_, _ = dao.Sink.DeleteForwardSinkBySinkStreamID(sinkStreamId)
-			}
-		}
-	}()
-
 	model, _ := dao.Device.QueryDevice(v.DeviceID)
 	if model == nil || !model.Online() {
-		log.Sugar.Errorf("广播失败, 设备离线, DeviceID: %s", v.DeviceID)
 		return nil, fmt.Errorf("设备离线")
 	}
 
 	// 主讲人id
-	stream, _ := dao.Stream.QueryStream(v.StreamId)
-	if stream == nil {
-		log.Sugar.Errorf("广播失败, 找不到主讲人, stream: %s", v.StreamId)
-		return nil, fmt.Errorf("找不到主讲人")
-	}
+	//stream, _ := dao.Stream.QueryStream(v.StreamId)
+	//if stream == nil {
+	//	return nil, fmt.Errorf("找不到主讲人")
+	//}
 
-	// 生成下级设备Invite请求携带的user
-	// server用于区分是哪个设备的广播
-
-	InviteSourceId = string(v.StreamId) + utils.RandStringBytes(10)
-	// 每个设备的广播唯一ID
-	sinkStreamId = common.GenerateStreamID(common.InviteTypeBroadcast, v.DeviceID, v.ChannelID, "", "")
-
-	setupType := common.SetupTypePassive
-	if v.Setup != nil && *v.Setup >= common.SetupTypeUDP && *v.Setup <= common.SetupTypeActive {
-		setupType = *v.Setup
-	}
-
-	sink := &dao.SinkModel{
-		StreamID:     v.StreamId,
-		SinkStreamID: sinkStreamId,
-		Protocol:     stack.SourceTypeGBTalk,
-		CreateTime:   time.Now().Unix(),
-		SetupType:    setupType,
-	}
-
-	streamWaiting := &stack.StreamWaiting{Data: sink}
-	if err := dao.Sink.SaveForwardSink(sink); err != nil {
-		log.Sugar.Errorf("广播失败, 设备正在广播中. stream: %s", sinkStreamId)
-		return nil, fmt.Errorf("设备正在广播中")
-	} else if _, ok = stack.EarlyDialogs.Add(InviteSourceId, streamWaiting); !ok {
-		log.Sugar.Errorf("广播失败, id冲突. id: %s", InviteSourceId)
-		return nil, fmt.Errorf("id冲突")
-	}
-
-	ok = false
-	cancel := r.Context()
-	device := stack.Device{model}
-	transaction := device.Broadcast(InviteSourceId, v.ChannelID)
-	responses := transaction.Responses()
-	select {
-	// 等待message broadcast的应答
-	case response := <-responses:
-		if response == nil {
-			log.Sugar.Errorf("广播失败, 信令超时. stream: %s", sinkStreamId)
-			return nil, fmt.Errorf("信令超时")
-		}
-
-		if response.StatusCode() != http.StatusOK {
-			log.Sugar.Errorf("广播失败, 错误响应, status code: %d", response.StatusCode())
-			return nil, fmt.Errorf("错误响应 code: %d", response.StatusCode())
-		}
-
-		// 等待下级设备的Invite请求
-		code := streamWaiting.Receive(10)
-		if code == -1 {
-			log.Sugar.Errorf("广播失败, 等待invite超时. stream: %s", sinkStreamId)
-			return nil, fmt.Errorf("等待invite超时")
-		} else if http.StatusOK != code {
-			log.Sugar.Errorf("广播失败, 下级设备invite失败. stream: %s", sinkStreamId)
-			return nil, fmt.Errorf("错误应答 code: %d", code)
-		} else {
-			//ok = AddForwardSink(v.StreamId, sink)
-			ok = true
-		}
-		break
-	case <-cancel.Done():
-		// http请求取消
-		log.Sugar.Warnf("广播失败, http请求取消. session: %s", sinkStreamId)
-		break
-	}
-
-	return nil, nil
+	device := &stack.Device{DeviceModel: model}
+	_, err := device.StartBroadcast(v.StreamId, v.DeviceID, v.ChannelID, r.Context())
+	return nil, err
 }
 
 func (api *ApiServer) OnTalk(w http.ResponseWriter, r *http.Request) {
-	//vars := mux.Vars(r)
-	//device := vars["device"]
-	//channel := vars["channel"]
-	format := r.URL.Query().Get("format")
+	vars := mux.Vars(r)
+	deviceId := vars["device"]
+	channelId := vars["channel"]
 
-	// 升级HTTP连接到WebSocket
-	conn, err := api.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Sugar.Errorf("WebSocket升级失败: %v", err)
-		return
-	}
-	defer conn.Close()
-
-	parse, err := url.Parse(common.Config.MediaServer)
-	if err != nil {
+	_, online := stack.OnlineDeviceManager.Find(deviceId)
+	if !online {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = common.HttpResponseJson(w, "设备离线")
 		return
 	}
 
-	// 目标WebSocket服务地址
-	targetURL := fmt.Sprintf("ws://%s%s?format=%s", parse.Host, r.URL.Path, format)
-
-	// 连接到目标WebSocket服务
-	targetConn, _, err := websocket.DefaultDialer.Dial(targetURL, nil)
+	model, err := dao.Device.QueryDevice(deviceId)
 	if err != nil {
-		log.Sugar.Errorf("连接目标WebSocket失败: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = common.HttpResponseJson(w, "设备不存在")
 		return
 	}
-	defer targetConn.Close()
 
-	group := sync.WaitGroup{}
-	group.Add(2)
+	// 目前只实现livegbs的一对一的对讲, stream id就是通道的广播id
+	streamid := common.GenerateStreamID(common.InviteTypeBroadcast, deviceId, channelId, "", "")
+	device := &stack.Device{DeviceModel: model}
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	sinkModel, err := device.StartBroadcast(streamid, deviceId, channelId, ctx)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = common.HttpResponseJson(w, "广播失败")
+		return
+	}
 
-	// 启动两个goroutine双向转发数据
-	// 从客户端转发到目标服务
-	go func() {
-		defer group.Done()
-		for {
-			messageType, p, err := conn.ReadMessage()
-			if err != nil {
-				log.Sugar.Debugf("读取客户端消息错误: %v", err)
-				return
-			}
-			if err := targetConn.WriteMessage(messageType, p); err != nil {
-				log.Sugar.Debugf("写入目标服务消息错误: %v", err)
-				return
-			}
-		}
-	}()
+	err = common.WSForwardTo(r.URL.Path, w, r)
+	if err != nil {
+		log.Sugar.Errorf("广播失败 err: %s", err.Error())
+	}
 
-	// 从目标服务转发到客户端
-	go func() {
-		defer group.Done()
-		for {
-			messageType, p, err := targetConn.ReadMessage()
-			if err != nil {
-				log.Sugar.Debugf("读取目标服务消息错误: %v", err)
-				return
-			}
-			if err := conn.WriteMessage(messageType, p); err != nil {
-				log.Sugar.Debugf("写入客户端消息错误: %v", err)
-				return
-			}
-		}
-	}()
+	log.Sugar.Infof("广播结束 device: %s/%s", deviceId, channelId)
 
-	group.Wait()
+	// 对讲结束, 关闭sink
+	sink := &stack.Sink{SinkModel: sinkModel}
+	sink.Close(true, true)
 }
 
 func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
@@ -1158,12 +1052,12 @@ func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
 
 	streams, _ := dao.Stream.DeleteStreams()
 	for _, stream := range streams {
-		(&stack.Stream{stream}).Close(true, false)
+		(&stack.Stream{StreamModel: stream}).Close(true, false)
 	}
 
-	sinks, _ := dao.Sink.DeleteForwardSinks()
+	sinks, _ := dao.Sink.DeleteSinks()
 	for _, sink := range sinks {
-		(&stack.Sink{sink}).Close(true, false)
+		(&stack.Sink{SinkModel: sink}).Close(true, false)
 	}
 }
 
@@ -1372,7 +1266,7 @@ func (api *ApiServer) OnCatalogQuery(params *QueryDeviceChannel, _ http.Response
 		return nil, fmt.Errorf("not found device")
 	}
 
-	list, err := (&stack.Device{deviceModel}).QueryCatalog(15)
+	list, err := (&stack.Device{DeviceModel: deviceModel}).QueryCatalog(15)
 	if err != nil {
 		return nil, err
 	}
@@ -1437,7 +1331,7 @@ func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter
 
 		var n int
 		n, err = resp.Body.Read(bytes)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if n < 1 {
 			break
 		}
@@ -1456,7 +1350,7 @@ func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter
 	return &response, nil
 }
 
-func (api *ApiServer) OnSessionStop(params *StreamIDParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnSessionStop(params *StreamIDParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	err := stack.MSCloseSource(string(params.StreamID))
 	if err != nil {
 		return nil, err
@@ -1465,7 +1359,7 @@ func (api *ApiServer) OnSessionStop(params *StreamIDParams, w http.ResponseWrite
 	return "OK", nil
 }
 
-func (api *ApiServer) OnDeviceTree(q *QueryDeviceChannel, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnDeviceTree(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	var response []*LiveGBSDeviceTree
 
 	// 查询所有设备
@@ -1506,7 +1400,7 @@ func (api *ApiServer) OnDeviceTree(q *QueryDeviceChannel, w http.ResponseWriter,
 	return &response, nil
 }
 
-func (api *ApiServer) OnDeviceRemove(q *DeleteDevice, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnDeviceRemove(q *DeleteDevice, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	var err error
 	if q.IP != "" {
 		// 删除IP下的所有设备
@@ -1534,7 +1428,7 @@ func (api *ApiServer) OnDeviceRemove(q *DeleteDevice, w http.ResponseWriter, req
 	return "OK", nil
 }
 
-func (api *ApiServer) OnEnableSet(params *SetEnable, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnEnableSet(params *SetEnable, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	model, err := dao.Platform.QueryPlatformByID(params.ID)
 	if err != nil {
 		return nil, err
@@ -1637,7 +1531,7 @@ func (api *ApiServer) OnPlatformChannelList(q *QueryCascadeChannelList, w http.R
 	return &response, nil
 }
 
-func (api *ApiServer) OnShareAllChannel(q *SetEnable, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnShareAllChannel(q *SetEnable, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	var err error
 	if q.ShareAllChannel {
 		// 删除所有已经绑定的通道, 设置级联所有通道为true
@@ -1656,7 +1550,7 @@ func (api *ApiServer) OnShareAllChannel(q *SetEnable, w http.ResponseWriter, req
 	return "OK", nil
 }
 
-func (api *ApiServer) OnCustomChannelSet(q *CustomChannel, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnCustomChannelSet(q *CustomChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	if len(q.CustomID) != 20 {
 		return nil, fmt.Errorf("20位国标ID")
 	}
@@ -1668,7 +1562,7 @@ func (api *ApiServer) OnCustomChannelSet(q *CustomChannel, w http.ResponseWriter
 	return "OK", nil
 }
 
-func (api *ApiServer) OnCatalogPush(q *SetEnable, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnCatalogPush(_ *SetEnable, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	return "OK", nil
 }
 
@@ -1680,7 +1574,7 @@ func (api *ApiServer) OnRecordStop(writer http.ResponseWriter, request *http.Req
 	common.HttpForwardTo("/api/v1/record/stop", writer, request)
 }
 
-func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	if "scale" != params.Command || params.Scale <= 0 || params.Scale > 4 {
 		return nil, errors.New("scale error")
 	}
@@ -1698,7 +1592,7 @@ func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, w http.ResponseW
 		return nil, err
 	}
 
-	s := stack.Device{device}
+	s := &stack.Device{DeviceModel: device}
 	s.ScalePlayback(stream.Dialog, params.Scale)
 	err = stack.MSSpeedSet(string(params.StreamID), params.Scale)
 	if err != nil {

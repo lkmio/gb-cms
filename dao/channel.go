@@ -309,3 +309,12 @@ func (d *daoChannel) QueryOnlineSubChannelCount(rootId string, groupId string, h
 func (d *daoChannel) UpdateCustomID(rootId, channelId string, customID string) error {
 	return db.Model(&ChannelModel{}).Where("root_id =? and device_id =?", rootId, channelId).Update("custom_id", customID).Error
 }
+
+func (d *daoChannel) QueryChannelsByParentID(rootId string, parentId string) ([]*ChannelModel, error) {
+	var channels []*ChannelModel
+	tx := db.Where("root_id =? and parent_id =?", rootId, parentId).Find(&channels)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+	return channels, nil
+}

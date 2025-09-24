@@ -39,7 +39,7 @@ func (g *Platform) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
 
 // CloseStream 关闭级联会话
 func (g *Platform) CloseStream(callId string, bye, ms bool) {
-	sink, _ := dao.Sink.DeleteForwardSinkByCallID(callId)
+	sink, _ := dao.Sink.DeleteSinkByCallID(callId)
 	if sink != nil {
 		(&Sink{sink}).Close(bye, ms)
 	}
@@ -47,7 +47,7 @@ func (g *Platform) CloseStream(callId string, bye, ms bool) {
 
 // CloseStreams 关闭所有级联会话
 func (g *Platform) CloseStreams(bye, ms bool) {
-	sinks, _ := dao.Sink.DeleteForwardSinksByServerAddr(g.ServerAddr)
+	sinks, _ := dao.Sink.DeleteSinksByServerAddr(g.ServerAddr)
 	for _, sink := range sinks {
 		(&Sink{sink}).Close(bye, ms)
 	}
