@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"gb-cms/common"
-	"gb-cms/dao"
 	"gb-cms/log"
 	"gb-cms/stack"
 	"net/http"
@@ -132,7 +131,7 @@ func registerLiveGBSApi() {
 			ChannelOnline: ChannelOnlineCount,
 			ChannelTotal:  ChannelTotalCount,
 			DeviceOnline:  stack.OnlineDeviceManager.Count(),
-			DeviceTotal:   dao.DeviceCount,
+			DeviceTotal:   DeviceCount,
 		}
 
 		_ = common.HttpResponseSuccess(writer, response)

@@ -27,6 +27,7 @@ var (
 
 	ChannelTotalCount  int // 包含目录
 	ChannelOnlineCount int // 不包含目录
+	DeviceCount        int // 设备基数
 )
 
 const (
@@ -445,6 +446,9 @@ func StartStats() {
 			} else {
 				ChannelOnlineCount = onlineCount
 			}
+
+			// 统计设备总数
+			DeviceCount, _ = dao.Device.Count()
 		}
 
 		count++

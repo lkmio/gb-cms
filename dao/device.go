@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-var (
-	DeviceCount int
-)
-
 type DeviceModel struct {
 	GBModel
 	DeviceID      string              `json:"device_id" gorm:"index"`
@@ -64,7 +60,6 @@ func (d *daoDevice) LoadDevices() (map[string]*DeviceModel, error) {
 		deviceMap[device.DeviceID] = device
 	}
 
-	DeviceCount = len(devices)
 	return deviceMap, nil
 }
 
@@ -77,11 +72,7 @@ func (d *daoDevice) SaveDevice(device *DeviceModel) error {
 
 		if device.ID == 0 {
 			//return tx.Create(&old).Error
-			err := tx.Save(device).Error
-			if err == nil {
-				DeviceCount++
-			}
-			return err
+			return tx.Save(device).Error
 		} else {
 			return tx.Model(device).Select("Transport", "RemoteIP", "RemotePort", "Status", "RegisterTime", "LastHeartbeat").Updates(*device).Error
 		}
@@ -109,11 +100,6 @@ func (d *daoDevice) UpdateDeviceInfo(deviceId string, device *DeviceModel) error
 
 func (d *daoDevice) UpdateDeviceStatus(deviceId string, status common.OnlineStatus) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		if status == common.ON {
-			DeviceCount++
-		} else if status == common.OFF {
-			DeviceCount--
-		}
 		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("status", status).Error
 	})
 }
@@ -236,4 +222,10 @@ func (d *daoDevice) DeleteDevicesByUA(ua string) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Where("user_agent =?", ua).Unscoped().Delete(&DeviceModel{}).Error
 	})
+}
+
+func (d *daoDevice) Count() (int, error) {
+	var count int64
+	db.Model(&DeviceModel{}).Count(&count)
+	return int(count), nil
 }
