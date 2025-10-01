@@ -212,6 +212,8 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 
 		// 批量保存通道
 		result, err = d.SaveChannels(list)
+		// 更新查询目录的时间
+		_ = dao.Device.UpdateRefreshCatalogTime(d.DeviceID, time.Now())
 	}
 
 	if !UniqueTaskManager.Commit(GenerateCatalogTaskID(d.DeviceID), query, catalogProgress) {

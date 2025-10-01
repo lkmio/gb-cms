@@ -10,7 +10,6 @@ import (
 	"gb-cms/log"
 	"gb-cms/stack"
 	"github.com/pretty66/websocketproxy"
-	"github.com/shirou/gopsutil/v3/host"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"net"
@@ -24,7 +23,6 @@ var (
 	AdminMD5    string // 明文密码"admin"的MD5值
 	PwdMD5      string
 	StartUpTime time.Time
-	KernelArch  string
 )
 
 func init() {
@@ -52,13 +50,6 @@ func main() {
 	common.Config = config
 	indent, _ := json.MarshalIndent(common.Config, "", "\t")
 	log.Sugar.Infof("server config:\r\n%s", indent)
-
-	info, err := host.Info()
-	if err != nil {
-		log.Sugar.Errorf(err.Error())
-	} else {
-		KernelArch = info.KernelArch
-	}
 
 	if config.Hooks.OnInvite != "" {
 		hook.RegisterEventUrl(hook.EventTypeDeviceOnInvite, config.Hooks.OnInvite)
@@ -133,6 +124,9 @@ func main() {
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
 	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
 	go startApiServer(httpAddr)
+
+	// 启动目录刷新任务
+	stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
 
 	err = http.ListenAndServe(":19000", nil)
 	if err != nil {

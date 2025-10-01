@@ -157,6 +157,33 @@ type CustomChannel struct {
 	CustomID  string `json:"id"`
 }
 
+type DeviceInfo struct {
+	DeviceID           string  `json:"serial"`
+	CustomName         string  `json:"custom_name"`
+	MediaTransport     string  `json:"media_transport"`
+	MediaTransportMode string  `json:"media_transport_mode"`
+	StreamMode         string  `json:"stream_mode"`
+	SMSID              string  `json:"sms_id"`
+	SMSGroupID         string  `json:"sms_group_id"`
+	RecvStreamIP       string  `json:"recv_stream_ip"`
+	ContactIP          string  `json:"contact_ip"`
+	Charset            string  `json:"charset"`
+	CatalogInterval    int     `json:"catalog_interval"`
+	SubscribeInterval  int     `json:"subscribe_interval"`
+	CatalogSubscribe   bool    `json:"catalog_subscribe"`
+	AlarmSubscribe     bool    `json:"alarm_subscribe"`
+	PositionSubscribe  bool    `json:"position_subscribe"`
+	PTZSubscribe       bool    `json:"ptz_subscribe"`
+	RecordCenter       bool    `json:"record_center"`
+	RecordIndistinct   bool    `json:"record_indistinct"`
+	CivilCodeFirst     bool    `json:"civil_code_first"`
+	KeepOriginalTree   bool    `json:"keep_original_tree"`
+	Password           string  `json:"password"`
+	DropChannelType    string  `json:"drop_channel_type"`
+	Longitude          float64 `json:"longitude"`
+	Latitude           float64 `json:"latitude"`
+}
+
 var apiServer *ApiServer
 
 func init() {
@@ -248,6 +275,7 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/cascade/removechannels", withVerify(apiServer.OnPlatformChannelUnbind))                                       // 级联解绑通道
 	apiServer.router.HandleFunc("/api/v1/cascade/setshareallchannel", withVerify(common.WithFormDataParams(apiServer.OnShareAllChannel, SetEnable{}))) // 开启或取消级联所有通道
 	apiServer.router.HandleFunc("/api/v1/cascade/pushcatalog", withVerify(common.WithFormDataParams(apiServer.OnCatalogPush, SetEnable{})))            // 推送目录
+	apiServer.router.HandleFunc("/api/v1/device/setinfo", withVerify(common.WithFormDataParams(apiServer.OnDeviceInfoSet, DeviceInfo{})))              // 编辑设备信息
 
 	// 暂未开发
 	apiServer.router.HandleFunc("/api/v1/alarm/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                // 报警查询
@@ -748,9 +776,13 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			lastKeealiveTime = offlineTime
 		}
 
+		if device.CatalogInterval < 1 {
+			device.CatalogInterval = dao.DefaultCatalogInterval
+		}
+
 		response.DeviceList_ = append(response.DeviceList_, LiveGBSDevice{
-			AlarmSubscribe:   false, // 报警订阅
-			CatalogInterval:  3600,  // 目录刷新时间
+			AlarmSubscribe:   false,                  // 报警订阅
+			CatalogInterval:  device.CatalogInterval, // 目录刷新时间
 			CatalogProgress:  catalogProgress,
 			CatalogSubscribe: false, // 目录订阅
 			ChannelCount:     device.ChannelsTotal,
@@ -1599,5 +1631,15 @@ func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, _ http.ResponseW
 		return nil, err
 	}
 
+	return "OK", nil
+}
+
+func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter, req *http.Request) (interface{}, error) {
+	// 目前仅实现修改目录订阅间隔
+	if params.CatalogInterval < 60 {
+		return nil, errors.New("catalog_interval error")
+	} else if err := dao.Device.UpdateCatalogInterval(params.DeviceID, params.CatalogInterval); err != nil {
+		return nil, err
+	}
 	return "OK", nil
 }

@@ -10,6 +10,7 @@ import (
 	"gb-cms/stack"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
 	"math"
@@ -28,6 +29,8 @@ var (
 	ChannelTotalCount  int // 包含目录
 	ChannelOnlineCount int // 不包含目录
 	DeviceCount        int // 设备基数
+
+	KernelArch string
 )
 
 const (
@@ -285,6 +288,14 @@ func isPhysicalInterface(name string, stats net.IOCountersStat) bool {
 }
 
 func StartStats() {
+	// 硬件信息统计一次
+	info, err := host.Info()
+	if err != nil {
+		log.Sugar.Errorf(err.Error())
+	} else {
+		KernelArch = info.KernelArch
+	}
+
 	// 统计间隔
 	refreshInterval := 2 * time.Second
 

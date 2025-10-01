@@ -22,6 +22,17 @@ func (m *onlineDeviceManager) Add(deviceId string, t time.Time) {
 	m.devices[deviceId] = t
 }
 
+func (m *onlineDeviceManager) Refresh(deviceId string, t time.Time) bool {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if _, ok := m.devices[deviceId]; ok {
+		m.devices[deviceId] = t
+		return true
+	}
+
+	return false
+}
+
 func (m *onlineDeviceManager) Remove(deviceId string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()

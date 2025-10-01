@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+const (
+	DefaultCatalogInterval = 3600 // 默认目录刷新间隔，单位秒
+)
+
 type DeviceModel struct {
 	GBModel
 	DeviceID      string              `json:"device_id" gorm:"index"`
@@ -26,6 +30,10 @@ type DeviceModel struct {
 	ChannelsTotal  int `json:"total_channels"`  // 通道总数
 	ChannelsOnline int `json:"online_channels"` // 通道在线数量
 	Setup          common.SetupType
+
+	CatalogInterval    int       // 录像目录刷新间隔，单位秒, 默认3600每小时刷新
+	LastRefreshCatalog time.Time `gorm:"type:datetime"` // 最后刷新目录时间
+	//ScheduleRecord         [7]uint64 // 录像计划，0-6表示周一至周日，一天的时间刻度用一个uint64表示，从高位开始代表0点，每bit半小时，共占用48位, 1表示录像，0表示不录像
 }
 
 func (d *DeviceModel) TableName() string {
@@ -228,4 +236,45 @@ func (d *daoDevice) Count() (int, error) {
 	var count int64
 	db.Model(&DeviceModel{}).Count(&count)
 	return int(count), nil
+}
+
+func (d *daoDevice) UpdateRefreshCatalogTime(deviceId string, now time.Time) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("last_refresh_catalog", now.Format("2006-01-02 15:04:05")).Error
+	})
+}
+
+// QueryRefreshCatalogExpiredDevices 查询刷新目录到期的设备列表
+func (d *daoDevice) QueryRefreshCatalogExpiredDevices(now time.Time) ([]*DeviceModel, error) {
+	var devices []*DeviceModel
+	tx := db.Where(
+		"(datetime(last_refresh_catalog, '+'||IFNULL(catalog_interval, ?)||' seconds') < ? OR last_refresh_catalog IS NULL) AND status = ?",
+		DefaultCatalogInterval,
+		now,
+		common.ON,
+	).Find(&devices)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+
+	return devices, nil
+}
+
+// QueryNeedRefreshCatalog 查询设备是否需要刷新目录
+func (d *daoDevice) QueryNeedRefreshCatalog(deviceId string, now time.Time) bool {
+	var devices int64
+	_ = db.Model(&DeviceModel{}).Where(
+		"device_id = ? AND (datetime(last_refresh_catalog, '+'||IFNULL(catalog_interval, ?)||' seconds') < ? OR last_refresh_catalog IS NULL)",
+		deviceId,
+		DefaultCatalogInterval,
+		now,
+	).Count(&devices)
+
+	return devices > 0
+}
+
+func (d *daoDevice) UpdateCatalogInterval(id string, interval int) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&DeviceModel{}).Where("device_id =?", id).Update("catalog_interval", interval).Error
+	})
 }

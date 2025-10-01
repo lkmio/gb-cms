@@ -34,6 +34,11 @@ func (e *EventHandler) OnUnregister(id string) {
 	_ = dao.Device.UpdateDeviceStatus(id, common.OFF)
 }
 
+// OnRegister 处理设备注册请求
+//
+//	int - 注册有效期(秒)
+//	GBDevice - 注册成功后返回的设备信息, 返回nil表示注册失败
+//	bool - 是否需要发送目录查询(true表示需要)
 func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, GBDevice, bool) {
 	now := time.Now()
 	host, p, _ := net.SplitHostPort(addr)
@@ -53,18 +58,21 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 		log.Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
 	}
 
+	OnlineDeviceManager.Add(id, now)
 	count, _ := dao.Channel.QueryChanelCount(id, true)
-	return 3600, &Device{device}, count < 1
+	return 3600, &Device{device}, count < 1 || dao.Device.QueryNeedRefreshCatalog(id, now)
 }
 
 func (e *EventHandler) OnKeepAlive(id string, addr string) bool {
 	now := time.Now()
-	if err := dao.Device.RefreshHeartbeat(id, now, addr); err != nil {
+	if !OnlineDeviceManager.Refresh(id, now) {
+		// 拒绝设备离线后收到的心跳, 让设备重新发起注册
+		return false
+	} else if err := dao.Device.RefreshHeartbeat(id, now, addr); err != nil {
 		log.Sugar.Errorf("更新有效期失败. device: %s err: %s", id, err.Error())
 		return false
 	}
 
-	OnlineDeviceManager.Add(id, now)
 	return true
 }
 
