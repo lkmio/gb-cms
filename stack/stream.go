@@ -83,7 +83,7 @@ func (s *Stream) Bye() {
 	}
 }
 
-func CreateRequestFromDialog(dialog sip.Request, method sip.RequestMethod) sip.Request {
+func CreateRequestFromDialog(dialog sip.Request, method sip.RequestMethod, remoteIP string, remotePort int) sip.Request {
 	{
 		seq, _ := dialog.CSeq()
 		seq.SeqNo++
@@ -93,11 +93,22 @@ func CreateRequestFromDialog(dialog sip.Request, method sip.RequestMethod) sip.R
 	request := dialog.Clone().(sip.Request)
 	request.SetMethod(method)
 	request.SetSource("")
+	request.SetDestination("")
+
+	// 替換到device的真實地址
+	if remoteIP != "" {
+		recipient := request.Recipient()
+		if uri, ok := recipient.(*sip.SipUri); ok {
+			sipPort := sip.Port(remotePort)
+			uri.FHost = remoteIP
+			uri.FPort = &sipPort
+		}
+	}
 	return request
 }
 
 func (s *Stream) CreateRequestFromDialog(method sip.RequestMethod) sip.Request {
-	return CreateRequestFromDialog(s.Dialog, method)
+	return CreateRequestFromDialog(s.Dialog, method, "", 0)
 }
 
 func CloseStream(streamId common.StreamID, ms bool) {

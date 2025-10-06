@@ -21,7 +21,7 @@ type Config_ struct {
 
 	AliveExpires           int    `json:"alive_expires"`
 	MobilePositionInterval int    `json:"mobile_position_interval"`
-	MobilePositionExpires  int    `json:"mobile_position_expires"`
+	SubscribeExpires       int    `json:"subscribe_expires"`
 	MediaServer            string `json:"media_server"`
 	AutoCloseOnIdle        bool   `json:"auto_close_on_idle"`
 

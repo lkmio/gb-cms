@@ -91,7 +91,10 @@ func NewOnlineDeviceManager() *onlineDeviceManager {
 // OnExpires Redis设备ID到期回调
 func OnExpires(db int, id string) {
 	log.Sugar.Infof("设备心跳过期 device: %s", id)
+	CloseDevice(id)
+}
 
+func CloseDevice(id string) {
 	device, _ := dao.Device.QueryDevice(id)
 	if device == nil {
 		log.Sugar.Errorf("设备不存在 device: %s", id)

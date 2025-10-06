@@ -38,6 +38,7 @@ const (
 	CmdKeepalive      = "Keepalive"
 	CmdBroadcast      = "Broadcast"
 	CmdMediaStatus    = "MediaStatus"
+	CmdAlarm          = "Alarm"
 )
 
 type sipServer struct {
@@ -98,9 +99,12 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 
 	SendResponse(wrapper.tx, response)
 
+	// 注册成功
 	if device != nil {
 		// 查询设备信息
 		device.QueryDeviceInfo()
+		// 处理各种订阅
+		device.SubscribeEvent()
 	}
 
 	if queryCatalog {
@@ -199,13 +203,34 @@ func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
 	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
 	SendResponse(wrapper.tx, response)
 
-	mobilePosition := MobilePositionNotify{}
-	if err := DecodeXML([]byte(wrapper.req.Body()), &mobilePosition); err != nil {
-		log2.Sugar.Errorf("解析位置通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
-		return
+	// 位置通知/目录通知/报警通知/PTZ?
+	cmd := GetCmdType(wrapper.req.Body())
+	switch cmd {
+	case CmdMobilePosition:
+		mobilePosition := MobilePositionNotify{}
+		if err := DecodeXML([]byte(wrapper.req.Body()), &mobilePosition); err != nil {
+			log2.Sugar.Errorf("解析位置通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
+			return
+		}
+		s.handler.OnNotifyPositionMessage(&mobilePosition)
+		break
+	case CmdCatalog:
+		catalog := CatalogResponse{}
+		if err := DecodeXML([]byte(wrapper.req.Body()), &catalog); err != nil {
+			log2.Sugar.Errorf("解析目录通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
+			return
+		}
+		s.handler.OnNotifyCatalogMessage(&catalog)
+		break
+	case CmdAlarm:
+		alarm := AlarmNotify{}
+		if err := DecodeXML([]byte(wrapper.req.Body()), &alarm); err != nil {
+			log2.Sugar.Errorf("解析报警通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
+			return
+		}
+		s.handler.OnNotifyAlarmMessage(&alarm)
+		break
 	}
-
-	s.handler.OnNotifyPosition(&mobilePosition)
 }
 
 func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
@@ -296,6 +321,33 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 			ok = true
 			id, _ := wrapper.req.CallID()
 			CloseStreamByCallID(id.Value())
+		} else if CmdAlarm == cmd {
+			ok = true
+			// 9.4 报警事件通知和分发
+			notify := AlarmNotify{}
+			if err := DecodeXML([]byte(wrapper.req.Body()), &notify); err != nil {
+				log2.Sugar.Errorf("解析报警通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
+				return
+			}
+
+			// 发送响应命令
+			d, err := dao.Device.QueryDevice(deviceId)
+			if err != nil {
+				return
+			} else {
+				device := Device{d}
+				device.SendAlarmNotificationResponseCmd(notify.SN, notify.DeviceID)
+				s.handler.OnNotifyAlarmMessage(&notify)
+			}
+		} else if CmdCatalog == cmd {
+			ok = true
+
+			catalog := CatalogResponse{}
+			if err := DecodeXML([]byte(wrapper.req.Body()), &catalog); err != nil {
+				log2.Sugar.Errorf("解析目录通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
+				return
+			}
+			s.handler.OnNotifyCatalogMessage(&catalog)
 		}
 
 		break

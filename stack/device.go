@@ -72,7 +72,8 @@ type GBDevice interface {
 	//
 	//OnNotifyAlarm()
 
-	SubscribePosition(channelId string) error
+	SubscribeEvent()
+	//SubscribePosition(channelId string) error
 
 	//SubscribeCatalog()
 	//
@@ -327,40 +328,6 @@ func (d *Device) OnBye(request sip.Request) {
 
 }
 
-func (d *Device) SubscribePosition(channelId string) error {
-	if channelId == "" {
-		channelId = d.DeviceID
-	}
-
-	//暂时不考虑级联
-	builder := d.NewRequestBuilder(sip.SUBSCRIBE, common.Config.SipID, common.Config.SipContactAddr, channelId)
-	body := fmt.Sprintf(MobilePositionMessageFormat, GetSN(), channelId, common.Config.MobilePositionInterval)
-
-	expiresHeader := sip.Expires(common.Config.MobilePositionExpires)
-	builder.SetExpires(&expiresHeader)
-	builder.SetContentType(&XmlMessageType)
-	builder.SetContact(GlobalContactAddress)
-	builder.SetBody(body)
-
-	request, err := builder.Build()
-	if err != nil {
-		return err
-	}
-
-	event := Event(EventPresence)
-	request.AppendHeader(&event)
-	response, err := common.SipStack.SendRequestWithTimeout(5, request)
-	if err != nil {
-		return err
-	}
-
-	if response.StatusCode() != 200 {
-		return fmt.Errorf("err code %d", response.StatusCode())
-	}
-
-	return nil
-}
-
 func (d *Device) Broadcast(sourceId, channelId string) sip.ClientTransaction {
 	body := fmt.Sprintf(BroadcastFormat, GetSN(), sourceId, channelId)
 	request := d.BuildMessageRequest(channelId, body)
@@ -450,6 +417,8 @@ func (d *Device) Close() {
 	// 更新在数据库中的状态
 	d.Status = common.OFF
 	_ = dao.Device.UpdateDeviceStatus(d.DeviceID, common.OFF)
+	// 删除设备下的所有会话
+	_ = dao.Dialog.DeleteDialogs(d.DeviceID)
 }
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求

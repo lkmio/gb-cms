@@ -25,6 +25,8 @@ type Handler interface {
 	OnDeviceInfo(device string, response *DeviceInfoResponse)
 
 	OnNotifyPosition(notify *MobilePositionNotify)
+
+	OnNotifyCatalog(catalog *CatalogResponse)
 }
 
 type EventHandler struct {
@@ -56,6 +58,10 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 
 	if err := dao.Device.SaveDevice(device); err != nil {
 		log.Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
+		return 0, nil, false
+	} else if d, err := dao.Device.QueryDevice(id); err == nil {
+		// 查询所有字段
+		device = d
 	}
 
 	OnlineDeviceManager.Add(id, now)
@@ -114,6 +120,46 @@ func (e *EventHandler) OnDeviceInfo(device string, response *DeviceInfoResponse)
 	}
 }
 
-func (e *EventHandler) OnNotifyPosition(notify *MobilePositionNotify) {
+func (e *EventHandler) OnNotifyPositionMessage(notify *MobilePositionNotify) {
+	log.Sugar.Infof("收到位置通知 device:%s data:%v", notify.DeviceID, notify)
+}
 
+func (e *EventHandler) OnNotifyCatalogMessage(catalog *CatalogResponse) {
+	log.Sugar.Infof("收到目录通知 device:%s data:%v", catalog.DeviceID, catalog)
+
+	for _, channel := range catalog.DeviceList.Devices {
+		if channel.Event == "" {
+			log.Sugar.Warnf("目录事件为空 设备ID: %s", channel.DeviceID)
+			continue
+		}
+
+		channel.RootID = catalog.DeviceID
+		switch channel.Event {
+		case "ON":
+			_ = dao.Channel.UpdateChannelStatus(catalog.DeviceID, channel.DeviceID, string(common.ON))
+			break
+		case "OFF":
+			_ = dao.Channel.UpdateChannelStatus(catalog.DeviceID, channel.DeviceID, string(common.OFF))
+			break
+		case "VLOST":
+			break
+		case "DEFECT":
+			break
+		case "ADD":
+			_ = dao.Channel.SaveChannel(channel)
+			break
+		case "DEL":
+			_ = dao.Channel.DeleteChannel(catalog.DeviceID, channel.DeviceID)
+			break
+		case "UPDATE":
+			_ = dao.Channel.SaveChannel(channel)
+			break
+		default:
+			log.Sugar.Warnf("未知的目录事件 %s 设备ID: %s", channel.Event, channel.DeviceID)
+		}
+	}
+}
+
+func (e *EventHandler) OnNotifyAlarmMessage(alarm *AlarmNotify) {
+	log.Sugar.Infof("收到报警通知 device:%s data:%v", alarm.DeviceID, alarm)
 }

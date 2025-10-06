@@ -3,20 +3,34 @@ package stack
 import (
 	"fmt"
 	"gb-cms/common"
+	"gb-cms/dao"
 	"gb-cms/log"
 	"github.com/ghettovoice/gosip/sip"
 )
 
 const (
-	EventPresence = "presence" //SIP 的事件通知机制（如 RFC 3856 和 RFC 6665）实现
-	//MobilePositionMessageFormat = "<?xml version=\"1.0\"?>\r\n" +
-	//	"<Query>\r\n" +
-	//	"<CmdType>MobilePosition</CmdType>\r\n" +
-	//	"<SN>%s</SN>\r\n" +
-	//	"<DeviceID>%s</DeviceID>\r\n" +
-	//	"<Interval>%d</Interval>\r\n" +
-	//	"</Query>\r\n"
-	MobilePositionMessageFormat = "<Query><CmdType>MobilePosition</CmdType><SN>%d</SN><DeviceID>%s</DeviceID><Interval>%d</Interval></Query>"
+	EventPresence               = "presence" //SIP 的事件通知机制（如 RFC 3856 和 RFC 6665）实现
+	MobilePositionMessageFormat = "<?xml version=\"1.0\"?>\r\n" +
+		"<Query>\r\n" +
+		"<CmdType>MobilePosition</CmdType>\r\n" +
+		"<SN>%d</SN>\r\n" +
+		"<DeviceID>%s</DeviceID>\r\n" +
+		"<Interval>%d</Interval>\r\n" +
+		"</Query>\r\n"
+
+	MobilePositionMessageFormatUnsubscribe = "<?xml version=\"1.0\"?>\r\n" +
+		"<Query>\r\n" +
+		"<CmdType>MobilePosition</CmdType>\r\n" +
+		"<SN>%d</SN>\r\n" +
+		"<DeviceID>%s</DeviceID>\r\n" +
+		"</Query>\r\n"
+
+	//MobilePositionMessageFormat = "<Query>" +
+	//	"<CmdType>MobilePosition</CmdType>" +
+	//	"<SN>%d</SN>" +
+	//	"<DeviceID>%s</DeviceID>" +
+	//	"<Interval>%d</Interval>" +
+	//	"</Query>"
 )
 
 type MobilePositionNotify struct {
@@ -31,16 +45,14 @@ type MobilePositionNotify struct {
 	Altitude  string `xml:"Altitude"`
 }
 
-func (d *Device) DoSubscribePosition(channelId string) error {
-	if channelId == "" {
-		channelId = d.DeviceID
-	}
+func (d *Device) SubscribePosition() error {
+	channelId := d.DeviceID
 
-	//暂时不考虑级联
+	// 暂时不考虑级联
 	builder := d.NewRequestBuilder(sip.SUBSCRIBE, common.Config.SipID, common.Config.SipContactAddr, channelId)
-	body := fmt.Sprintf(MobilePositionMessageFormat, 1, channelId, common.Config.MobilePositionInterval)
+	body := fmt.Sprintf(MobilePositionMessageFormat, GetSN(), channelId, common.Config.MobilePositionInterval)
 
-	expiresHeader := sip.Expires(common.Config.MobilePositionExpires)
+	expiresHeader := sip.Expires(common.Config.SubscribeExpires)
 	builder.SetExpires(&expiresHeader)
 	builder.SetContentType(&XmlMessageType)
 	builder.SetContact(GlobalContactAddress)
@@ -51,20 +63,26 @@ func (d *Device) DoSubscribePosition(channelId string) error {
 		return err
 	}
 
-	event := Event(EventPresence)
-	request.AppendHeader(&event)
-	response, err := common.SipStack.SendRequestWithTimeout(5, request)
+	err = SendSubscribeMessage(d.DeviceID, request, dao.SipDialogTypeSubscribePosition, EventPresence)
 	if err != nil {
-		return err
+		log.Sugar.Errorf("订阅位置失败 err: %s deviceID: %s", err.Error(), d.DeviceID)
 	}
 
-	if response.StatusCode() != 200 {
-		return fmt.Errorf("err code %d", response.StatusCode())
-	}
-
-	return nil
+	return err
 }
 
-func (d *Device) OnMobilePositionNotify(notify *MobilePositionNotify) {
-	log.Sugar.Infof("收到位置信息 device:%s data:%v", d.DeviceID, notify)
+func (d *Device) UnsubscribePosition() {
+	body := fmt.Sprintf(MobilePositionMessageFormatUnsubscribe, GetSN(), d.DeviceID)
+	err := Unsubscribe(d.DeviceID, dao.SipDialogTypeSubscribePosition, EventPresence, []byte(body), d.RemoteIP, d.RemotePort)
+	if err != nil {
+		log.Sugar.Errorf("取消订阅位置失败 err: %s deviceID: %s", err.Error(), d.DeviceID)
+	}
+}
+
+func (d *Device) RefreshSubscribePosition() {
+	body := fmt.Sprintf(MobilePositionMessageFormat, GetSN(), d.DeviceID, common.Config.MobilePositionInterval)
+	err := RefreshSubscribe(d.DeviceID, dao.SipDialogTypeSubscribePosition, EventPresence, common.Config.SubscribeExpires, []byte(body), d.RemoteIP, d.RemotePort)
+	if err != nil {
+		log.Sugar.Errorf("刷新位置订阅失败 err: %s deviceID: %s", err.Error(), d.DeviceID)
+	}
 }

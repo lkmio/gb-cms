@@ -25,6 +25,7 @@ var (
 	Sink      = &daoSink{}
 	JTDevice  = &daoJTDevice{}
 	Blacklist = &daoBlacklist{}
+	Dialog    = &daoDialog{}
 )
 
 func init() {
@@ -62,11 +63,6 @@ func init() {
 	s.SetMaxOpenConns(40)
 	s.SetMaxIdleConns(10)
 
-	// devices
-	// channels
-	// platforms
-	// streams
-	// sinks
 	if err = db.AutoMigrate(&DeviceModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&ChannelModel{}); err != nil {
@@ -82,6 +78,8 @@ func init() {
 	} else if err = db.AutoMigrate(&JTDeviceModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&BlacklistModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&SipDialogModel{}); err != nil {
 		panic(err)
 	}
 

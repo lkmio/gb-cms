@@ -79,7 +79,7 @@ func main() {
 		}
 	}
 
-	// 启动session超时管理
+	// 启动web session超时管理
 	go TokenManager.Start(5 * time.Minute)
 
 	// 启动设备在线超时管理
@@ -126,7 +126,9 @@ func main() {
 	go startApiServer(httpAddr)
 
 	// 启动目录刷新任务
-	stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
+	go stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
+	// 启动订阅刷新任务
+	go stack.AddScheduledTask(time.Minute, true, stack.RefreshSubscribeScheduleTask)
 
 	err = http.ListenAndServe(":19000", nil)
 	if err != nil {

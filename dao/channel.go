@@ -50,10 +50,11 @@ type ChannelModel struct {
 	Longitude       string              `json:"longitude" xml:"Longitude,omitempty"`
 	Latitude        string              `json:"latitude" xml:"Latitude,omitempty"`
 	Setup           common.SetupType    `json:"setup,omitempty"`
-	ChannelNumber   int                 `json:"channel_number" xml:"-"` // 对应1078的通道号
-	SubCount        int                 `json:"-" xml:"-"`              // 子节点数量
-	IsDir           bool                `json:"-" xml:"-"`              // 是否是目录
-	CustomID        *string             `gorm:"unique"`                 // 自定义通道ID
+	ChannelNumber   int                 `json:"channel_number" xml:"-"`           // 对应1078的通道号
+	SubCount        int                 `json:"-" xml:"-"`                        // 子节点数量
+	IsDir           bool                `json:"-" xml:"-"`                        // 是否是目录
+	CustomID        *string             `gorm:"unique"`                           // 自定义通道ID
+	Event           string              `json:"-" xml:"Event,omitempty" gorm:"-"` // <!-- 状态改变事件ON:上线,OFF:离线,VLOST:视频丢失,DEFECT:故障,ADD:增加,DEL:删除,UPDATE:更新(必选)-->
 }
 
 func (d *ChannelModel) TableName() string {

@@ -54,7 +54,7 @@ func (s *Sink) MarshalJSON() ([]byte, error) {
 
 func (s *Sink) Bye() {
 	if s.Dialog != nil && s.Dialog.Request != nil {
-		byeRequest := CreateRequestFromDialog(s.Dialog.Request, sip.BYE)
+		byeRequest := CreateRequestFromDialog(s.Dialog.Request, sip.BYE, "", 0)
 		go common.SipStack.SendRequest(byeRequest)
 	}
 }

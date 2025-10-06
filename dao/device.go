@@ -34,6 +34,9 @@ type DeviceModel struct {
 	CatalogInterval    int       // 录像目录刷新间隔，单位秒, 默认3600每小时刷新
 	LastRefreshCatalog time.Time `gorm:"type:datetime"` // 最后刷新目录时间
 	//ScheduleRecord         [7]uint64 // 录像计划，0-6表示周一至周日，一天的时间刻度用一个uint64表示，从高位开始代表0点，每bit半小时，共占用48位, 1表示录像，0表示不录像
+	CatalogSubscribe  bool `json:"catalog_subscribe"`  // 是否开启目录订阅
+	AlarmSubscribe    bool `json:"alarm_subscribe"`    // 是否开启报警订阅
+	PositionSubscribe bool `json:"position_subscribe"` // 是否开启位置订阅
 }
 
 func (d *DeviceModel) TableName() string {
@@ -276,5 +279,11 @@ func (d *daoDevice) QueryNeedRefreshCatalog(deviceId string, now time.Time) bool
 func (d *daoDevice) UpdateCatalogInterval(id string, interval int) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&DeviceModel{}).Where("device_id =?", id).Update("catalog_interval", interval).Error
+	})
+}
+
+func (d *daoDevice) UpdateDevice(deviceId string, conditions map[string]interface{}) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Updates(conditions).Error
 	})
 }

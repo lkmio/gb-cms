@@ -13,7 +13,7 @@ const (
 )
 
 func (d *Device) ScalePlayback(dialog sip.Request, speed float64) {
-	infoRequest := CreateRequestFromDialog(dialog, sip.INFO)
+	infoRequest := CreateRequestFromDialog(dialog, sip.INFO, d.RemoteIP, d.RemotePort)
 	sn := GetSN()
 	body := fmt.Sprintf(RTSPBodyFormat, sn, speed)
 	infoRequest.SetBody(body, true)
@@ -21,14 +21,6 @@ func (d *Device) ScalePlayback(dialog sip.Request, speed float64) {
 	infoRequest.AppendHeader(&RTSPMessageType)
 	infoRequest.RemoveHeader("Contact")
 	infoRequest.AppendHeader(GlobalContactAddress.AsContactHeader())
-
-	// 替換到device的真實地址
-	recipient := infoRequest.Recipient()
-	if uri, ok := recipient.(*sip.SipUri); ok {
-		sipPort := sip.Port(d.RemotePort)
-		uri.FHost = d.RemoteIP
-		uri.FPort = &sipPort
-	}
 
 	common.SipStack.SendRequest(infoRequest)
 }

@@ -17,6 +17,27 @@ func RefreshCatalogScheduleTask() {
 	}
 }
 
+func RefreshSubscribeScheduleTask() {
+	dialogs, _ := dao.Dialog.QueryExpiredDialogs(time.Now())
+	for _, dialog := range dialogs {
+		go func(t int, id string) {
+			device, _ := dao.Device.QueryDevice(id)
+			if device == nil {
+				return
+			}
+
+			d := &Device{device}
+			if dao.SipDialogTypeSubscribeCatalog == t {
+				d.RefreshSubscribeCatalog()
+			} else if dao.SipDialogTypeSubscribePosition == t {
+				d.RefreshSubscribePosition()
+			} else if dao.SipDialogTypeSubscribeAlarm == t {
+				d.RefreshSubscribeAlarm()
+			}
+		}(dialog.Type, dialog.DeviceID)
+	}
+}
+
 func AddScheduledTask(interval time.Duration, firstRun bool, task func()) {
 	ticker := time.NewTicker(interval)
 	if firstRun {

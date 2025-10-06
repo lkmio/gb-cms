@@ -8,6 +8,7 @@
   "password":"123456",
   "alive_expires": 180,
   "mobile_position_interval": 10,
+  "subscribe_expires": 3600,
 
   "media_server": "http://0.0.0.0:8080",
 

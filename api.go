@@ -261,7 +261,6 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/device/session/stop", withVerify(common.WithFormDataParams(apiServer.OnSessionStop, StreamIDParams{})))        // 关闭流
 	apiServer.router.HandleFunc("/api/v1/device/setchannelid", withVerify(common.WithFormDataParams(apiServer.OnCustomChannelSet, CustomChannel{})))    // 关闭流
 
-	apiServer.router.HandleFunc("/api/v1/position/sub", common.WithJsonResponse(apiServer.OnSubscribePosition, &DeviceChannelID{}))        // 订阅移动位置
 	apiServer.router.HandleFunc("/api/v1/playback/seek", common.WithJsonResponse(apiServer.OnSeekPlayback, &SeekParams{}))                 // 回放seek
 	apiServer.router.HandleFunc("/api/v1/control/ptz", withVerify(common.WithFormDataParams(apiServer.OnPTZControl, QueryRecordParams{}))) // 云台控制
 
@@ -279,6 +278,7 @@ func startApiServer(addr string) {
 
 	// 暂未开发
 	apiServer.router.HandleFunc("/api/v1/alarm/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                // 报警查询
+	apiServer.router.HandleFunc("/api/v1/sms/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 报警查询
 	apiServer.router.HandleFunc("/api/v1/cloudrecord/querychannels", withVerify(func(w http.ResponseWriter, req *http.Request) {})) // 云端录像
 	apiServer.router.HandleFunc("/api/v1/user/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                 // 用户管理
 	apiServer.router.HandleFunc("/api/v1/log/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 操作日志
@@ -726,10 +726,6 @@ func (api *ApiServer) OnCloseLiveStream(v *InviteParams, _ http.ResponseWriter, 
 }
 
 func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
-	values := r.URL.Query()
-
-	log.Sugar.Debugf("查询设备列表 %s", values.Encode())
-
 	var status string
 	if "" == q.Online {
 	} else if "true" == q.Online {
@@ -781,10 +777,10 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 		}
 
 		response.DeviceList_ = append(response.DeviceList_, LiveGBSDevice{
-			AlarmSubscribe:   false,                  // 报警订阅
+			AlarmSubscribe:   device.AlarmSubscribe,  // 报警订阅
 			CatalogInterval:  device.CatalogInterval, // 目录刷新时间
 			CatalogProgress:  catalogProgress,
-			CatalogSubscribe: false, // 目录订阅
+			CatalogSubscribe: device.CatalogSubscribe, // 目录订阅
 			ChannelCount:     device.ChannelsTotal,
 			ChannelOverLoad:  false,
 			Charset:          "GB2312",
@@ -809,7 +805,7 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			Online:             device.Online(),
 			PTZSubscribe:       false, // PTZ订阅2022
 			Password:           "",
-			PositionSubscribe:  false, // 位置订阅
+			PositionSubscribe:  device.PositionSubscribe, // 位置订阅
 			RecordCenter:       false,
 			RecordIndistinct:   false,
 			RecvStreamIP:       "",
@@ -829,9 +825,6 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 }
 
 func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
-	values := r.URL.Query()
-	log.Sugar.Debugf("查询通道列表 %s", values.Encode())
-
 	var deviceName string
 	if q.DeviceID != "" {
 		device, err := dao.Device.QueryDevice(q.DeviceID)
@@ -951,24 +944,6 @@ func (api *ApiServer) OnRecordList(v *QueryRecordParams, _ http.ResponseWriter, 
 	}
 
 	return &response, nil
-}
-
-func (api *ApiServer) OnSubscribePosition(v *DeviceChannelID, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
-	log.Sugar.Debugf("订阅位置 %v", *v)
-
-	model, _ := dao.Device.QueryDevice(v.DeviceID)
-	if model == nil || !model.Online() {
-		log.Sugar.Errorf("订阅位置失败, 设备离线 device: %s", v.DeviceID)
-		return nil, fmt.Errorf("设备离线")
-	}
-
-	device := &stack.Device{DeviceModel: model}
-	if err := device.SubscribePosition(v.ChannelID); err != nil {
-		log.Sugar.Errorf("订阅位置失败 err: %s", err.Error())
-		return nil, err
-	}
-
-	return nil, nil
 }
 
 func (api *ApiServer) OnSeekPlayback(v *SeekParams, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
@@ -1635,11 +1610,60 @@ func (api *ApiServer) OnPlaybackControl(params *StreamIDParams, _ http.ResponseW
 }
 
 func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter, req *http.Request) (interface{}, error) {
-	// 目前仅实现修改目录订阅间隔
-	if params.CatalogInterval < 60 {
-		return nil, errors.New("catalog_interval error")
-	} else if err := dao.Device.UpdateCatalogInterval(params.DeviceID, params.CatalogInterval); err != nil {
+	model, err := dao.Device.QueryDevice(params.DeviceID)
+	if err != nil {
 		return nil, err
 	}
+
+	device := stack.Device{DeviceModel: model}
+
+	// 更新的字段和值
+	conditions := make(map[string]interface{}, 0)
+
+	// 刷新目录间隔
+	if params.CatalogInterval != model.CatalogInterval && params.CatalogInterval != dao.DefaultCatalogInterval && params.CatalogInterval >= 60 {
+		conditions["catalog_interval"] = params.CatalogInterval
+	}
+
+	if model.CatalogSubscribe != params.CatalogSubscribe {
+		conditions["catalog_subscribe"] = params.CatalogSubscribe
+		// 开启目录订阅
+		if params.CatalogSubscribe {
+			_ = device.SubscribeCatalog()
+		} else {
+			// 取消目录订阅
+			device.UnsubscribeCatalog()
+		}
+	}
+
+	if model.PositionSubscribe != params.PositionSubscribe {
+		conditions["position_subscribe"] = params.PositionSubscribe
+		// 开启位置订阅
+		if params.PositionSubscribe {
+			_ = device.SubscribePosition()
+		} else {
+			// 取消位置订阅
+			device.UnsubscribePosition()
+		}
+	}
+
+	if model.AlarmSubscribe != params.AlarmSubscribe {
+		conditions["alarm_subscribe"] = params.AlarmSubscribe
+		// 开启报警订阅
+		if params.AlarmSubscribe {
+			_ = device.SubscribeAlarm()
+		} else {
+			// 取消报警订阅
+			device.UnsubscribeAlarm()
+		}
+	}
+
+	// 更新设备信息
+	if len(conditions) > 0 {
+		if err = dao.Device.UpdateDevice(params.DeviceID, conditions); err != nil {
+			return nil, err
+		}
+	}
+
 	return "OK", nil
 }
