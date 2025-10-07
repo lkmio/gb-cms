@@ -119,6 +119,11 @@ type QueryDeviceChannel struct {
 	Sort        string `json:"sort"`         // Channel-根据数据库ID排序/iD-根据通道ID排序
 	SMS         string `json:"sms"`
 	Filter      string `json:"filter"`
+
+	Priority  int    `json:"priority"` // 报警参数
+	Method    int    `json:"method"`
+	StartTime string `json:"starttime"`
+	EndTime   string `json:"endtime"`
 }
 
 type DeleteDevice struct {
@@ -182,6 +187,9 @@ type DeviceInfo struct {
 	DropChannelType    string  `json:"drop_channel_type"`
 	Longitude          float64 `json:"longitude"`
 	Latitude           float64 `json:"latitude"`
+}
+
+type Empty struct {
 }
 
 var apiServer *ApiServer
@@ -275,10 +283,12 @@ func startApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/cascade/setshareallchannel", withVerify(common.WithFormDataParams(apiServer.OnShareAllChannel, SetEnable{}))) // 开启或取消级联所有通道
 	apiServer.router.HandleFunc("/api/v1/cascade/pushcatalog", withVerify(common.WithFormDataParams(apiServer.OnCatalogPush, SetEnable{})))            // 推送目录
 	apiServer.router.HandleFunc("/api/v1/device/setinfo", withVerify(common.WithFormDataParams(apiServer.OnDeviceInfoSet, DeviceInfo{})))              // 编辑设备信息
+	apiServer.router.HandleFunc("/api/v1/alarm/list", withVerify(common.WithQueryStringParams(apiServer.OnAlarmList, QueryDeviceChannel{})))           // 报警查询
+	apiServer.router.HandleFunc("/api/v1/alarm/remove", withVerify(common.WithFormDataParams(apiServer.OnAlarmRemove, SetEnable{})))                   // 删除报警
+	apiServer.router.HandleFunc("/api/v1/alarm/clear", withVerify(common.WithFormDataParams(apiServer.OnAlarmClear, Empty{})))                         // 清空报警
 
 	// 暂未开发
-	apiServer.router.HandleFunc("/api/v1/alarm/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                // 报警查询
-	apiServer.router.HandleFunc("/api/v1/sms/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 报警查询
+	apiServer.router.HandleFunc("/api/v1/sms/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 流媒体服务器列表
 	apiServer.router.HandleFunc("/api/v1/cloudrecord/querychannels", withVerify(func(w http.ResponseWriter, req *http.Request) {})) // 云端录像
 	apiServer.router.HandleFunc("/api/v1/user/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                 // 用户管理
 	apiServer.router.HandleFunc("/api/v1/log/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 操作日志
@@ -1663,6 +1673,69 @@ func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter,
 		if err = dao.Device.UpdateDevice(params.DeviceID, conditions); err != nil {
 			return nil, err
 		}
+	}
+
+	return "OK", nil
+}
+
+func (api *ApiServer) OnAlarmList(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	conditions := make(map[string]interface{}, 0)
+
+	// 报警查询参数
+	if q.Keyword != "" {
+		conditions["q"] = q.Keyword
+	}
+
+	if q.StartTime != "" {
+		conditions["starttime"] = q.StartTime
+	}
+
+	if q.EndTime != "" {
+		conditions["endtime"] = q.EndTime
+	}
+
+	if q.Priority > 0 {
+		conditions["alarm_priority"] = q.Priority
+	}
+
+	if q.Method > 0 {
+		conditions["alarm_method"] = q.Method
+	}
+
+	alarms, count, err := dao.Alarm.QueryAlarmList((q.Start/q.Limit)+1, q.Limit, conditions)
+
+	if err != nil {
+		return nil, err
+	}
+
+	v := struct {
+		AlarmCount          int
+		AlarmList           []*dao.AlarmModel
+		AlarmPublishToRedis bool
+		AlarmReserveDays    int
+	}{
+		AlarmCount:          count,
+		AlarmList:           alarms,
+		AlarmPublishToRedis: true,
+		AlarmReserveDays:    common.Config.AlarmReserveDays,
+	}
+
+	return &v, nil
+}
+
+func (api *ApiServer) OnAlarmRemove(params *SetEnable, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	// 删除报警
+	if err := dao.Alarm.DeleteAlarm(params.ID); err != nil {
+		return nil, err
+	}
+
+	return "OK", nil
+}
+
+func (api *ApiServer) OnAlarmClear(_ *Empty, _ http.ResponseWriter, req *http.Request) (interface{}, error) {
+	// 清空报警
+	if err := dao.Alarm.ClearAlarm(); err != nil {
+		return nil, err
 	}
 
 	return "OK", nil

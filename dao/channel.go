@@ -319,3 +319,13 @@ func (d *daoChannel) QueryChannelsByParentID(rootId string, parentId string) ([]
 	}
 	return channels, nil
 }
+
+func (d *daoChannel) QueryChannelName(rootId string, channelId string) (string, error) {
+	var channel ChannelModel
+	tx := db.Select("name").Where("root_id =? and device_id =?", rootId, channelId).Take(&channel)
+	if tx.Error != nil {
+		return "", tx.Error
+	}
+
+	return channel.Name, nil
+}

@@ -125,7 +125,7 @@ func RefreshSubscribe(deviceId string, t int, event Event, expires int, body []b
 	} else if response.StatusCode() != 200 {
 		return fmt.Errorf("error response code: %d", response.StatusCode())
 	} else {
-		// 刷新订阅时间, -60秒预留计时器出发间隔, 确保订阅在过期前刷新
+		// 刷新订阅时间, -60秒预留计时器触发间隔, 确保订阅在过期前刷新
 		dialogs[0].RefreshTime = time.Now().Add(time.Duration(common.Config.SubscribeExpires-60) * time.Second)
 		err := dao.Dialog.Save(dialogs[0])
 		if err != nil {

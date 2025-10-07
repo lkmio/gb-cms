@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"os"
+	"time"
 )
 
 var (
@@ -19,16 +20,13 @@ type Config_ struct {
 	Password       string `json:"password"`
 	SipContactAddr string
 
-	AliveExpires           int    `json:"alive_expires"`
-	MobilePositionInterval int    `json:"mobile_position_interval"`
-	SubscribeExpires       int    `json:"subscribe_expires"`
-	MediaServer            string `json:"media_server"`
-	AutoCloseOnIdle        bool   `json:"auto_close_on_idle"`
+	AliveExpires           int `json:"alive_expires"`
+	MobilePositionInterval int `json:"mobile_position_interval"`
+	SubscribeExpires       int `json:"subscribe_expires"`
+	PositionReserveDays    int `json:"position_reserve_days"`
+	AlarmReserveDays       int `json:"alarm_reserve_days"`
 
-	Redis struct {
-		Addr     string `json:"addr"`
-		Password string `json:"password"`
-	}
+	MediaServer string `json:"media_server"`
 
 	Hooks struct {
 		Online   string `json:"online"`
@@ -60,4 +58,19 @@ func ParseConfig(path string) (*Config_, error) {
 	}
 
 	return &config, err
+}
+
+func ParseGBTime(gbTime string) time.Time {
+	// 2023-08-10 15:04:05
+	if gbTime == "" {
+		return time.Time{}
+	}
+
+	// 解析时间字符串
+	t, err := time.Parse("2006-01-02T15:04:05", gbTime)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }

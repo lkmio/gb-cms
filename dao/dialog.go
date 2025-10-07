@@ -79,7 +79,7 @@ func (m *daoDialog) Save(dialog *SipDialogModel) error {
 // QueryExpiredDialogs 查找即将过期的订阅会话
 func (m *daoDialog) QueryExpiredDialogs(now time.Time) ([]*SipDialogModel, error) {
 	var dialogs []*SipDialogModel
-	err := db.Where("refresh_time >= ?", now).Find(&dialogs).Error
+	err := db.Where("refresh_time <= ?", now).Find(&dialogs).Error
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,8 @@ var (
 	JTDevice  = &daoJTDevice{}
 	Blacklist = &daoBlacklist{}
 	Dialog    = &daoDialog{}
+	Position  = &daoPosition{}
+	Alarm     = &daoAlarm{}
 )
 
 func init() {
@@ -80,6 +82,10 @@ func init() {
 	} else if err = db.AutoMigrate(&BlacklistModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&SipDialogModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&PositionModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&AlarmModel{}); err != nil {
 		panic(err)
 	}
 

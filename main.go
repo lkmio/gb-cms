@@ -9,6 +9,7 @@ import (
 	"gb-cms/hook"
 	"gb-cms/log"
 	"gb-cms/stack"
+	"github.com/go-co-op/gocron/v2"
 	"github.com/pretty66/websocketproxy"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -30,7 +31,7 @@ func init() {
 
 	logConfig := common.LogConfig{
 		Level:     int(zapcore.DebugLevel),
-		Name:      "./logs/clog",
+		Name:      "./logs/lkm_gb_cms",
 		MaxSize:   10,
 		MaxBackup: 100,
 		MaxAge:    7,
@@ -55,15 +56,16 @@ func main() {
 		hook.RegisterEventUrl(hook.EventTypeDeviceOnInvite, config.Hooks.OnInvite)
 	}
 
+	// 读取或生成密码MD5值
 	hash := md5.Sum([]byte("admin"))
 	AdminMD5 = hex.EncodeToString(hash[:])
 
-	plaintext, md5 := ReadTempPwd()
+	plaintext, md5Hex := ReadTempPwd()
 	if plaintext != "" {
 		log.Sugar.Infof("temp pwd: %s", plaintext)
 	}
 
-	PwdMD5 = md5
+	PwdMD5 = md5Hex
 
 	// 加载黑名单
 	blacklists, err := dao.Blacklist.Load()
@@ -109,11 +111,11 @@ func main() {
 
 	// 在sip启动后, 关闭无效的流
 	for _, stream := range streams {
-		(&stack.Stream{stream}).Bye()
+		(&stack.Stream{StreamModel: stream}).Bye()
 	}
 
 	for _, sink := range sinks {
-		(&stack.Sink{sink}).Close(true, false)
+		(&stack.Sink{SinkModel: sink}).Close(true, false)
 	}
 
 	// 启动级联设备
@@ -121,6 +123,7 @@ func main() {
 	// 启动1078设备
 	startJTDevices()
 
+	// 启动http服务
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
 	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
 	go startApiServer(httpAddr)
@@ -129,6 +132,37 @@ func main() {
 	go stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
 	// 启动订阅刷新任务
 	go stack.AddScheduledTask(time.Minute, true, stack.RefreshSubscribeScheduleTask)
+
+	// 启动定时任务, 每天凌晨3点执行
+	s, _ := gocron.NewScheduler()
+	defer func() { _ = s.Shutdown() }()
+
+	_, _ = s.NewJob(
+		gocron.CronJob(
+			"0 3 * * *",
+			false,
+		),
+		gocron.NewTask(
+			func() {
+				// 删除过期的位置、报警记录
+				now := time.Now()
+				alarmExpireTime := now.Add(time.Duration(common.Config.AlarmReserveDays) * 24 * time.Hour)
+				positionExpireTime := now.Add(time.Duration(common.Config.PositionReserveDays) * 24 * time.Hour)
+				// 删除过期的报警记录
+				err := dao.Alarm.DeleteExpired(alarmExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的报警记录失败 err: %s", err.Error())
+				}
+				// 删除过期的位置记录
+				err = dao.Position.DeleteExpired(positionExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的位置记录失败 err: %s", err.Error())
+				}
+			},
+		),
+	)
+
+	s.Start()
 
 	err = http.ListenAndServe(":19000", nil)
 	if err != nil {

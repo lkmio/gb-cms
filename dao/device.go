@@ -37,6 +37,8 @@ type DeviceModel struct {
 	CatalogSubscribe  bool `json:"catalog_subscribe"`  // 是否开启目录订阅
 	AlarmSubscribe    bool `json:"alarm_subscribe"`    // 是否开启报警订阅
 	PositionSubscribe bool `json:"position_subscribe"` // 是否开启位置订阅
+	Longitude         float64
+	Latitude          float64
 }
 
 func (d *DeviceModel) TableName() string {
@@ -286,4 +288,15 @@ func (d *daoDevice) UpdateDevice(deviceId string, conditions map[string]interfac
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Updates(conditions).Error
 	})
+}
+
+// QueryDeviceName 查询设备名
+func (d *daoDevice) QueryDeviceName(deviceId string) (string, error) {
+	var device DeviceModel
+	tx := db.Select("name").Where("device_id =?", deviceId).Take(&device)
+	if tx.Error != nil {
+		return "", tx.Error
+	}
+
+	return device.Name, nil
 }

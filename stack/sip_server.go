@@ -228,7 +228,9 @@ func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
 			log2.Sugar.Errorf("解析报警通知失败 err: %s request: %s", err.Error(), wrapper.req.String())
 			return
 		}
-		s.handler.OnNotifyAlarmMessage(&alarm)
+
+		from, _ := wrapper.req.From()
+		s.handler.OnNotifyAlarmMessage(from.Address.User().String(), &alarm)
 		break
 	}
 }
@@ -337,7 +339,7 @@ func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 			} else {
 				device := Device{d}
 				device.SendAlarmNotificationResponseCmd(notify.SN, notify.DeviceID)
-				s.handler.OnNotifyAlarmMessage(&notify)
+				s.handler.OnNotifyAlarmMessage(deviceId, &notify)
 			}
 		} else if CmdCatalog == cmd {
 			ok = true

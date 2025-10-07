@@ -120,13 +120,40 @@ func (e *EventHandler) OnDeviceInfo(device string, response *DeviceInfoResponse)
 	}
 }
 
+func (e *EventHandler) SavePosition(position *dao.PositionModel) {
+	// 更新设备最新的位置
+	if position.DeviceID == position.ChannelID || position.ChannelID == "" {
+		conditions := make(map[string]interface{}, 0)
+		conditions["longitude"] = position.Longitude
+		conditions["latitude"] = position.Latitude
+		_ = dao.Device.UpdateDevice(position.DeviceID, conditions)
+	}
+
+	if common.Config.PositionReserveDays < 1 {
+		return
+	}
+
+	if err := dao.Position.SavePosition(position); err != nil {
+		log.Sugar.Errorf("保存位置信息到数据库失败 device: %s err: %s", position.DeviceID, err.Error())
+	}
+}
+
 func (e *EventHandler) OnNotifyPositionMessage(notify *MobilePositionNotify) {
-	log.Sugar.Infof("收到位置通知 device:%s data:%v", notify.DeviceID, notify)
+	model := dao.PositionModel{
+		DeviceID:  notify.DeviceID,
+		Longitude: notify.Longitude,
+		Latitude:  notify.Latitude,
+		Speed:     notify.Speed,
+		Direction: notify.Direction,
+		Altitude:  notify.Altitude,
+		Time:      notify.Time,
+		Source:    dao.PositionSourceSubscribe,
+	}
+
+	e.SavePosition(&model)
 }
 
 func (e *EventHandler) OnNotifyCatalogMessage(catalog *CatalogResponse) {
-	log.Sugar.Infof("收到目录通知 device:%s data:%v", catalog.DeviceID, catalog)
-
 	for _, channel := range catalog.DeviceList.Devices {
 		if channel.Event == "" {
 			log.Sugar.Warnf("目录事件为空 设备ID: %s", channel.DeviceID)
@@ -160,6 +187,42 @@ func (e *EventHandler) OnNotifyCatalogMessage(catalog *CatalogResponse) {
 	}
 }
 
-func (e *EventHandler) OnNotifyAlarmMessage(alarm *AlarmNotify) {
-	log.Sugar.Infof("收到报警通知 device:%s data:%v", alarm.DeviceID, alarm)
+func (e *EventHandler) OnNotifyAlarmMessage(deviceId string, alarm *AlarmNotify) {
+	// 保存报警携带的位置信息
+	if alarm.Longitude != nil && alarm.Latitude != nil {
+		e.SavePosition(&dao.PositionModel{
+			DeviceID:  deviceId,
+			ChannelID: alarm.DeviceID,
+			Longitude: *alarm.Longitude,
+			Latitude:  *alarm.Latitude,
+			Time:      alarm.AlarmTime,
+			Source:    dao.PositionSourceAlarm,
+		})
+	}
+
+	if common.Config.AlarmReserveDays < 1 {
+		return
+	}
+
+	model := dao.AlarmModel{
+		DeviceID:      deviceId,
+		ChannelID:     alarm.DeviceID,
+		AlarmPriority: alarm.AlarmPriority,
+		AlarmMethod:   alarm.AlarmMethod,
+		Time:          alarm.AlarmTime,
+		Description:   alarm.AlarmDescription,
+		Longitude:     alarm.Longitude,
+		Latitude:      alarm.Latitude,
+	}
+
+	if alarm.Info != nil {
+		model.AlarmType = alarm.Info.AlarmType
+		if alarm.Info.AlarmTypeParam != nil {
+			model.EventType = alarm.Info.AlarmTypeParam.EventType
+		}
+	}
+
+	if err := dao.Alarm.Save(&model); err != nil {
+		log.Sugar.Errorf("保存报警信息到数据库失败 device: %s err: %s", alarm.DeviceID, err.Error())
+	}
 }

@@ -34,15 +34,15 @@ const (
 )
 
 type MobilePositionNotify struct {
-	DeviceID  string `xml:"DeviceID"`
-	CmdType   string `xml:"CmdType"`
-	SN        int    `xml:"SN"`
-	Time      string `xml:"Time"`
-	Longitude string `xml:"Longitude"`
-	Latitude  string `xml:"Latitude"`
-	Speed     string `xml:"Speed"`
-	Direction string `xml:"Direction"`
-	Altitude  string `xml:"Altitude"`
+	DeviceID  string  `xml:"DeviceID"`
+	CmdType   string  `xml:"CmdType"`
+	SN        int     `xml:"SN"`
+	Time      string  `xml:"Time"`
+	Longitude float64 `xml:"Longitude"`
+	Latitude  float64 `xml:"Latitude"`
+	Speed     *string `xml:"Speed"`
+	Direction *string `xml:"Direction"`
+	Altitude  *string `xml:"Altitude"`
 }
 
 func (d *Device) SubscribePosition() error {
