@@ -736,6 +736,11 @@ func (api *ApiServer) OnCloseLiveStream(v *InviteParams, _ http.ResponseWriter, 
 }
 
 func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
+	// 分页参数
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
 	var status string
 	if "" == q.Online {
 	} else if "true" == q.Online {
@@ -835,6 +840,11 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 }
 
 func (api *ApiServer) OnChannelList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
+	// 分页参数
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
 	var deviceName string
 	if q.DeviceID != "" {
 		device, err := dao.Device.QueryDevice(q.DeviceID)
@@ -1172,6 +1182,11 @@ func (api *ApiServer) OnPlatformRemove(v *SetEnable, _ http.ResponseWriter, _ *h
 }
 
 func (api *ApiServer) OnPlatformList(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	// 分页参数
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
 	response := struct {
 		CascadeCount int               `json:"CascadeCount"`
 		CascadeList  []*LiveGBSCascade `json:"CascadeList"`
@@ -1303,6 +1318,11 @@ func (api *ApiServer) OnStreamInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiServer) OnSessionList(q *QueryDeviceChannel, _ http.ResponseWriter, r *http.Request) (interface{}, error) {
+	// 分页参数
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+	
 	//filter := q.Filter // playing-正在播放/stream-不包含回放和下载/record-正在回放的流/hevc-h265流/cascade-级联
 	var streams []*dao.StreamModel
 	var err error
@@ -1679,6 +1699,10 @@ func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter,
 }
 
 func (api *ApiServer) OnAlarmList(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
 	conditions := make(map[string]interface{}, 0)
 
 	// 报警查询参数

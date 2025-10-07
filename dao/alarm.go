@@ -122,7 +122,7 @@ func (d *daoAlarm) Save(alarm *AlarmModel) error {
 
 // QueryAlarmList 分页查询报警列表
 func (d *daoAlarm) QueryAlarmList(page int, size int, conditions map[string]interface{}) ([]*AlarmModel, int, error) {
-	tx := db.Limit(size).Offset((page - 1) * size)
+	tx := db.Model(&AlarmModel{})
 
 	if v, ok := conditions["order"]; ok && v != "desc" {
 		tx.Order("id asc")
@@ -150,13 +150,16 @@ func (d *daoAlarm) QueryAlarmList(page int, size int, conditions map[string]inte
 		tx.Where("alarm_method = ?", v.(int))
 	}
 
+	var count int64
+	tx.Count(&count)
+
+	// 分页查询
+	tx.Limit(size).Offset((page - 1) * size)
+
 	var alarms []*AlarmModel
 	if tx := tx.Find(&alarms); tx.Error != nil {
 		return nil, 0, tx.Error
 	}
-
-	var count int64
-	tx.Count(&count)
 
 	return alarms, int(count), nil
 }
