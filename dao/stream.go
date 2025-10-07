@@ -113,9 +113,11 @@ func (d *daoStream) DeleteStreams() ([]*StreamModel, error) {
 
 func (d *daoStream) QueryStream(streamId common.StreamID) (*StreamModel, error) {
 	var stream StreamModel
-	tx := db.Where("stream_id =?", streamId).Take(&stream)
+	tx := db.Where("stream_id =?", streamId).Find(&stream)
 	if tx.Error != nil {
 		return nil, tx.Error
+	} else if stream.ID == 0 {
+		return nil, nil
 	}
 	return &stream, nil
 }

@@ -132,7 +132,7 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, sta
 	}
 
 	var channels []*ChannelModel
-	if sort != "iD" {
+	if sort != "ID" {
 		if tx := cTx.Order("device_id " + order).Find(&channels); tx.Error != nil {
 			return nil, 0, tx.Error
 		}
