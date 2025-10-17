@@ -121,9 +121,9 @@ func AddForwardSink(forwardType int, request sip.Request, user string, sink *Sin
 	response := CreateResponseWithStatusCode(request, http.StatusOK)
 
 	// answer添加contact头域
-	response.RemoveHeader("Contact")
-	response.AppendHeader(GlobalContactAddress.AsContactHeader())
-	response.AppendHeader(&SDPMessageType)
+	common.SetHeader(response, GlobalContactAddress.AsContactHeader())
+	common.SetHeader(response, &SDPMessageType)
+
 	response.SetBody(answer, true)
 	common.SetToTag(response)
 

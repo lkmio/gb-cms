@@ -15,7 +15,7 @@ const (
 // SipDialogModel 持久化SIP会话
 type SipDialogModel struct {
 	GBModel
-	DeviceID    string
+	DeviceID    string // 保存级联上级的会话, 使用server addr作为id
 	ChannelID   string
 	CallID      string
 	Dialog      *common.RequestWrapper `json:"message,omitempty"`
@@ -84,4 +84,20 @@ func (m *daoDialog) QueryExpiredDialogs(now time.Time) ([]*SipDialogModel, error
 		return nil, err
 	}
 	return dialogs, nil
+}
+
+// QueryDialogByCallID 根据callid查询dialog
+func (m *daoDialog) QueryDialogByCallID(id string) (*SipDialogModel, error) {
+	var dialog SipDialogModel
+	err := db.Where("call_id = ?", id).First(&dialog).Error
+	if err != nil {
+		return nil, err
+	}
+	return &dialog, nil
+}
+
+func (m *daoDialog) UpdateRefreshTime(callid string, refreshTime time.Time) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&SipDialogModel{}).Where("call_id = ?", callid).Update("refresh_time", refreshTime).Error
+	})
 }

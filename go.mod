@@ -19,7 +19,6 @@ require (
 	github.com/discoviking/fsm v0.0.0-20150126104936-f4a273feecca // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/go-co-op/gocron/v2 v2.16.6 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
@@ -28,6 +27,7 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -54,6 +54,7 @@ require (
 
 require (
 	github.com/glebarez/sqlite v1.11.0
+	github.com/go-co-op/gocron/v2 v2.16.6
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/lkmio/avformat v0.0.1
@@ -62,4 +63,4 @@ require (
 	gorm.io/gorm v1.26.1
 )
 
-replace github.com/ghettovoice/gosip => github.com/lkmio/gosip v0.0.0-20250907014334-8cd203aeab7a
+replace github.com/ghettovoice/gosip => github.com/lkmio/gosip v0.0.0-20251016021306-565c7a2fa4f5

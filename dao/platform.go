@@ -290,3 +290,25 @@ func (d *daoPlatform) SetShareAllChannel(id int, shareAll bool) error {
 		return tx.Model(&PlatformModel{}).Where("id =?", id).Update("share_all", shareAll).Error
 	})
 }
+
+// QueryPlatformByChannelID 查询某个通道级联到的所有上级
+func (d *daoPlatform) QueryPlatformByChannelID(deviceID, channelID string) ([]*PlatformChannelModel, error) {
+	var platformChannels []*PlatformChannelModel
+	tx := db.Where("device_id =? and channel_id =? group by server_addr", deviceID, channelID).Find(&platformChannels)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+
+	return platformChannels, nil
+}
+
+// QueryAllSharedPlatforms 查询全部共享的级联列表
+func (d *daoPlatform) QueryAllSharedPlatforms() ([]*PlatformModel, error) {
+	var platforms []*PlatformModel
+	tx := db.Where("share_all =?", true).Find(&platforms)
+	if tx.Error != nil {
+		return nil, tx.Error
+	}
+
+	return platforms, nil
+}

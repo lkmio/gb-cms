@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"fmt"
@@ -95,7 +95,6 @@ func FormatUptime(d time.Duration) string {
 }
 
 func registerLiveGBSApi() {
-
 	serverInfoBase := ServerInfoBase{
 		CopyrightText:      fmt.Sprintf("Copyright © %d \u003ca href=\"//github.com/lkmio\" target=\"_blank\"\u003egithub.com/lkmio\u003c/a\u003e Released under MIT License", time.Now().Year()),
 		DemoUser:           "",

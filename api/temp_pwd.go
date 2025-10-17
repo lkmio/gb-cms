@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"crypto/md5"
@@ -6,6 +6,12 @@ import (
 	"math/rand"
 	"os"
 	"time"
+)
+
+var (
+	AdminMD5    string // 明文密码"admin"的MD5值
+	PwdMD5      string
+	StartUpTime time.Time
 )
 
 func GenerateTempPwd() string {

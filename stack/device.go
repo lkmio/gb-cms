@@ -417,8 +417,56 @@ func (d *Device) Close() {
 	// 更新在数据库中的状态
 	d.Status = common.OFF
 	_ = dao.Device.UpdateDeviceStatus(d.DeviceID, common.OFF)
+
+	// 通知级联上级, 该设备下的通道离线
+	d.PushCatalog()
+
 	// 删除设备下的所有会话
 	_ = dao.Dialog.DeleteDialogs(d.DeviceID)
+}
+
+func (d *Device) PushCatalog() {
+	_, online := OnlineDeviceManager.Find(d.DeviceID)
+	channels, _ := dao.Channel.QueryChannelsByRootID(d.DeviceID)
+	if len(channels) < 1 {
+		return
+	}
+
+	catalog := CatalogResponse{
+		BaseResponse: BaseResponse{
+			BaseMessage: BaseMessage{
+				SN:       GetSN(),
+				DeviceID: d.DeviceID,
+				CmdType:  CmdCatalog,
+			},
+		},
+	}
+
+	var event = "OFF"
+	if online {
+		event = "ON"
+	}
+
+	for _, channel := range channels {
+		if online && channel.Status == common.OFF {
+			// 如果是上线通知, 只通知在线的通道
+			continue
+		}
+
+		var deviceId = channel.DeviceID
+		if channel.CustomID != nil && *channel.CustomID != "" {
+			deviceId = *channel.CustomID
+		}
+
+		catalog.DeviceList.Num = 1
+		catalog.DeviceList.Devices = append(catalog.DeviceList.Devices, &dao.ChannelModel{
+			DeviceID: deviceId,
+			Event:    event,
+		})
+	}
+
+	catalog.SumNum = len(catalog.DeviceList.Devices)
+	ForwardCatalogNotifyMessage(&catalog)
 }
 
 // CreateDialogRequestFromAnswer 根据invite的应答创建Dialog请求

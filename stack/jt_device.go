@@ -62,10 +62,10 @@ func (g *JTDevice) OnInvite(request sip.Request, user string) sip.Response {
 func (g *JTDevice) Start() {
 	log.Sugar.Infof("启动部标设备, deivce: %s transport: %s addr: %s", g.Username, g.sipUA.Transport, g.sipUA.ServerAddr)
 	g.sipUA.Start()
-	g.sipUA.SetOnRegisterHandler(g.Online, g.Offline)
+	g.sipUA.SetOnRegisterHandler(g.OnlineCB, g.OfflineCB)
 }
 
-func (g *JTDevice) Online() {
+func (g *JTDevice) OnlineCB() {
 	log.Sugar.Infof("部标设备上线 sim number: %s device: %s server addr: %s", g.simNumber, g.Username, g.ServerAddr)
 
 	if err := dao.JTDevice.UpdateOnlineStatus(common.ON, g.Username); err != nil {
@@ -73,7 +73,7 @@ func (g *JTDevice) Online() {
 	}
 }
 
-func (g *JTDevice) Offline() {
+func (g *JTDevice) OfflineCB() {
 	log.Sugar.Infof("部标设备离线 sim number: %s device: %s server addr: %s", g.simNumber, g.Username, g.ServerAddr)
 
 	if err := dao.JTDevice.UpdateOnlineStatus(common.OFF, g.Username); err != nil {

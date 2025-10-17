@@ -1,9 +1,11 @@
 package stack
 
 import (
+	"encoding/xml"
 	"gb-cms/common"
 	"gb-cms/dao"
 	"gb-cms/log"
+	"github.com/ghettovoice/gosip/sip"
 	"github.com/lkmio/avformat/utils"
 	"net"
 	"strconv"
@@ -45,7 +47,7 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 	now := time.Now()
 	host, p, _ := net.SplitHostPort(addr)
 	port, _ := strconv.Atoi(p)
-	device := &dao.DeviceModel{
+	model := &dao.DeviceModel{
 		DeviceID:      id,
 		Transport:     transport,
 		RemoteIP:      host,
@@ -56,17 +58,24 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 		LastHeartbeat: now,
 	}
 
-	if err := dao.Device.SaveDevice(device); err != nil {
+	if err := dao.Device.SaveDevice(model); err != nil {
 		log.Sugar.Errorf("保存设备信息到数据库失败 device: %s err: %s", id, err.Error())
 		return 0, nil, false
 	} else if d, err := dao.Device.QueryDevice(id); err == nil {
 		// 查询所有字段
-		device = d
+		model = d
 	}
 
 	OnlineDeviceManager.Add(id, now)
 	count, _ := dao.Channel.QueryChanelCount(id, true)
-	return 3600, &Device{device}, count < 1 || dao.Device.QueryNeedRefreshCatalog(id, now)
+
+	// 级联通知通道上线
+	device := &Device{model}
+	if count > 0 {
+		go device.PushCatalog()
+	}
+
+	return 3600, device, count < 1 || dao.Device.QueryNeedRefreshCatalog(id, now)
 }
 
 func (e *EventHandler) OnKeepAlive(id string, addr string) bool {
@@ -129,6 +138,7 @@ func (e *EventHandler) SavePosition(position *dao.PositionModel) {
 		_ = dao.Device.UpdateDevice(position.DeviceID, conditions)
 	}
 
+	// 不保留位置信令
 	if common.Config.PositionReserveDays < 1 {
 		return
 	}
@@ -151,6 +161,63 @@ func (e *EventHandler) OnNotifyPositionMessage(notify *MobilePositionNotify) {
 	}
 
 	e.SavePosition(&model)
+}
+
+// ForwardCatalogNotifyMessage 转发目录变化到级联上级
+func ForwardCatalogNotifyMessage(catalog *CatalogResponse) {
+	for _, channel := range catalog.DeviceList.Devices {
+		// 跳过没有级联的通道
+		platforms := FindChannelSharedPlatforms(catalog.DeviceID, channel.DeviceID)
+		if len(platforms) < 1 {
+			continue
+		}
+
+		for _, platform := range platforms {
+			// 跳过离线的级联设备
+			if !platform.Online() {
+				continue
+			}
+
+			// 先查出customid
+			model, _ := dao.Channel.QueryChannel(catalog.DeviceID, channel.DeviceID)
+
+			newCatalog := *catalog
+			newCatalog.SumNum = 1
+			newCatalog.DeviceID = platform.GetID()
+			newCatalog.DeviceList.Devices = []*dao.ChannelModel{channel}
+			newCatalog.DeviceList.Num = 1
+
+			// 优先使用自定义ID
+			if model != nil && model.CustomID != nil && *model.CustomID != channel.DeviceID {
+				newCatalog.DeviceList.Devices[0].DeviceID = *model.CustomID
+			}
+
+			// 格式化消息
+			indent, err := xml.MarshalIndent(&newCatalog, " ", "")
+			if err != nil {
+				log.Sugar.Errorf("报警消息格式化失败 err: %s", err.Error())
+				continue
+			}
+
+			// 已经订阅走订阅
+			request, err := platform.CreateRequestByDialogType(dao.SipDialogTypeSubscribeCatalog, sip.NOTIFY)
+			if err == nil {
+				body := AddXMLHeader(string(indent))
+				request.SetBody(body, true)
+				_ = platform.SendRequest(request)
+				continue
+			}
+
+			// 不基于会话创建一个notify消息
+			request, err = platform.BuildRequest(sip.NOTIFY, &XmlMessageType, string(indent))
+			if err != nil {
+				log.Sugar.Errorf("创建报警消息失败 err: %s", err.Error())
+				continue
+			}
+
+			_ = platform.SendRequest(request)
+		}
+	}
 }
 
 func (e *EventHandler) OnNotifyCatalogMessage(catalog *CatalogResponse) {
@@ -185,6 +252,8 @@ func (e *EventHandler) OnNotifyCatalogMessage(catalog *CatalogResponse) {
 			log.Sugar.Warnf("未知的目录事件 %s 设备ID: %s", channel.Event, channel.DeviceID)
 		}
 	}
+
+	ForwardCatalogNotifyMessage(catalog)
 }
 
 func (e *EventHandler) OnNotifyAlarmMessage(deviceId string, alarm *AlarmNotify) {
@@ -224,5 +293,47 @@ func (e *EventHandler) OnNotifyAlarmMessage(deviceId string, alarm *AlarmNotify)
 
 	if err := dao.Alarm.Save(&model); err != nil {
 		log.Sugar.Errorf("保存报警信息到数据库失败 device: %s err: %s", alarm.DeviceID, err.Error())
+	}
+
+	channel, err := dao.Channel.QueryChannel(deviceId, alarm.DeviceID)
+	if channel == nil {
+		log.Sugar.Errorf("查询通道失败 err: %s device: %s channel: %s", err.Error(), deviceId, alarm.DeviceID)
+		return
+	}
+
+	// 转发报警到级联上级
+	platforms := FindChannelSharedPlatforms(deviceId, alarm.DeviceID)
+	if len(platforms) < 1 {
+		return
+	}
+
+	newAlarmMessage := *alarm
+	// 优先使用自定义ID
+	if channel.CustomID != nil && *channel.CustomID != alarm.DeviceID {
+		newAlarmMessage.DeviceID = *channel.CustomID
+	}
+
+	for _, platform := range platforms {
+		if !platform.Online() {
+			continue
+		}
+
+		// 已经订阅走订阅, 没有订阅走报警事件通知
+		request, err := platform.CreateRequestByDialogType(dao.SipDialogTypeSubscribeAlarm, sip.NOTIFY)
+		if err == nil {
+			// 格式化报警消息
+			indent, err := xml.MarshalIndent(&newAlarmMessage, " ", "")
+			if err != nil {
+				log.Sugar.Errorf("报警消息格式化失败 err: %s", err.Error())
+				continue
+			}
+
+			body := AddXMLHeader(string(indent))
+			request.SetBody(body, true)
+			_ = platform.SendRequest(request)
+			continue
+		}
+
+		platform.SendMessage(&newAlarmMessage)
 	}
 }

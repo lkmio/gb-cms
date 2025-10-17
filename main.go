@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"gb-cms/api"
 	"gb-cms/common"
 	"gb-cms/dao"
 	"gb-cms/hook"
@@ -20,14 +21,8 @@ import (
 	"time"
 )
 
-var (
-	AdminMD5    string // 明文密码"admin"的MD5值
-	PwdMD5      string
-	StartUpTime time.Time
-)
-
 func init() {
-	StartUpTime = time.Now()
+	api.StartUpTime = time.Now()
 
 	logConfig := common.LogConfig{
 		Level:     int(zapcore.DebugLevel),
@@ -58,14 +53,14 @@ func main() {
 
 	// 读取或生成密码MD5值
 	hash := md5.Sum([]byte("admin"))
-	AdminMD5 = hex.EncodeToString(hash[:])
+	api.AdminMD5 = hex.EncodeToString(hash[:])
 
-	plaintext, md5Hex := ReadTempPwd()
+	plaintext, md5Hex := api.ReadTempPwd()
 	if plaintext != "" {
 		log.Sugar.Infof("temp pwd: %s", plaintext)
 	}
 
-	PwdMD5 = md5Hex
+	api.PwdMD5 = md5Hex
 
 	// 加载黑名单
 	blacklists, err := dao.Blacklist.Load()
@@ -82,7 +77,7 @@ func main() {
 	}
 
 	// 启动web session超时管理
-	go TokenManager.Start(5 * time.Minute)
+	go api.TokenManager.Start(5 * time.Minute)
 
 	// 启动设备在线超时管理
 	stack.OnlineDeviceManager.Start(time.Duration(common.Config.AliveExpires)*time.Second/4, time.Duration(common.Config.AliveExpires)*time.Second, stack.OnExpires)
@@ -103,7 +98,7 @@ func main() {
 		panic(err)
 	}
 
-	go StartStats()
+	go api.StartStats()
 
 	log.Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
 	common.Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
@@ -126,7 +121,7 @@ func main() {
 	// 启动http服务
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
 	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
-	go startApiServer(httpAddr)
+	go api.StartApiServer(httpAddr)
 
 	// 启动目录刷新任务
 	go stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
@@ -137,6 +132,7 @@ func main() {
 	s, _ := gocron.NewScheduler()
 	defer func() { _ = s.Shutdown() }()
 
+	// 删除过期的位置、报警记录
 	_, _ = s.NewJob(
 		gocron.CronJob(
 			"0 3 * * *",
@@ -144,12 +140,12 @@ func main() {
 		),
 		gocron.NewTask(
 			func() {
-				// 删除过期的位置、报警记录
 				now := time.Now()
-				alarmExpireTime := now.Add(time.Duration(common.Config.AlarmReserveDays) * 24 * time.Hour)
-				positionExpireTime := now.Add(time.Duration(common.Config.PositionReserveDays) * 24 * time.Hour)
+				alarmExpireTime := now.AddDate(0, 0, -common.Config.AlarmReserveDays)
+				positionExpireTime := now.AddDate(0, 0, -common.Config.PositionReserveDays)
+
 				// 删除过期的报警记录
-				err := dao.Alarm.DeleteExpired(alarmExpireTime)
+				err = dao.Alarm.DeleteExpired(alarmExpireTime)
 				if err != nil {
 					log.Sugar.Errorf("删除过期的报警记录失败 err: %s", err.Error())
 				}

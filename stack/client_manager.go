@@ -99,3 +99,32 @@ func RemovePlatform(key string) (GBClient, error) {
 	platform := PlatformManager.Remove(key)
 	return platform, nil
 }
+
+// FindChannelSharedPlatforms 查找改通道的共享级联列表
+func FindChannelSharedPlatforms(deviceId, channelId string) map[string]GBClient {
+	var platforms = make(map[string]GBClient, 8)
+	sharedPlatforms, _ := dao.Platform.QueryAllSharedPlatforms()
+	for _, platform := range sharedPlatforms {
+		client := PlatformManager.Find(platform.ServerAddr)
+		if client == nil {
+			continue
+		}
+
+		platforms[platform.ServerAddr] = client
+	}
+
+	platformChannels, _ := dao.Platform.QueryPlatformByChannelID(deviceId, channelId)
+	for _, platformChannel := range platformChannels {
+		platform, _ := dao.Platform.QueryPlatformByID(int(platformChannel.PID))
+		if platform != nil {
+			client := PlatformManager.Find(platform.ServerAddr)
+			if client == nil {
+				continue
+			}
+
+			platforms[platform.ServerAddr] = client
+		}
+	}
+
+	return platforms
+}

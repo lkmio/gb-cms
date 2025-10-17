@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	XmlHeaderGBK = `<?xml version="1.0" encoding="GB2312"?>` + "\r\n"
+	XmlHeaderGBK = `<?xml version="1.0"?>` + "\r\n"
 )
 
 func BuildSDP(media, userName, sessionName, ip string, port uint16, startTime, stopTime, setup string, speed int, ssrc string, attrs ...string) string {
@@ -67,20 +67,25 @@ func NewSIPRequestBuilderWithTransport(transport string) *sip.RequestBuilder {
 }
 
 func BuildMessageRequest(from, fromRealm, to, toAddr, transport, body string) (sip.Request, error) {
+	gbkBody := AddXMLHeader(body)
+	return BuildRequest(sip.MESSAGE, from, fromRealm, to, toAddr, transport, &XmlMessageType, gbkBody)
+}
+
+func BuildRequest(method sip.RequestMethod, fromUser, realm, toUser, toAddr, transport string, contentType *sip.ContentType, body string) (sip.Request, error) {
+	builder := NewRequestBuilder(method, fromUser, realm, toUser, toAddr, transport)
+
+	if contentType != nil && len(body) > 0 {
+		builder.SetContentType(contentType)
+		builder.SetBody(body)
+	}
+	return builder.Build()
+}
+
+func AddXMLHeader(body string) string {
 	if !strings.HasPrefix(body, "<?xml") {
 		body = XmlHeaderGBK + body
 	}
-
-	//gbkBody, _, err := transform.String(simplifiedchinese.GBK.NewEncoder(), body)
-	//if err != nil {
-	//	panic(err)
-	//}
-	gbkBody := body
-
-	builder := NewRequestBuilder(sip.MESSAGE, from, fromRealm, to, toAddr, transport)
-	builder.SetContentType(&XmlMessageType)
-	builder.SetBody(gbkBody)
-	return builder.Build()
+	return body
 }
 
 func NewRequestBuilder(method sip.RequestMethod, fromUser, realm, toUser, toAddr, transport string) *sip.RequestBuilder {

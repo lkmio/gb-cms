@@ -98,3 +98,14 @@ func SetToTag(response sip.Message) {
 	to := toHeader[0].(*sip.ToHeader)
 	to.Params = sip.NewParams().Add("tag", sip.String{Str: util.RandString(10)})
 }
+
+func SetHeader(msg sip.Message, header sip.Header) {
+	msg.RemoveHeader(header.Name())
+	msg.AppendHeader(header)
+}
+
+func SetHeaderIfNotExist(msg sip.Message, header sip.Header) {
+	if len(msg.GetHeaders(header.Name())) < 1 {
+		msg.AppendHeader(header)
+	}
+}

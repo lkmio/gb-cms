@@ -235,6 +235,62 @@ func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
 	}
 }
 
+// OnSubscribe 收到上级订阅请求
+func (s *sipServer) OnSubscribe(wrapper *SipRequestSource) {
+	var code = http.StatusBadRequest
+	var response sip.Response
+	defer func() {
+		if response == nil {
+			response = CreateResponseWithStatusCode(wrapper.req, code)
+		}
+
+		SendResponse(wrapper.tx, response)
+	}()
+
+	var client GBClient
+	if wrapper.fromJt {
+		return
+	} else {
+		if client = PlatformManager.Find(wrapper.req.Source()); client == nil {
+			log2.Sugar.Errorf("处理订阅请求失败, 找不到级联上级. request: %s", wrapper.req.String())
+			return
+		}
+	}
+
+	// 解析有效期头域
+	var expires int
+	var err error
+	expiresHeaders := wrapper.req.GetHeaders("Expires")
+	if len(expiresHeaders) < 1 {
+		log2.Sugar.Errorf("处理订阅请求失败, 找不到Expires头域. request: %s", wrapper.req.String())
+		return
+	} else if expires, err = strconv.Atoi(expiresHeaders[0].Value()); err != nil {
+		log2.Sugar.Errorf("处理订阅请求失败, 解析Expires头域失败. request: %s err: %s", wrapper.req.String(), err.Error())
+		return
+	}
+
+	// 处理订阅消息
+	body := wrapper.req.Body()
+	if strings.Contains(body, "<CmdType>Alarm</CmdType>") {
+		// 报警订阅
+		response, err = client.OnSubscribeAlarm(wrapper.req, expires)
+	} else if strings.Contains(body, "<CmdType>Catalog</CmdType>") {
+		// 目录订阅
+		response, err = client.OnSubscribeCatalog(wrapper.req, expires)
+	} else if strings.Contains(body, "<CmdType>MobilePosition</CmdType>") {
+		// 位置订阅
+		response, err = client.OnSubscribePosition(wrapper.req, expires)
+	}
+
+	if err != nil {
+		log2.Sugar.Errorf("处理订阅请求失败, 调用OnSubscribe失败. request: %s err: %s", wrapper.req.String(), err.Error())
+		code = http.StatusInternalServerError
+	} else if response == nil {
+		log2.Sugar.Errorf("处理订阅请求失败, 调用OnSubscribe返回空响应. request: %s", wrapper.req.String())
+		code = http.StatusInternalServerError
+	}
+}
+
 func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
 	var ok bool
 	defer func() {
@@ -501,8 +557,7 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipSe
 	})) == nil)
 	utils.Assert(ua.OnRequest(sip.CANCEL, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
-	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(func(wrapper *SipRequestSource) {
-	})) == nil)
+	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(server.OnSubscribe)) == nil)
 
 	server.listenAddr = addr
 	port := sip.Port(listenPort)

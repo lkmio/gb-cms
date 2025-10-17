@@ -9,9 +9,9 @@ import (
 
 // GBModel 解决`Model`变量名与gorm.Model冲突
 type GBModel struct {
-	ID        uint      `gorm:"primarykey"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"-"`
+	ID        uint      `gorm:"primarykey" xml:"-"`
+	CreatedAt time.Time `json:"created_at" xml:"-"`
+	UpdatedAt time.Time `json:"-" xml:"-"`
 }
 
 type ChannelModel struct {
@@ -49,11 +49,11 @@ type ChannelModel struct {
 	Status          common.OnlineStatus `json:"status" xml:"Status,omitempty"`
 	Longitude       string              `json:"longitude" xml:"Longitude,omitempty"`
 	Latitude        string              `json:"latitude" xml:"Latitude,omitempty"`
-	Setup           common.SetupType    `json:"setup,omitempty"`
+	Setup           common.SetupType    `json:"setup,omitempty" xml:"-"`
 	ChannelNumber   int                 `json:"channel_number" xml:"-"`           // 对应1078的通道号
 	SubCount        int                 `json:"-" xml:"-"`                        // 子节点数量
 	IsDir           bool                `json:"-" xml:"-"`                        // 是否是目录
-	CustomID        *string             `gorm:"unique"`                           // 自定义通道ID
+	CustomID        *string             `gorm:"unique" xml:"-"`                   // 自定义通道ID
 	Event           string              `json:"-" xml:"Event,omitempty" gorm:"-"` // <!-- 状态改变事件ON:上线,OFF:离线,VLOST:视频丢失,DEFECT:故障,ADD:增加,DEL:删除,UPDATE:更新(必选)-->
 }
 
@@ -328,4 +328,14 @@ func (d *daoChannel) QueryChannelName(rootId string, channelId string) (string, 
 	}
 
 	return channel.Name, nil
+}
+
+func (d *daoChannel) QueryCustomID(rootId string, channelId string) (string, error) {
+	var channel ChannelModel
+	tx := db.Select("custom_id").Where("root_id =? and device_id =?", rootId, channelId).Take(&channel)
+	if tx.Error != nil || channel.CustomID == nil {
+		return "", tx.Error
+	}
+
+	return *channel.CustomID, nil
 }

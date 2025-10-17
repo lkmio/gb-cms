@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"gb-cms/common"
@@ -214,8 +214,8 @@ type LiveGBSCascade struct {
 	DigestAlgorithm   string
 	GM                bool
 	Cert              string
-	CreateAt          string
-	UpdateAt          string
+	CreatedAt         string
+	UpdatedAt         string
 }
 
 func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, deviceName string) []*LiveGBSChannel {

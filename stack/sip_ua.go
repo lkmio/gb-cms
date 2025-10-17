@@ -42,6 +42,10 @@ type SIPUA interface {
 	SetOnRegisterHandler(online, offline func())
 
 	GetDomain() string
+
+	Online() bool
+
+	SendRequest(request sip.Request) sip.ClientTransaction
 }
 
 func EqualSipUAOptions(old, new *common.SIPUAOptions) bool {
@@ -79,6 +83,8 @@ type sipUA struct {
 
 	onlineCB  func()
 	offlineCB func()
+
+	online bool
 }
 
 func (g *sipUA) doRegister(request sip.Request) bool {
@@ -232,7 +238,8 @@ func (g *sipUA) Refresh() time.Duration {
 
 		if g.registerOK {
 			g.registerOKTime = time.Now()
-			if g.onlineCB != nil {
+			g.online = true
+			if g.onlineCB != nil && !expires {
 				go g.onlineCB()
 			}
 		}
@@ -256,6 +263,7 @@ func (g *sipUA) Refresh() time.Duration {
 		g.registerOK = false
 		g.registerOKRequest = nil
 		g.NatAddr = ""
+		g.online = false
 
 		if g.offlineCB != nil {
 			go g.offlineCB()
@@ -303,6 +311,7 @@ func (g *sipUA) Stop() {
 		g.doUnregister()
 	}
 
+	g.online = false
 	g.exited = true
 	g.cancel()
 	g.registerOK = false
@@ -317,4 +326,12 @@ func (g *sipUA) SetOnRegisterHandler(online, offline func()) {
 
 func (g *sipUA) GetDomain() string {
 	return g.ServerAddr
+}
+
+func (g *sipUA) Online() bool {
+	return g.online
+}
+
+func (g *sipUA) SendRequest(request sip.Request) sip.ClientTransaction {
+	return g.stack.SendRequest(request)
 }

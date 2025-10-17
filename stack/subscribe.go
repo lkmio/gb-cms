@@ -75,16 +75,11 @@ func Unsubscribe(deviceId string, t int, event Event, body []byte, remoteIP stri
 
 	// 添加事件头
 	expiresHeader := sip.Expires(0)
-	contactHeader := sip.ContactHeader{DisplayName: GlobalContactAddress.DisplayName, Address: GlobalContactAddress.Uri, Params: GlobalContactAddress.Params}
 
-	request.RemoveHeader("Event")
-	request.RemoveHeader("Expires")
-	request.RemoveHeader("Contact")
-	request.RemoveHeader("Content-Type")
-	request.AppendHeader(&event)
-	request.AppendHeader(&expiresHeader)
-	request.AppendHeader(&contactHeader)
-	request.AppendHeader(&XmlMessageType)
+	common.SetHeader(request, &event)
+	common.SetHeader(request, &expiresHeader)
+	common.SetHeader(request, GlobalContactAddress.AsContactHeader())
+	common.SetHeader(request, &XmlMessageType)
 
 	if body != nil {
 		request.SetBody(string(body), true)
@@ -103,16 +98,11 @@ func RefreshSubscribe(deviceId string, t int, event Event, expires int, body []b
 	request := CreateRequestFromDialog(dialogs[0].Dialog.Request, sip.SUBSCRIBE, remoteIP, remotePort)
 
 	expiresHeader := sip.Expires(expires)
-	contactHeader := sip.ContactHeader{DisplayName: GlobalContactAddress.DisplayName, Address: GlobalContactAddress.Uri, Params: GlobalContactAddress.Params}
 
-	request.RemoveHeader("Event")
-	request.RemoveHeader("Expires")
-	request.RemoveHeader("Contact")
-	request.RemoveHeader("Content-Type")
-	request.AppendHeader(&event)
-	request.AppendHeader(&expiresHeader)
-	request.AppendHeader(&contactHeader)
-	request.AppendHeader(&XmlMessageType)
+	common.SetHeader(request, &event)
+	common.SetHeader(request, &expiresHeader)
+	common.SetHeader(request, GlobalContactAddress.AsContactHeader())
+	common.SetHeader(request, &XmlMessageType)
 
 	if body != nil {
 		request.SetBody(string(body), true)

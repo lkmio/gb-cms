@@ -1,4 +1,4 @@
-package main
+package api
 
 // 每秒钟统计系统资源占用, 包括: cpu/流量/磁盘/内存
 import (

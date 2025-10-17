@@ -27,7 +27,24 @@ type GBClient interface {
 	// OnQueryDeviceInfo 被查询设备信息
 	OnQueryDeviceInfo(sn int)
 
-	OnSubscribeCatalog(sn int)
+	// OnSubscribeCatalog 被订阅目录
+	OnSubscribeCatalog(request sip.Request, expires int) (sip.Response, error)
+
+	// OnSubscribeAlarm 被订阅报警
+	OnSubscribeAlarm(request sip.Request, expires int) (sip.Response, error)
+
+	// OnSubscribePosition 被订阅位置
+	OnSubscribePosition(req sip.Request, expires int) (sip.Response, error)
+
+	CreateRequestByDialogType(t int, method sip.RequestMethod) (sip.Request, error)
+
+	SendMessage(body interface{})
+
+	BuildRequest(method sip.RequestMethod, contentType *sip.ContentType, body string) (sip.Request, error)
+
+	PushCatalog()
+
+	NotifyCatalog(sn int, channels []*dao.ChannelModel, messageFactory func() sip.Request)
 }
 
 type gbClient struct {
@@ -37,6 +54,17 @@ type gbClient struct {
 }
 
 func (g *gbClient) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
+	g.NotifyCatalog(sn, channels, func() sip.Request {
+		request, err := BuildMessageRequest(g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, "")
+		if err != nil {
+			panic(err)
+		}
+
+		return request
+	})
+}
+
+func (g *gbClient) NotifyCatalog(sn int, channels []*dao.ChannelModel, messageFactory func() sip.Request) {
 	response := CatalogResponse{}
 	response.SN = sn
 	response.CmdType = CmdCatalog
@@ -44,7 +72,6 @@ func (g *gbClient) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
 	response.SumNum = len(channels)
 
 	if response.SumNum < 1 {
-		g.SendMessage(&response)
 		return
 	}
 
@@ -52,31 +79,55 @@ func (g *gbClient) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
 		channel := *channels[i]
 
 		// 向上级推送自定义的通道ID
-		if channel.CustomID != nil {
+		if channel.CustomID != nil && *channel.CustomID != "" {
 			channel.DeviceID = *channel.CustomID
+		}
+
+		// 如果设备离线, 状态设置为OFF
+		_, b := OnlineDeviceManager.Find(channel.RootID)
+		if b {
+			channel.Status = common.ON
+		} else {
+			channel.Status = common.OFF
 		}
 
 		response.DeviceList.Devices = nil
 		response.DeviceList.Num = 1 // 一次发一个通道
 		response.DeviceList.Devices = append(response.DeviceList.Devices, &channel)
-		response.DeviceList.Devices[0].ParentID = g.sipUA.Username
 
-		g.SendMessage(&response)
+		request := messageFactory()
+		if request == nil {
+			continue
+		}
+
+		xmlBody, err := xml.MarshalIndent(&response, " ", "")
+		if err != nil {
+			panic(err)
+		}
+
+		request.SetBody(string(xmlBody), true)
+		common.SetHeader(request, &XmlMessageType)
+
+		g.stack.SendRequest(request)
 	}
 }
 
 func (g *gbClient) SendMessage(msg interface{}) {
-	marshal, err := xml.MarshalIndent(msg, "", " ")
+	xmlBody, err := xml.MarshalIndent(msg, " ", "")
 	if err != nil {
 		panic(err)
 	}
 
-	request, err := BuildMessageRequest(g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, string(marshal))
+	request, err := BuildMessageRequest(g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, string(xmlBody))
 	if err != nil {
 		panic(err)
 	}
 
 	g.sipUA.stack.SendRequest(request)
+}
+
+func (g *gbClient) BuildRequest(method sip.RequestMethod, contentType *sip.ContentType, body string) (sip.Request, error) {
+	return BuildRequest(method, g.sipUA.Username, g.sipUA.Username, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, contentType, body)
 }
 
 func (g *gbClient) OnQueryDeviceInfo(sn int) {
@@ -95,8 +146,23 @@ func (g *gbClient) SetDeviceInfo(name, manufacturer, model, firmware string) {
 	g.deviceInfo.Firmware = firmware
 }
 
-func (g *gbClient) OnSubscribeCatalog(sn int) {
+func (g *gbClient) OnSubscribeCatalog(request sip.Request, expires int) (sip.Response, error) {
+	return nil, nil
+}
 
+func (g *gbClient) OnSubscribeAlarm(request sip.Request, expires int) (sip.Response, error) {
+	return nil, nil
+}
+
+func (g *gbClient) OnSubscribePosition(req sip.Request, expires int) (sip.Response, error) {
+	return nil, nil
+}
+
+func (g *gbClient) CreateRequestByDialogType(t int, method sip.RequestMethod) (sip.Request, error) {
+	return nil, nil
+}
+
+func (g *gbClient) PushCatalog() {
 }
 
 func NewGBClient(params *common.SIPUAOptions, stack common.SipServer) GBClient {
