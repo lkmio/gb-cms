@@ -165,7 +165,7 @@ func (api *ApiServer) DoInvite(inviteType common.InviteType, params *InviteParam
 	}
 
 	if params.Setup == "" {
-		params.Setup = device.Setup.String()
+		params.Setup = device.GetSetup().String()
 	}
 
 	// 解析回放或下载速度参数

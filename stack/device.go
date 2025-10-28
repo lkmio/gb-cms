@@ -99,7 +99,7 @@ type Device struct {
 }
 
 func (d *Device) BuildMessageRequest(to, body string) sip.Request {
-	request, err := BuildMessageRequest(common.Config.SipID, net.JoinHostPort(GlobalContactAddress.Uri.Host(), GlobalContactAddress.Uri.Port().String()), to, net.JoinHostPort(d.RemoteIP, strconv.Itoa(d.RemotePort)), d.Transport, body)
+	request, err := BuildMessageRequest(common.Config.SipID, common.Config.Realm, to, net.JoinHostPort(d.RemoteIP, strconv.Itoa(d.RemotePort)), d.Transport, body)
 	if err != nil {
 		panic(err)
 	}

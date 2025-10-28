@@ -1,11 +1,13 @@
-package main
+package stack
 
 import (
 	"gb-cms/common"
 	"gb-cms/dao"
 	"gb-cms/log"
-	"gb-cms/stack"
+	"github.com/go-co-op/gocron/v2"
 	"github.com/lkmio/avformat/utils"
+	"net"
+	"strconv"
 	"time"
 )
 
@@ -26,10 +28,10 @@ func startPlatformDevices() {
 			continue
 		}
 
-		platform, err := stack.NewPlatform(&record.SIPUAOptions, common.SipStack)
+		platform, err := NewPlatform(&record.SIPUAOptions, common.SipStack)
 		// 都入库了不允许失败, 程序有BUG, 及时修复
 		utils.Assert(err == nil)
-		utils.Assert(stack.PlatformManager.Add(platform.ServerAddr, platform))
+		utils.Assert(PlatformManager.Add(platform.ServerAddr, platform))
 
 		platform.Start()
 	}
@@ -45,9 +47,9 @@ func startJTDevices() {
 
 	for _, record := range devices {
 		// 都入库了不允许失败, 程序有BUG, 及时修复
-		device, err := stack.NewJTDevice(record, common.SipStack)
+		device, err := NewJTDevice(record, common.SipStack)
 		utils.Assert(err == nil)
-		utils.Assert(stack.JTDeviceManager.Add(device.Username, device))
+		utils.Assert(JTDeviceManager.Add(device.Username, device))
 
 		if err := dao.JTDevice.UpdateOnlineStatus(common.OFF, device.Username); err != nil {
 			log.Sugar.Infof("更新1078设备状态失败 err: %s device: %s", err.Error(), record.SeverID)
@@ -69,7 +71,7 @@ func recoverStreams() (map[string]*dao.StreamModel, map[string]*dao.SinkModel) {
 	dbSinks, _ := dao.Sink.LoadSinks()
 
 	// 查询流媒体服务器中的推流源列表
-	msSources, err := stack.MSQuerySourceList()
+	msSources, err := MSQuerySourceList()
 	if err != nil {
 		// 流媒体服务器崩了, 存在的所有记录都无效, 全部删除
 		log.Sugar.Warnf("恢复推流失败, 查询推流源列表发生错误, 删除所有推流记录. err: %s", err.Error())
@@ -84,7 +86,7 @@ func recoverStreams() (map[string]*dao.StreamModel, map[string]*dao.SinkModel) {
 		}
 
 		// 查询转发sink
-		sinks, err := stack.MSQuerySinkList(source.ID)
+		sinks, err := MSQuerySinkList(source.ID)
 		if err != nil {
 			log.Sugar.Warnf("查询拉流列表发生 err: %s", err.Error())
 			continue
@@ -134,7 +136,7 @@ func updateDevicesStatus() {
 			if device.Status == common.OFF {
 				continue
 			} else if now.Sub(device.LastHeartbeat) < time.Duration(common.Config.AliveExpires)*time.Second {
-				stack.OnlineDeviceManager.Add(key, device.LastHeartbeat)
+				OnlineDeviceManager.Add(key, device.LastHeartbeat)
 				continue
 			}
 
@@ -142,7 +144,114 @@ func updateDevicesStatus() {
 		}
 
 		for _, device := range offlineDevices {
-			stack.CloseDevice(device)
+			CloseDevice(device)
 		}
 	}
+}
+
+func closeStreamsAndSinks(streams map[string]*dao.StreamModel, sinks map[string]*dao.SinkModel, ms bool) {
+	for _, stream := range streams {
+		(&Stream{StreamModel: stream}).Close(true, ms)
+	}
+
+	for _, sink := range sinks {
+		(&Sink{SinkModel: sink}).Close(true, ms)
+	}
+}
+
+func closeAllStreamsAndSinks() {
+	dbStreams, _ := dao.Stream.LoadStreams()
+	dbSinks, _ := dao.Sink.LoadSinks()
+	closeStreamsAndSinks(dbStreams, dbSinks, true)
+}
+
+func RestartSipStack(newConfig *common.Config_) error {
+	// 关闭所有推拉流/对讲/级联等会话
+	closeAllStreamsAndSinks()
+
+	// 停止所有级联设备
+	platforms := PlatformManager.All()
+	for _, platform := range platforms {
+		platform.Stop()
+	}
+
+	sipLock.Lock()
+	defer func() {
+		sipLock.Unlock()
+
+		// 重启级联设备
+		go func() {
+			for _, platform := range PlatformManager.All() {
+				platform.Start()
+			}
+		}()
+	}()
+
+	// 重启sip协议栈
+	common.Config = newConfig
+	err := common.SipStack.Restart(newConfig.SipID, newConfig.ListenIP, newConfig.PublicIP, newConfig.SipPort)
+	if err != nil {
+		log.Sugar.Errorf("重启sip服务器失败. err: %s", err.Error())
+		return err
+	}
+
+	common.Config.SipContactAddr = net.JoinHostPort(newConfig.PublicIP, strconv.Itoa(newConfig.SipPort))
+	return nil
+}
+
+func Start() {
+	// 启动设备在线超时管理
+	OnlineDeviceManager.Start(time.Duration(common.Config.AliveExpires)*time.Second/4, time.Duration(common.Config.AliveExpires)*time.Second, OnExpires)
+
+	// 查询在线设备, 更新设备在线状态
+	updateDevicesStatus()
+
+	// 恢复国标推流会话
+	streams, sinks := recoverStreams()
+
+	// 在sip启动后, 关闭无效的流
+	closeStreamsAndSinks(streams, sinks, false)
+
+	// 启动级联设备
+	startPlatformDevices()
+
+	// 启动1078设备
+	startJTDevices()
+
+	// 启动目录刷新任务
+	go AddScheduledTask(time.Minute, true, RefreshCatalogScheduleTask)
+	// 启动订阅刷新任务
+	go AddScheduledTask(time.Minute, true, RefreshSubscribeScheduleTask)
+
+	// 启动定时任务, 每天凌晨3点执行
+	s, _ := gocron.NewScheduler()
+	defer func() { _ = s.Shutdown() }()
+
+	// 删除过期的位置、报警记录
+	_, _ = s.NewJob(
+		gocron.CronJob(
+			"0 3 * * *",
+			false,
+		),
+		gocron.NewTask(
+			func() {
+				now := time.Now()
+				alarmExpireTime := now.AddDate(0, 0, -common.Config.AlarmReserveDays)
+				positionExpireTime := now.AddDate(0, 0, -common.Config.PositionReserveDays)
+
+				// 删除过期的报警记录
+				err := dao.Alarm.DeleteExpired(alarmExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的报警记录失败 err: %s", err.Error())
+				}
+				// 删除过期的位置记录
+				err = dao.Position.DeleteExpired(positionExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的位置记录失败 err: %s", err.Error())
+				}
+			},
+		),
+	)
+
+	s.Start()
 }

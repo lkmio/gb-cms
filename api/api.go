@@ -279,7 +279,8 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/cloudrecord/querychannels", withVerify(func(w http.ResponseWriter, req *http.Request) {})) // 云端录像
 	apiServer.router.HandleFunc("/api/v1/user/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                 // 用户管理
 	apiServer.router.HandleFunc("/api/v1/log/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 操作日志
-	apiServer.router.HandleFunc("/api/v1/getbaseconfig", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
+	apiServer.router.HandleFunc("/api/v1/getbaseconfig", withVerify(common.WithFormDataParams(apiServer.OnGetBaseConfig, Empty{})))
+	apiServer.router.HandleFunc("/api/v1/setbaseconfig", withVerify(common.WithFormDataParams(apiServer.OnSetBaseConfig, Empty{})))
 	apiServer.router.HandleFunc("/api/v1/gm/cert/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 	apiServer.router.HandleFunc("/api/v1/getrequestkey", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 

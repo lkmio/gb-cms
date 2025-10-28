@@ -21,6 +21,7 @@ type SipDialogModel struct {
 	Dialog      *common.RequestWrapper `json:"message,omitempty"`
 	Type        int
 	RefreshTime time.Time
+	CSeqNumber  uint32 `gorm:"column:cseq_number"`
 }
 
 func (m *SipDialogModel) TableName() string {
@@ -99,5 +100,11 @@ func (m *daoDialog) QueryDialogByCallID(id string) (*SipDialogModel, error) {
 func (m *daoDialog) UpdateRefreshTime(callid string, refreshTime time.Time) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&SipDialogModel{}).Where("call_id = ?", callid).Update("refresh_time", refreshTime).Error
+	})
+}
+
+func (m *daoDialog) UpdateCSeqNumber(callid string, cseqNumber uint32) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Model(&SipDialogModel{}).Where("call_id = ?", callid).Update("cseq_number", cseqNumber).Error
 	})
 }

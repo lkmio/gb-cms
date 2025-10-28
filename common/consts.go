@@ -1,5 +1,7 @@
 package common
 
+import "strings"
+
 type OnlineStatus string
 
 const (
@@ -31,6 +33,17 @@ func (s SetupType) String() string {
 		return "active"
 	default:
 		return "udp"
+	}
+}
+
+func String2SetupType(str string) SetupType {
+	switch strings.ToLower(str) {
+	case "passive":
+		return SetupTypePassive
+	case "active":
+		return SetupTypeActive
+	default:
+		return SetupTypeUDP
 	}
 }
 

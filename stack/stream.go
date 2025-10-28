@@ -78,7 +78,7 @@ func (s *Stream) Close(bye, ms bool) {
 
 func (s *Stream) Bye() {
 	if s.Dialog != nil && s.Dialog.Request != nil {
-		go common.SipStack.SendRequest(s.CreateRequestFromDialog(sip.BYE))
+		common.SipStack.SendRequest(s.CreateRequestFromDialog(sip.BYE))
 		s.Dialog = nil
 	}
 }

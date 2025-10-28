@@ -112,6 +112,7 @@ func WithJsonResponse[T any](f func(params T, w http.ResponseWriter, req *http.R
 
 		responseBody, err := f(*newParams, w, req)
 		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
 			_ = HttpResponseError(w, err.Error())
 		} else if responseBody != nil {
 			_ = HttpResponseOK(w, responseBody)

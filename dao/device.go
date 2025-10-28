@@ -53,6 +53,13 @@ func (d *DeviceModel) GetID() string {
 	return d.DeviceID
 }
 
+func (d *DeviceModel) GetSetup() common.SetupType {
+	if d.Setup == 0 || d.Setup > common.SetupTypeActive {
+		return common.String2SetupType(common.Config.DeviceDefaultMediaTransport)
+	}
+	return d.Setup
+}
+
 type daoDevice struct {
 }
 

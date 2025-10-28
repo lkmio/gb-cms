@@ -28,11 +28,13 @@ type SipServer interface {
 
 	SendRequest(request sip.Request) sip.ClientTransaction
 
-	SendRequestWithTimeout(seconds int, request sip.Request, options ...gosip.RequestWithContextOption) (sip.Response, error)
-
 	Send(msg sip.Message) error
 
 	ListenAddr() string
+
+	Restart(id, listenIP, publicIP string, listenPort int) error
+
+	Start(id, listenIP, publicIP string, listenPort int) error
 }
 
 // RequestWrapper sql序列化

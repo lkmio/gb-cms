@@ -10,7 +10,6 @@ import (
 	"gb-cms/hook"
 	"gb-cms/log"
 	"gb-cms/stack"
-	"github.com/go-co-op/gocron/v2"
 	"github.com/pretty66/websocketproxy"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -38,7 +37,7 @@ func init() {
 }
 
 func main() {
-	config, err := common.ParseConfig("./config.json")
+	config, err := common.ParseConfig("./config.ini")
 	if err != nil {
 		panic(err)
 	}
@@ -79,86 +78,25 @@ func main() {
 	// 启动web session超时管理
 	go api.TokenManager.Start(5 * time.Minute)
 
-	// 启动设备在线超时管理
-	stack.OnlineDeviceManager.Start(time.Duration(common.Config.AliveExpires)*time.Second/4, time.Duration(common.Config.AliveExpires)*time.Second, stack.OnExpires)
-
-	// 从数据库中恢复会话
-	var streams map[string]*dao.StreamModel
-	var sinks map[string]*dao.SinkModel
-
-	// 查询在线设备, 更新设备在线状态
-	updateDevicesStatus()
-
-	// 恢复国标推流会话
-	streams, sinks = recoverStreams()
-
 	// 启动sip server
-	server, err := stack.StartSipServer(config.SipID, config.ListenIP, config.PublicIP, config.SipPort)
+	sipServer := &stack.SipServer{}
+	err = sipServer.Start(config.SipID, config.ListenIP, config.PublicIP, config.SipPort)
 	if err != nil {
 		panic(err)
 	}
 
-	go api.StartStats()
-
 	log.Sugar.Infof("启动sip server成功. addr: %s:%d", config.ListenIP, config.SipPort)
 	common.Config.SipContactAddr = net.JoinHostPort(config.PublicIP, strconv.Itoa(config.SipPort))
-	common.SipStack = server
+	common.SipStack = sipServer
 
-	// 在sip启动后, 关闭无效的流
-	for _, stream := range streams {
-		(&stack.Stream{StreamModel: stream}).Bye()
-	}
+	stack.Start()
 
-	for _, sink := range sinks {
-		(&stack.Sink{SinkModel: sink}).Close(true, false)
-	}
-
-	// 启动级联设备
-	startPlatformDevices()
-	// 启动1078设备
-	startJTDevices()
+	go api.StartStats()
 
 	// 启动http服务
 	httpAddr := net.JoinHostPort(config.ListenIP, strconv.Itoa(config.HttpPort))
 	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
 	go api.StartApiServer(httpAddr)
-
-	// 启动目录刷新任务
-	go stack.AddScheduledTask(time.Minute, true, stack.RefreshCatalogScheduleTask)
-	// 启动订阅刷新任务
-	go stack.AddScheduledTask(time.Minute, true, stack.RefreshSubscribeScheduleTask)
-
-	// 启动定时任务, 每天凌晨3点执行
-	s, _ := gocron.NewScheduler()
-	defer func() { _ = s.Shutdown() }()
-
-	// 删除过期的位置、报警记录
-	_, _ = s.NewJob(
-		gocron.CronJob(
-			"0 3 * * *",
-			false,
-		),
-		gocron.NewTask(
-			func() {
-				now := time.Now()
-				alarmExpireTime := now.AddDate(0, 0, -common.Config.AlarmReserveDays)
-				positionExpireTime := now.AddDate(0, 0, -common.Config.PositionReserveDays)
-
-				// 删除过期的报警记录
-				err = dao.Alarm.DeleteExpired(alarmExpireTime)
-				if err != nil {
-					log.Sugar.Errorf("删除过期的报警记录失败 err: %s", err.Error())
-				}
-				// 删除过期的位置记录
-				err = dao.Position.DeleteExpired(positionExpireTime)
-				if err != nil {
-					log.Sugar.Errorf("删除过期的位置记录失败 err: %s", err.Error())
-				}
-			},
-		),
-	)
-
-	s.Start()
 
 	err = http.ListenAndServe(":19000", nil)
 	if err != nil {

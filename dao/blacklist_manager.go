@@ -1,6 +1,7 @@
 package dao
 
 import (
+	"strings"
 	"sync"
 )
 
@@ -67,4 +68,27 @@ func (b *blacklistManager) DeleteUA(ua string) error {
 	defer b.lock.Unlock()
 	delete(b.uaList, ua)
 	return nil
+}
+
+func (b *blacklistManager) ToStrings() (string, string) {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+	var ipList []string
+	for ip := range b.ipList {
+		ipList = append(ipList, ip)
+	}
+
+	var uaList []string
+	for ua := range b.uaList {
+		uaList = append(uaList, ua)
+	}
+
+	return strings.Join(ipList, ","), strings.Join(uaList, ",")
+}
+
+func (b *blacklistManager) Clear() {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+	b.ipList = make(map[string]string)
+	b.uaList = make(map[string]string)
 }

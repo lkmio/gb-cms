@@ -145,12 +145,13 @@ func registerLiveGBSApi() {
 			Hardware         string `json:"Hardware"`
 			InterfaceVersion string `json:"InterfaceVersion"`
 
-			RemainDays  int    `json:"RemainDays"`
-			RunningTime string `json:"RunningTime"`
-			Server      string `json:"Server"`
-			ServerTime  string `json:"ServerTime"`
-			StartUpTime string `json:"StartUpTime"`
-			VersionType string `json:"VersionType"`
+			RemainDays      int    `json:"RemainDays"`
+			RunningTime     string `json:"RunningTime"`
+			Server          string `json:"Server"`
+			ServerTime      string `json:"ServerTime"`
+			StartUpTime     string `json:"StartUpTime"`
+			VersionType     string `json:"VersionType"`
+			PreferStreamFmt string `json:"PreferStreamFmt,omitempty"`
 		}{
 			ServerInfoBase:   serverInfoBase,
 			Authorization:    "Users",
@@ -158,12 +159,13 @@ func registerLiveGBSApi() {
 			Hardware:         KernelArch,
 			InterfaceVersion: "v1",
 
-			RemainDays:  99,
-			RunningTime: FormatUptime(GetUptime()),
-			Server:      "github.com/lkmio/gb-cms dev",
-			ServerTime:  time.Now().Format("2006-01-02 15:04:05"),
-			StartUpTime: StartUpTime.Format("2006-01-02 15:04:05"),
-			VersionType: "开源版",
+			RemainDays:      99,
+			RunningTime:     FormatUptime(GetUptime()),
+			Server:          "github.com/lkmio/gb-cms dev",
+			ServerTime:      time.Now().Format("2006-01-02 15:04:05"),
+			StartUpTime:     StartUpTime.Format("2006-01-02 15:04:05"),
+			VersionType:     "开源版",
+			PreferStreamFmt: common.Config.PreferStreamFmt,
 		}
 
 		_ = common.HttpResponseJson(writer, response)

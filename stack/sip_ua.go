@@ -69,22 +69,22 @@ func CheckSipUAOptions(options *common.SIPUAOptions) error {
 type sipUA struct {
 	common.SIPUAOptions
 
-	ListenAddr string //UA的监听地址
-	NatAddr    string //Nat地址
+	ListenAddr string // UA的监听地址
+	NatAddr    string // Nat地址
 
 	stack                common.SipServer
 	exited               bool
 	ctx                  context.Context
 	cancel               context.CancelFunc
 	keepaliveFailedCount int
-	registerOK           bool
-	registerOKTime       time.Time //注册成功时间
-	registerOKRequest    sip.Request
+
+	registerOK        bool
+	registerOKTime    time.Time   // 注册成功时间
+	registerOKRequest sip.Request // 注册成功的请求
 
 	onlineCB  func()
 	offlineCB func()
-
-	online bool
+	online    bool // 是否在线
 }
 
 func (g *sipUA) doRegister(request sip.Request) bool {
@@ -142,6 +142,7 @@ func (g *sipUA) startNewRegister() bool {
 	expires := sip.Expires(g.RegisterExpires)
 	builder.SetExpires(&expires)
 
+	// 手动替换to头域, 直接设置会响应dst地址
 	host, p, _ := net.SplitHostPort(g.ListenAddr)
 	port, _ := strconv.Atoi(p)
 	sipPort := sip.Port(port)
@@ -167,12 +168,12 @@ func (g *sipUA) startNewRegister() bool {
 }
 
 func CopySipRequest(old sip.Request) sip.Request {
-	//累加cseq number
+	// 累加cseq number
 	cseq, _ := old.CSeq()
 	cseq.SeqNo++
 
 	request := old.Clone().(sip.Request)
-	//清空事务标记
+	// 清空事务标记
 	hop, _ := request.ViaHop()
 	hop.Params.Remove("branch")
 	return request
@@ -185,8 +186,7 @@ func (g *sipUA) refreshRegister() bool {
 
 func (g *sipUA) doUnregister() {
 	request := CopySipRequest(g.registerOKRequest)
-	request.RemoveHeader("Expires")
-	request.AppendHeader(&UnregisterExpiresHeader)
+	common.SetHeader(request, &UnregisterExpiresHeader)
 	g.stack.SendRequest(request)
 
 	if g.offlineCB != nil {
@@ -278,7 +278,7 @@ func (g *sipUA) Refresh() time.Duration {
 }
 
 func (g *sipUA) Start() {
-	utils.Assert(!g.exited)
+	g.exited = false
 	g.ctx, g.cancel = context.WithCancel(context.Background())
 
 	go func() {

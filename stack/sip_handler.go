@@ -35,7 +35,7 @@ type EventHandler struct {
 }
 
 func (e *EventHandler) OnUnregister(id string) {
-	_ = dao.Device.UpdateDeviceStatus(id, common.OFF)
+	CloseDevice(id)
 }
 
 // OnRegister 处理设备注册请求
@@ -66,12 +66,13 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 		model = d
 	}
 
+	_, alreadyOnline := OnlineDeviceManager.Find(id)
 	OnlineDeviceManager.Add(id, now)
 	count, _ := dao.Channel.QueryChanelCount(id, true)
 
 	// 级联通知通道上线
 	device := &Device{model}
-	if count > 0 {
+	if count > 0 && !alreadyOnline {
 		go device.PushCatalog()
 	}
 

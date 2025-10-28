@@ -57,7 +57,7 @@ func (api *ApiServer) OnAlarmList(q *QueryDeviceChannel, _ http.ResponseWriter, 
 
 func (api *ApiServer) OnAlarmRemove(params *SetEnable, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
 	// 删除报警
-	if err := dao.Alarm.DeleteAlarm(params.ID); err != nil {
+	if err := dao.Alarm.Delete(params.ID); err != nil {
 		return nil, err
 	}
 
@@ -66,7 +66,7 @@ func (api *ApiServer) OnAlarmRemove(params *SetEnable, _ http.ResponseWriter, _ 
 
 func (api *ApiServer) OnAlarmClear(_ *Empty, _ http.ResponseWriter, req *http.Request) (interface{}, error) {
 	// 清空报警
-	if err := dao.Alarm.ClearAlarm(); err != nil {
+	if err := dao.Alarm.Clear(); err != nil {
 		return nil, err
 	}
 

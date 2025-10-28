@@ -10,7 +10,7 @@ import (
 
 // SubscribeEvent 发起订阅
 func (d *Device) SubscribeEvent() {
-	if d.PositionSubscribe {
+	if d.PositionSubscribe || common.Config.SubCatalogGlobalInterval > 0 {
 		// 先取消订阅之前的,再重新发起订阅
 		dialogs, _ := dao.Dialog.QueryDialogsByType(d.DeviceID, dao.SipDialogTypeSubscribePosition)
 		if len(dialogs) > 0 {
@@ -19,7 +19,7 @@ func (d *Device) SubscribeEvent() {
 		_ = d.SubscribePosition()
 	}
 
-	if d.CatalogSubscribe {
+	if d.CatalogSubscribe || common.Config.SubCatalogGlobalInterval > 0 {
 		// 先取消订阅之前的,再重新发起订阅
 		dialogs, _ := dao.Dialog.QueryDialogsByType(d.DeviceID, dao.SipDialogTypeSubscribeCatalog)
 		if len(dialogs) > 0 {
@@ -28,7 +28,7 @@ func (d *Device) SubscribeEvent() {
 		_ = d.SubscribeCatalog()
 	}
 
-	if d.AlarmSubscribe {
+	if d.AlarmSubscribe || common.Config.SubAlarmGlobalInterval > 0 {
 		// 先取消订阅之前的,再重新发起订阅
 		dialogs, _ := dao.Dialog.QueryDialogsByType(d.DeviceID, dao.SipDialogTypeSubscribeAlarm)
 		if len(dialogs) > 0 {
@@ -40,7 +40,7 @@ func (d *Device) SubscribeEvent() {
 
 // SendSubscribeMessage 通用发送订阅消息
 func SendSubscribeMessage(deviceId string, request sip.Request, t int, event Event) error {
-	request.AppendHeader(&event)
+	common.SetHeader(request, &event)
 
 	transaction := common.SipStack.SendRequest(request)
 	response := <-transaction.Responses()
@@ -52,6 +52,7 @@ func SendSubscribeMessage(deviceId string, request sip.Request, t int, event Eve
 
 	// 保存dialog到数据库
 	dialog := CreateDialogRequestFromAnswer(response, false, request.Source())
+	seq, _ := dialog.CSeq()
 	callid, _ := dialog.CallID()
 	model := &dao.SipDialogModel{
 		DeviceID:    deviceId,
@@ -59,6 +60,7 @@ func SendSubscribeMessage(deviceId string, request sip.Request, t int, event Eve
 		Dialog:      &common.RequestWrapper{Request: dialog},
 		Type:        t,
 		RefreshTime: time.Now().Add(time.Duration(common.Config.SubscribeExpires-60) * time.Second), // 刷新订阅时间, -60秒预留计时器出发间隔, 确保订阅在过期前刷新
+		CSeqNumber:  seq.SeqNo,
 	}
 
 	return dao.Dialog.Save(model)
@@ -71,11 +73,14 @@ func Unsubscribe(deviceId string, t int, event Event, body []byte, remoteIP stri
 		return err
 	}
 
+	if seq, b := model.Dialog.Request.CSeq(); model.CSeqNumber > 0 && b {
+		seq.SeqNo = model.CSeqNumber
+	}
+
 	request := CreateRequestFromDialog(model.Dialog.Request, sip.SUBSCRIBE, remoteIP, remotePort)
 
 	// 添加事件头
 	expiresHeader := sip.Expires(0)
-
 	common.SetHeader(request, &event)
 	common.SetHeader(request, &expiresHeader)
 	common.SetHeader(request, GlobalContactAddress.AsContactHeader())
@@ -95,10 +100,13 @@ func RefreshSubscribe(deviceId string, t int, event Event, expires int, body []b
 		return fmt.Errorf("no dialog")
 	}
 
+	if seq, b := dialogs[0].Dialog.Request.CSeq(); dialogs[0].CSeqNumber > 0 && b {
+		seq.SeqNo = dialogs[0].CSeqNumber
+	}
+
 	request := CreateRequestFromDialog(dialogs[0].Dialog.Request, sip.SUBSCRIBE, remoteIP, remotePort)
 
 	expiresHeader := sip.Expires(expires)
-
 	common.SetHeader(request, &event)
 	common.SetHeader(request, &expiresHeader)
 	common.SetHeader(request, GlobalContactAddress.AsContactHeader())
@@ -117,6 +125,10 @@ func RefreshSubscribe(deviceId string, t int, event Event, expires int, body []b
 	} else {
 		// 刷新订阅时间, -60秒预留计时器触发间隔, 确保订阅在过期前刷新
 		dialogs[0].RefreshTime = time.Now().Add(time.Duration(common.Config.SubscribeExpires-60) * time.Second)
+		// 更新cseq号
+		if seq, b := response.CSeq(); b {
+			dialogs[0].CSeqNumber = seq.SeqNo
+		}
 		err := dao.Dialog.Save(dialogs[0])
 		if err != nil {
 			return err

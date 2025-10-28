@@ -164,14 +164,14 @@ func (d *daoAlarm) QueryAlarmList(page int, size int, conditions map[string]inte
 	return alarms, int(count), nil
 }
 
-// DeleteAlarm 删除报警
-func (d *daoAlarm) DeleteAlarm(id int) error {
+// Delete 删除报警
+func (d *daoAlarm) Delete(id int) error {
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Delete(&AlarmModel{}, id).Unscoped().Error
 	})
 }
 
-func (d *daoAlarm) ClearAlarm() error {
+func (d *daoAlarm) Clear() error {
 	// 清空报警
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Exec("DELETE FROM lkm_alarm;").Error

@@ -14,11 +14,12 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 )
 
 var (
 	GlobalContactAddress *sip.Address
+	sipLock              sync.RWMutex
 )
 
 const (
@@ -41,7 +42,7 @@ const (
 	CmdAlarm          = "Alarm"
 )
 
-type sipServer struct {
+type SipServer struct {
 	sip             gosip.Server
 	listenAddr      string
 	xmlReflectTypes map[string]reflect.Type
@@ -55,13 +56,17 @@ type SipRequestSource struct {
 	fromJt      bool
 }
 
-func (s *sipServer) Send(msg sip.Message) error {
+func (s *SipServer) Send(msg sip.Message) error {
+	sipLock.RLock()
+	defer sipLock.RUnlock()
+
 	return s.sip.Send(msg)
 }
 
-func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
+func (s *SipServer) OnRegister(wrapper *SipRequestSource) {
 	var device GBDevice
 	var queryCatalog bool
+	var alreadyOnline bool
 
 	fromHeaders := wrapper.req.GetHeaders("From")
 	if len(fromHeaders) == 0 {
@@ -85,6 +90,8 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 			userAgent = userAgentHeader[0].(*sip.UserAgentHeader).Value()
 		}
 
+		_, alreadyOnline = OnlineDeviceManager.Find(id)
+
 		var expires int
 		expires, device, queryCatalog = s.handler.OnRegister(id, wrapper.req.Transport(), wrapper.req.Source(), userAgent)
 		if device != nil {
@@ -100,7 +107,7 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 	SendResponse(wrapper.tx, response)
 
 	// 注册成功
-	if device != nil {
+	if device != nil && !alreadyOnline {
 		// 查询设备信息
 		device.QueryDeviceInfo()
 		// 处理各种订阅
@@ -113,7 +120,7 @@ func (s *sipServer) OnRegister(wrapper *SipRequestSource) {
 }
 
 // OnInvite 收到上级预览/下级设备广播请求
-func (s *sipServer) OnInvite(wrapper *SipRequestSource) {
+func (s *SipServer) OnInvite(wrapper *SipRequestSource) {
 	SendResponse(wrapper.tx, sip.NewResponseFromRequest("", wrapper.req, 100, "Trying", ""))
 	user := wrapper.req.Recipient().User().String()
 
@@ -165,11 +172,11 @@ func (s *sipServer) OnInvite(wrapper *SipRequestSource) {
 	}
 }
 
-func (s *sipServer) OnAck(wrapper *SipRequestSource) {
+func (s *SipServer) OnAck(_ *SipRequestSource) {
 
 }
 
-func (s *sipServer) OnBye(wrapper *SipRequestSource) {
+func (s *SipServer) OnBye(wrapper *SipRequestSource) {
 	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
 	SendResponse(wrapper.tx, response)
 
@@ -199,7 +206,7 @@ func (s *sipServer) OnBye(wrapper *SipRequestSource) {
 	}
 }
 
-func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
+func (s *SipServer) OnNotify(wrapper *SipRequestSource) {
 	response := sip.NewResponseFromRequest("", wrapper.req, 200, "OK", "")
 	SendResponse(wrapper.tx, response)
 
@@ -236,7 +243,7 @@ func (s *sipServer) OnNotify(wrapper *SipRequestSource) {
 }
 
 // OnSubscribe 收到上级订阅请求
-func (s *sipServer) OnSubscribe(wrapper *SipRequestSource) {
+func (s *SipServer) OnSubscribe(wrapper *SipRequestSource) {
 	var code = http.StatusBadRequest
 	var response sip.Response
 	defer func() {
@@ -291,7 +298,7 @@ func (s *sipServer) OnSubscribe(wrapper *SipRequestSource) {
 	}
 }
 
-func (s *sipServer) OnMessage(wrapper *SipRequestSource) {
+func (s *SipServer) OnMessage(wrapper *SipRequestSource) {
 	var ok bool
 	defer func() {
 		var response sip.Response
@@ -433,6 +440,9 @@ func SendResponseWithStatusCode(request sip.Request, tx sip.ServerTransaction, c
 }
 
 func SendResponse(tx sip.ServerTransaction, response sip.Response) bool {
+	sipLock.RLock()
+	defer sipLock.RUnlock()
+
 	sendError := tx.Respond(response)
 
 	if sendError != nil {
@@ -442,16 +452,17 @@ func SendResponse(tx sip.ServerTransaction, response sip.Response) bool {
 	return sendError == nil
 }
 
-func (s *sipServer) SendRequestWithContext(ctx context.Context, request sip.Request, options ...gosip.RequestWithContextOption) {
+func (s *SipServer) SendRequestWithContext(ctx context.Context, request sip.Request, options ...gosip.RequestWithContextOption) {
+	sipLock.RLock()
+	defer sipLock.RUnlock()
+
 	s.sip.RequestWithContext(ctx, request, options...)
 }
 
-func (s *sipServer) SendRequestWithTimeout(seconds int, request sip.Request, options ...gosip.RequestWithContextOption) (sip.Response, error) {
-	reqCtx, _ := context.WithTimeout(context.Background(), time.Duration(seconds)*time.Second)
-	return s.sip.RequestWithContext(reqCtx, request, options...)
-}
+func (s *SipServer) SendRequest(request sip.Request) sip.ClientTransaction {
+	sipLock.RLock()
+	defer sipLock.RUnlock()
 
-func (s *sipServer) SendRequest(request sip.Request) sip.ClientTransaction {
 	transaction, err := s.sip.Request(request)
 	if err != nil {
 		panic(err)
@@ -460,14 +471,13 @@ func (s *sipServer) SendRequest(request sip.Request) sip.ClientTransaction {
 	return transaction
 }
 
-func (s *sipServer) ListenAddr() string {
+func (s *SipServer) ListenAddr() string {
 	return s.listenAddr
 }
 
 // 过滤SIP消息、超找消息来源
 func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 	return func(req sip.Request, tx sip.ServerTransaction) {
-
 		// 过滤黑名单
 		userAgent := req.GetHeaders("User-Agent")
 		if model, _ := dao.Blacklist.QueryIP(req.Source()); model != nil {
@@ -519,7 +529,7 @@ func filterRequest(f func(wrapper *SipRequestSource)) gosip.RequestHandler {
 	}
 }
 
-func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipServer, error) {
+func (s *SipServer) Start(id, listenIP, publicIP string, listenPort int) error {
 	ua := gosip.NewServer(gosip.ServerConfig{
 		Host:      publicIP,
 		UserAgent: "github.com/lkmio",
@@ -527,12 +537,12 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipSe
 
 	addr := net.JoinHostPort(listenIP, strconv.Itoa(listenPort))
 	if err := ua.Listen("udp", addr); err != nil {
-		return nil, err
-	} else if err := ua.Listen("tcp", addr); err != nil {
-		return nil, err
+		return err
+	} else if err = ua.Listen("tcp", addr); err != nil {
+		return err
 	}
 
-	server := &sipServer{sip: ua, xmlReflectTypes: map[string]reflect.Type{
+	s.xmlReflectTypes = map[string]reflect.Type{
 		fmt.Sprintf("%s.%s", XmlNameQuery, CmdCatalog):         reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameQuery, CmdDeviceInfo):      reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameQuery, CmdDeviceStatus):    reflect.TypeOf(BaseMessage{}),
@@ -544,22 +554,23 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipSe
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdMobilePosition): reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameResponse, CmdBroadcast):    reflect.TypeOf(BaseMessage{}),
 		fmt.Sprintf("%s.%s", XmlNameNotify, CmdMediaStatus):    reflect.TypeOf(BaseMessage{}),
-	}}
+	}
 
-	utils.Assert(ua.OnRequest(sip.REGISTER, filterRequest(server.OnRegister)) == nil)
-	utils.Assert(ua.OnRequest(sip.INVITE, filterRequest(server.OnInvite)) == nil)
-	utils.Assert(ua.OnRequest(sip.BYE, filterRequest(server.OnBye)) == nil)
-	utils.Assert(ua.OnRequest(sip.ACK, filterRequest(server.OnAck)) == nil)
-	utils.Assert(ua.OnRequest(sip.NOTIFY, filterRequest(server.OnNotify)) == nil)
-	utils.Assert(ua.OnRequest(sip.MESSAGE, filterRequest(server.OnMessage)) == nil)
+	utils.Assert(ua.OnRequest(sip.REGISTER, filterRequest(s.OnRegister)) == nil)
+	utils.Assert(ua.OnRequest(sip.INVITE, filterRequest(s.OnInvite)) == nil)
+	utils.Assert(ua.OnRequest(sip.BYE, filterRequest(s.OnBye)) == nil)
+	utils.Assert(ua.OnRequest(sip.ACK, filterRequest(s.OnAck)) == nil)
+	utils.Assert(ua.OnRequest(sip.NOTIFY, filterRequest(s.OnNotify)) == nil)
+	utils.Assert(ua.OnRequest(sip.MESSAGE, filterRequest(s.OnMessage)) == nil)
 
 	utils.Assert(ua.OnRequest(sip.INFO, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
 	utils.Assert(ua.OnRequest(sip.CANCEL, filterRequest(func(wrapper *SipRequestSource) {
 	})) == nil)
-	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(server.OnSubscribe)) == nil)
+	utils.Assert(ua.OnRequest(sip.SUBSCRIBE, filterRequest(s.OnSubscribe)) == nil)
 
-	server.listenAddr = addr
+	s.sip = ua
+	s.listenAddr = net.JoinHostPort(publicIP, strconv.Itoa(listenPort))
 	port := sip.Port(listenPort)
 	GlobalContactAddress = &sip.Address{
 		Uri: &sip.SipUri{
@@ -569,5 +580,10 @@ func StartSipServer(id, listenIP, publicIP string, listenPort int) (common.SipSe
 		},
 	}
 
-	return server, nil
+	return nil
+}
+
+func (s *SipServer) Restart(id, listenIP, publicIP string, listenPort int) error {
+	s.sip.Shutdown()
+	return s.Start(id, listenIP, publicIP, listenPort)
 }

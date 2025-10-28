@@ -32,7 +32,7 @@ func (g *Platform) OnBye(request sip.Request) {
 }
 
 // 追加本地域
-func (g *Platform) appendSelfDomain(channels []*dao.ChannelModel) []*dao.ChannelModel {
+func (g *Platform) appendLocalDomain(channels []*dao.ChannelModel) []*dao.ChannelModel {
 	return append(channels, &dao.ChannelModel{
 		DeviceID:     g.ServerID,
 		Setup:        common.SetupTypePassive,
@@ -52,7 +52,7 @@ func (g *Platform) OnQueryCatalog(sn int, channels []*dao.ChannelModel) {
 		return
 	}
 
-	g.gbClient.OnQueryCatalog(sn, g.appendSelfDomain(channels))
+	g.gbClient.OnQueryCatalog(sn, g.appendLocalDomain(channels))
 }
 
 // CloseStream 关闭级联会话
@@ -167,7 +167,7 @@ func (g *Platform) release() {
 		g.registerTimer = nil
 	}
 
-	// 释放所有推流
+	// 释放所有级联会话
 	g.CloseStreams(true, true)
 
 	// 删除订阅会话
@@ -195,6 +195,10 @@ func (g *Platform) CreateRequestByDialogType(t int, method sip.RequestMethod) (s
 	host, p, _ := net.SplitHostPort(g.ServerAddr)
 	remotePort, _ := strconv.Atoi(p)
 
+	if seq, b := model[0].Dialog.Request.CSeq(); model[0].CSeqNumber > 0 && b {
+		seq.SeqNo = model[0].CSeqNumber
+	}
+
 	request := CreateRequestFromDialog(model[0].Dialog.Request, method, host, remotePort)
 
 	// 添加头域
@@ -209,6 +213,9 @@ func (g *Platform) CreateRequestByDialogType(t int, method sip.RequestMethod) (s
 	common.SetHeader(request, &subscriptionState)
 	common.SetHeader(request, &XmlMessageType)
 	common.SetHeader(request, GlobalContactAddress.AsContactHeader())
+	if seq, b := request.CSeq(); b {
+		_ = dao.Dialog.UpdateCSeqNumber(model[0].CallID, seq.SeqNo)
+	}
 	return request, nil
 }
 
@@ -226,7 +233,7 @@ func (g *Platform) PushCatalog() {
 	}
 
 	// 因为没有dialog, 可能有的协议栈发送不过去
-	g.NotifyCatalog(GetSN(), g.appendSelfDomain(channels), func() sip.Request {
+	g.NotifyCatalog(GetSN(), g.appendLocalDomain(channels), func() sip.Request {
 		request, err := BuildRequest(sip.NOTIFY, g.sipUA.Username, g.sipUA.ListenAddr, g.sipUA.ServerID, g.sipUA.ServerAddr, g.sipUA.Transport, nil, "")
 		if err != nil {
 			panic(err)
@@ -281,12 +288,14 @@ func CreateOrDeleteSubscribeDialog(id string, request sip.Request, expires int, 
 		_, _ = dao.Dialog.DeleteDialogsByType(id, t)
 
 		// 保存会话
+		seq, _ := dialog.CSeq()
 		err = dao.Dialog.Save(&dao.SipDialogModel{
 			DeviceID:    id,
 			CallID:      callid.Value(),
 			Dialog:      &common.RequestWrapper{Request: dialog},
 			Type:        t,
 			RefreshTime: refreshTime,
+			CSeqNumber:  seq.SeqNo,
 		})
 
 		if err != nil {
@@ -305,6 +314,10 @@ func NewPlatform(options *common.SIPUAOptions, ua common.SipServer) (*Platform, 
 	if _, err := netip.ParseAddrPort(options.ServerAddr); err != nil {
 		return nil, err
 	}
+
+	// 防止在重启sip阶段, 出现创建级联设备的情况
+	sipLock.RLock()
+	defer sipLock.RUnlock()
 
 	client := NewGBClient(options, ua)
 	return &Platform{gbClient: client.(*gbClient)}, nil
