@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gb-cms/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"time"
 )
 
@@ -55,6 +56,7 @@ type ChannelModel struct {
 	IsDir           bool                `json:"-" xml:"-"`                        // 是否是目录
 	CustomID        *string             `gorm:"unique" xml:"-"`                   // 自定义通道ID
 	Event           string              `json:"-" xml:"Event,omitempty" gorm:"-"` // <!-- 状态改变事件ON:上线,OFF:离线,VLOST:视频丢失,DEFECT:故障,ADD:增加,DEL:删除,UPDATE:更新(必选)-->
+	DropMark        int                 `json:"-" xml:"-"`                        // 是否被过滤 0-不被过滤/非0-被过滤
 }
 
 func (d *ChannelModel) TableName() string {
@@ -122,7 +124,7 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, sta
 		conditions["is_dir"] = 1
 	}
 
-	cTx := db.Where(conditions)
+	cTx := db.Where(conditions).Where("(drop_mark != 1 OR drop_mark IS NULL)")
 
 	if page > 0 {
 		cTx.Limit(size).Offset((page - 1) * size)
@@ -142,9 +144,24 @@ func (d *daoChannel) QueryChannels(deviceId, groupId string, page, size int, sta
 		}
 	}
 
-	countTx := db.Model(&ChannelModel{}).Select("id").Where(conditions)
+	countTx := db.Model(&ChannelModel{}).Select("id").Where(conditions).Where("(drop_mark != 1 OR drop_mark IS NULL)")
 	if keyword != "" {
 		countTx.Where("name like ? or device_id like ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	// 重新统计子节点数量
+	for _, channel := range channels {
+		if !channel.IsDir {
+			continue
+		}
+
+		var total int64
+		// 统计子节点数量
+		if tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =? and (drop_mark != 1 OR drop_mark IS NULL)", channel.RootID, channel.DeviceID).Select("id").Count(&total); tx.Error != nil {
+			return nil, 0, tx.Error
+		}
+
+		channel.SubCount = int(total)
 	}
 
 	var total int64
@@ -166,12 +183,12 @@ func (d *daoChannel) QueryChannelsByRootID(rootId string) ([]*ChannelModel, erro
 
 func (d *daoChannel) QueryChanelCount(deviceId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =?", deviceId)
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and (drop_mark != 1 OR drop_mark IS NULL)", deviceId)
 	if !hasDir {
 		tx.Where("is_dir =?", 0)
 	}
 
-	if tx = tx.Count(&total); tx.Error != nil {
+	if tx = tx.Select("id").Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 	return int(total), nil
@@ -179,12 +196,12 @@ func (d *daoChannel) QueryChanelCount(deviceId string, hasDir bool) (int, error)
 
 func (d *daoChannel) QueryOnlineChanelCount(deviceId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =? and status =?", deviceId, "ON")
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and status =? and (drop_mark != 1 OR drop_mark IS NULL)", deviceId, "ON")
 	if !hasDir {
 		tx.Where("is_dir =?", 0)
 	}
 
-	if tx = tx.Count(&total); tx.Error != nil {
+	if tx = tx.Select("id").Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 
@@ -193,7 +210,7 @@ func (d *daoChannel) QueryOnlineChanelCount(deviceId string, hasDir bool) (int, 
 
 func (d *daoChannel) QueryChannelByTypeCode(codecs ...int) ([]*ChannelModel, error) {
 	var channels []*ChannelModel
-	tx := db.Where("type_code in ?", codecs).Find(&channels)
+	tx := db.Where("type_code in ? and (drop_mark != 1 OR drop_mark IS NULL)", codecs).Find(&channels)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
@@ -265,7 +282,7 @@ func (d *daoChannel) UpdateChannel(channel *ChannelModel) error {
 
 func (d *daoChannel) TotalCount() (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Count(&total)
+	tx := db.Model(&ChannelModel{}).Where("(drop_mark != 1 OR drop_mark IS NULL)").Select("id").Count(&total)
 	if tx.Error != nil {
 		return 0, tx.Error
 	}
@@ -274,7 +291,7 @@ func (d *daoChannel) TotalCount() (int, error) {
 
 func (d *daoChannel) OnlineCount(ids []string) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("status =? and root_id in ?", "ON", ids).Count(&total)
+	tx := db.Model(&ChannelModel{}).Where("status =? and root_id in ? and (drop_mark != 1 OR drop_mark IS NULL)", "ON", ids).Select("id").Count(&total)
 	if tx.Error != nil {
 		return 0, tx.Error
 	}
@@ -283,12 +300,12 @@ func (d *daoChannel) OnlineCount(ids []string) (int, error) {
 
 func (d *daoChannel) QuerySubChannelCount(rootId string, groupId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =?", rootId, groupId)
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =? and (drop_mark != 1 OR drop_mark IS NULL)", rootId, groupId)
 	if !hasDir {
 		tx.Where("is_dir =?", 0)
 	}
 
-	if tx = tx.Count(&total); tx.Error != nil {
+	if tx = tx.Select("id").Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 	return int(total), nil
@@ -296,11 +313,11 @@ func (d *daoChannel) QuerySubChannelCount(rootId string, groupId string, hasDir 
 
 func (d *daoChannel) QueryOnlineSubChannelCount(rootId string, groupId string, hasDir bool) (int, error) {
 	var total int64
-	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =? and status =?", rootId, groupId, "ON")
+	tx := db.Model(&ChannelModel{}).Where("root_id =? and group_id =? and status =? and (drop_mark != 1 OR drop_mark IS NULL)", rootId, groupId, "ON")
 	if !hasDir {
 		tx.Where("is_dir =?", 0)
 	}
-	if tx = tx.Count(&total); tx.Error != nil {
+	if tx = tx.Select("id").Count(&total); tx.Error != nil {
 		return 0, tx.Error
 	}
 	return int(total), nil
@@ -338,4 +355,47 @@ func (d *daoChannel) QueryCustomID(rootId string, channelId string) (string, err
 	}
 
 	return *channel.CustomID, nil
+}
+
+// DropChannel 过滤通道
+func (d *daoChannel) DropChannel(rootId string, typeCodes []string, tx *gorm.DB) error {
+	// 如果rootId为空, 过滤所有typeCode相同的通道
+	// 如果typeCodecs为空, 所有通道都不被过滤
+	update := func(tx *gorm.DB) error {
+		var conditions []clause.Expression
+		if rootId != "" {
+			conditions = append(conditions, gorm.Expr("root_id = ?", rootId))
+		} else {
+			// 全局过滤时,跳过单独设置过滤的设备
+			var rootIds []string
+			tx.Model(DeviceModel{}).Where("drop_channel_type != '' and drop_channel_type is not null").Pluck("device_id", &rootIds)
+			if len(rootIds) > 0 {
+				conditions = append(conditions, gorm.Expr("root_id NOT IN ?", rootIds))
+			}
+		}
+
+		// 处理typeCodes条件
+		if len(typeCodes) > 0 {
+			// 先重置所有符合条件的通道为不过滤
+			conditions = append(conditions, gorm.Expr("type_code NOT IN ?", typeCodes))
+			if err := tx.Model(&ChannelModel{}).Clauses(conditions...).Update("drop_mark", 0).Error; err != nil {
+				return err
+			}
+
+			// 设置指定typeCodes的通道为过滤
+			conditions[len(conditions)-1] = gorm.Expr("type_code IN ?", typeCodes)
+			return tx.Model(&ChannelModel{}).Clauses(conditions...).Update("drop_mark", 1).Error
+		}
+
+		// typeCodes为空时，重置所有符合条件的通道为不过滤
+		return tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Model(&ChannelModel{}).Clauses(conditions...).Update("drop_mark", 0).Error
+	}
+
+	if tx != nil {
+		return update(tx)
+	}
+
+	return DBTransaction(func(tx *gorm.DB) error {
+		return update(tx)
+	})
 }

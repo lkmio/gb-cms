@@ -70,6 +70,13 @@ func (m *daoDialog) DeleteDialogsByType(id string, t int) (*SipDialogModel, erro
 	return &dialog, err
 }
 
+// DeleteDialogByCallID 根据callid删除会话
+func (m *daoDialog) DeleteDialogByCallID(callid string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		return tx.Where("call_id = ?", callid).Unscoped().Delete(&SipDialogModel{}).Error
+	})
+}
+
 // Save 保存会话
 func (m *daoDialog) Save(dialog *SipDialogModel) error {
 	return DBTransaction(func(tx *gorm.DB) error {

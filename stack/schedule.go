@@ -18,23 +18,28 @@ func RefreshCatalogScheduleTask() {
 }
 
 func RefreshSubscribeScheduleTask() {
-	dialogs, _ := dao.Dialog.QueryExpiredDialogs(time.Now())
+	now := time.Now()
+	dialogs, _ := dao.Dialog.QueryExpiredDialogs(now)
 	for _, dialog := range dialogs {
-		go func(t int, id string) {
-			device, _ := dao.Device.QueryDevice(id)
+		go func(dialog *dao.SipDialogModel) {
+			device, _ := dao.Device.QueryDevice(dialog.DeviceID)
 			if device == nil {
+				// 被上级订阅, 由上级刷新, 过期删除
+				if dialog.RefreshTime.Before(now) {
+					_ = dao.Dialog.DeleteDialogByCallID(dialog.CallID)
+				}
 				return
 			}
 
 			d := &Device{device}
-			if dao.SipDialogTypeSubscribeCatalog == t {
+			if dao.SipDialogTypeSubscribeCatalog == dialog.Type {
 				d.RefreshSubscribeCatalog()
-			} else if dao.SipDialogTypeSubscribePosition == t {
+			} else if dao.SipDialogTypeSubscribePosition == dialog.Type {
 				d.RefreshSubscribePosition()
-			} else if dao.SipDialogTypeSubscribeAlarm == t {
+			} else if dao.SipDialogTypeSubscribeAlarm == dialog.Type {
 				d.RefreshSubscribeAlarm()
 			}
-		}(dialog.Type, dialog.DeviceID)
+		}(dialog)
 	}
 }
 

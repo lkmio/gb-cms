@@ -35,6 +35,8 @@ type Config_ struct {
 	SubPositionGlobalInterval int `json:"sub_position_global_interval"`
 	SubPTZGlobalInterval      int `json:"sub_ptz_global_interval"`
 
+	GlobalDropChannelType string `json:"global_drop_channel_type"`
+
 	DeviceDefaultMediaTransport string `json:"device_default_media_transport"`
 
 	Hooks struct {
@@ -81,6 +83,7 @@ func ParseConfig(path string) (*Config_, error) {
 		SubPositionGlobalInterval:   load.Section("sip").Key("sub_position_global_interval").MustInt(),
 		SubPTZGlobalInterval:        load.Section("sip").Key("sub_ptz_global_interval").MustInt(),
 		DeviceDefaultMediaTransport: load.Section("sip").Key("device_default_media_transport").String(),
+		GlobalDropChannelType:       load.Section("sip").Key("global_drop_channel_type").String(),
 	}
 
 	config_.Hooks.Online = load.Section("hooks").Key("online").String()

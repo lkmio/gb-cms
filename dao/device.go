@@ -5,6 +5,7 @@ import (
 	"gorm.io/gorm"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,7 @@ type DeviceModel struct {
 	PositionSubscribe bool `json:"position_subscribe"` // 是否开启位置订阅
 	Longitude         float64
 	Latitude          float64
+	DropChannelType   string
 }
 
 func (d *DeviceModel) TableName() string {
@@ -306,4 +308,15 @@ func (d *daoDevice) QueryDeviceName(deviceId string) (string, error) {
 	}
 
 	return device.Name, nil
+}
+
+func (d *daoDevice) SetDropChannelType(deviceId string, dropChannelTypes []string) error {
+	return DBTransaction(func(tx *gorm.DB) error {
+		err := tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("drop_channel_type", strings.Join(dropChannelTypes, ",")).Error
+		if err != nil {
+			return err
+		}
+
+		return Channel.DropChannel(deviceId, dropChannelTypes, tx)
+	})
 }

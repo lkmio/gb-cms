@@ -61,6 +61,7 @@ func (api *ApiServer) OnGetBaseConfig(_ *Empty, _ http.ResponseWriter, _ *http.R
 		BlackUAList:                           ua,
 		Captcha:                               false,
 		DevicePassword:                        common.Config.Password,
+		DropChannelType:                       common.Config.GlobalDropChannelType,
 		GlobalChannelAudio:                    true,
 		GlobalChannelShared:                   false,
 		GlobalDeviceAlarmSubscribeInterval:    common.Config.SubAlarmGlobalInterval,
@@ -171,6 +172,23 @@ func (api *ApiServer) OnSetBaseConfig(baseConfig *BaseConfig, _ http.ResponseWri
 	if baseConfig.GlobalDevicePositionSubscribeInterval != common.Config.SubPositionGlobalInterval {
 		iniConfig.Section("sip").Key("sub_position_global_interval").SetValue(strconv.Itoa(baseConfig.GlobalDevicePositionSubscribeInterval))
 		changed = true
+	}
+
+	// 更新全局过滤通道类型
+	if baseConfig.DropChannelType != common.Config.GlobalDropChannelType {
+		iniConfig.Section("sip").Key("global_drop_channel_type").SetValue(baseConfig.DropChannelType)
+		changed = true
+
+		var codes []string
+		if baseConfig.DropChannelType != "" {
+			codes = strings.Split(baseConfig.DropChannelType, ",")
+		}
+
+		err = dao.Channel.DropChannel("", codes, nil)
+		if err != nil {
+			log.Sugar.Errorf("更新全局过滤通道类型失败: %s", err.Error())
+			return nil, err
+		}
 	}
 
 	// 更新默认媒体传输方式

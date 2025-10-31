@@ -83,7 +83,7 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			ContactIP:        "",
 			CreatedAt:        device.CreatedAt.Format("2006-01-02 15:04:05"),
 			CustomName:       "",
-			DropChannelType:  "",
+			DropChannelType:  device.DropChannelType,
 			GBVer:            "",
 			ID:               device.GetID(),
 			KeepOriginalTree: false,
@@ -411,6 +411,14 @@ func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter,
 	// 更新设备信息
 	if len(conditions) > 0 {
 		if err = dao.Device.UpdateDevice(params.DeviceID, conditions); err != nil {
+			return nil, err
+		}
+	} else if params.DropChannelType != model.DropChannelType {
+		var dropChannelTypes []string
+		if params.DropChannelType != "" {
+			dropChannelTypes = strings.Split(params.DropChannelType, ",")
+		}
+		if err = dao.Device.SetDropChannelType(params.DeviceID, dropChannelTypes); err != nil {
 			return nil, err
 		}
 	}
