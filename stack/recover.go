@@ -254,4 +254,13 @@ func Start() {
 	)
 
 	s.Start()
+
+	// 加载ip2region数据库
+	if common.Config.IP2RegionEnable {
+		err := common.LoadIP2RegionDB(common.Config.IP2RegionDBPath)
+		if err != nil {
+			common.Config.IP2RegionEnable = false
+			log.Sugar.Errorf("加载ip2region数据库失败. err: %s", err.Error())
+		}
+	}
 }

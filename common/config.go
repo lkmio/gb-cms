@@ -45,6 +45,9 @@ type Config_ struct {
 		Position string `json:"position"`
 		OnInvite string `json:"on_invite"`
 	}
+
+	IP2RegionDBPath string
+	IP2RegionEnable bool
 }
 
 type LogConfig struct {
@@ -84,6 +87,8 @@ func ParseConfig(path string) (*Config_, error) {
 		SubPTZGlobalInterval:        load.Section("sip").Key("sub_ptz_global_interval").MustInt(),
 		DeviceDefaultMediaTransport: load.Section("sip").Key("device_default_media_transport").String(),
 		GlobalDropChannelType:       load.Section("sip").Key("global_drop_channel_type").String(),
+		IP2RegionDBPath:             load.Section("ip2region").Key("db_path").String(),
+		IP2RegionEnable:             load.Section("ip2region").Key("enable").MustBool(),
 	}
 
 	config_.Hooks.Online = load.Section("hooks").Key("online").String()

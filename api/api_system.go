@@ -221,6 +221,10 @@ func (api *ApiServer) OnSetBaseConfig(baseConfig *BaseConfig, _ http.ResponseWri
 		return nil, err
 	}
 
+	// ip库只在启动时加载
+	newConfig.IP2RegionEnable = common.Config.IP2RegionEnable
+	newConfig.IP2RegionDBPath = common.Config.IP2RegionDBPath
+
 	// 重启sip服务
 	if sipChanged {
 		log.Sugar.Infof("重启sip服务器 port: %d", baseConfig.Port)

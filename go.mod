@@ -45,7 +45,6 @@ require (
 	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/term v0.21.0 // indirect
-	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	modernc.org/libc v1.22.5 // indirect
 	modernc.org/mathutil v1.5.0 // indirect
@@ -58,9 +57,11 @@ require (
 	github.com/go-co-op/gocron/v2 v2.16.6
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
+	github.com/lionsoul2014/ip2region/binding/golang v0.0.0-20251031035847-91e542de380a
 	github.com/lkmio/avformat v0.0.1
 	github.com/pretty66/websocketproxy v0.0.0-20220507015215-930b3a686308
 	github.com/shirou/gopsutil/v3 v3.24.5
+	gopkg.in/ini.v1 v1.67.0
 	gorm.io/gorm v1.26.1
 )
 

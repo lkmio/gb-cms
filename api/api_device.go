@@ -39,10 +39,12 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 	}
 
 	response := struct {
-		DeviceCount int
-		DeviceList_ []LiveGBSDevice `json:"DeviceList"`
+		DeviceCount  int
+		DeviceList_  []LiveGBSDevice `json:"DeviceList"`
+		DeviceRegion bool
 	}{
-		DeviceCount: total,
+		DeviceCount:  total,
+		DeviceRegion: common.Config.IP2RegionEnable,
 	}
 
 	// livgbs设备离线后的最后心跳时间, 涉及到是否显示非法设备的批量删除按钮
@@ -89,8 +91,8 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			KeepOriginalTree: false,
 			LastKeepaliveAt:  lastKeealiveTime,
 			LastRegisterAt:   device.RegisterTime.Format("2006-01-02 15:04:05"),
-			Latitude:         0,
-			Longitude:        0,
+			Latitude:         device.Latitude,
+			Longitude:        device.Longitude,
 			//Manufacturer:       device.Manufacturer,
 			Manufacturer:       device.UserAgent,
 			MediaTransport:     device.GetSetup().Transport(),
@@ -105,7 +107,7 @@ func (api *ApiServer) OnDeviceList(q *QueryDeviceChannel, _ http.ResponseWriter,
 			RecvStreamIP:       "",
 			RemoteIP:           device.RemoteIP,
 			RemotePort:         device.RemotePort,
-			RemoteRegion:       "",
+			RemoteRegion:       device.RemoteRegion,
 			SMSGroupID:         "",
 			SMSID:              "",
 			StreamMode:         "",

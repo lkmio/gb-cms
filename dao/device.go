@@ -2,6 +2,7 @@ package dao
 
 import (
 	"gb-cms/common"
+	"gb-cms/log"
 	"gorm.io/gorm"
 	"net"
 	"strconv"
@@ -19,6 +20,7 @@ type DeviceModel struct {
 	Name          string              `json:"name" gorm:"index"`
 	RemoteIP      string              `json:"remote_ip"`
 	RemotePort    int                 `json:"remote_port"`
+	RemoteRegion  string              `json:"remote_region"`
 	Transport     string              `json:"transport"` // 信令传输模式 UDP/TCP
 	Status        common.OnlineStatus `json:"status"`    // 在线状态 ON-在线/OFF-离线
 	Manufacturer  string              `json:"manufacturer"`
@@ -86,17 +88,26 @@ func (d *daoDevice) LoadDevices() (map[string]*DeviceModel, error) {
 }
 
 func (d *daoDevice) SaveDevice(device *DeviceModel) error {
-	return DBTransaction(func(tx *gorm.DB) error {
-		old := DeviceModel{}
-		if db.Select("id").Where("device_id =?", device.DeviceID).Take(&old).Error == nil {
-			device.ID = old.ID
+	old := DeviceModel{}
+	if db.Select("id", "remote_ip", "remote_region").Where("device_id =?", device.DeviceID).Take(&old).Error == nil {
+		device.ID = old.ID
+	}
+
+	if common.Config.IP2RegionEnable && (old.RemoteRegion == "" || (old.RemoteIP != "" && old.RemoteIP != device.RemoteIP)) {
+		region, err := common.IP2Region(device.RemoteIP)
+		if err != nil {
+			log.Sugar.Errorf("IP2Region failed. err: %s", err.Error())
 		}
 
+		device.RemoteRegion = region
+	}
+
+	return DBTransaction(func(tx *gorm.DB) error {
 		if device.ID == 0 {
 			//return tx.Create(&old).Error
 			return tx.Save(device).Error
 		} else {
-			return tx.Model(device).Select("Transport", "RemoteIP", "RemotePort", "Status", "RegisterTime", "LastHeartbeat").Updates(*device).Error
+			return tx.Model(device).Select("transport", "remote_ip", "remote_port", "status", "register_time", "last_heartbeat", "remote_region").Updates(*device).Error
 		}
 	})
 }
@@ -127,17 +138,29 @@ func (d *daoDevice) UpdateDeviceStatus(deviceId string, status common.OnlineStat
 }
 
 func (d *daoDevice) RefreshHeartbeat(deviceId string, now time.Time, addr string) error {
-	if tx := db.Select("id").Take(&DeviceModel{}, "device_id =?", deviceId); tx.Error != nil {
+	old := DeviceModel{}
+	if tx := db.Select("id", "remote_ip", "remote_region").Take(&old, "device_id =?", deviceId); tx.Error != nil {
 		return tx.Error
 	}
+
+	host, p, _ := net.SplitHostPort(addr)
+	var region = old.RemoteRegion
+	if common.Config.IP2RegionEnable && (old.RemoteRegion == "" || (old.RemoteIP != "" && old.RemoteIP != host)) {
+		var err error
+		region, err = common.IP2Region(host)
+		if err != nil {
+			log.Sugar.Errorf("IP2Region failed. err: %s", err.Error())
+		}
+	}
+
 	return DBTransaction(func(tx *gorm.DB) error {
-		host, p, _ := net.SplitHostPort(addr)
 		port, _ := strconv.Atoi(p)
-		return tx.Model(&DeviceModel{}).Select("LastHeartbeat", "Status", "RemoteIP", "RemotePort").Where("device_id =?", deviceId).Updates(&DeviceModel{
+		return tx.Model(&DeviceModel{}).Select("last_heartbeat", "status", "remote_ip", "remote_port", "remote_region").Where("device_id =?", deviceId).Updates(&DeviceModel{
 			LastHeartbeat: now,
 			Status:        common.ON,
 			RemoteIP:      host,
 			RemotePort:    port,
+			RemoteRegion:  region,
 		}).Error
 	})
 }
