@@ -308,6 +308,33 @@ func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, err
 		}
 	}
 
+	// 过滤通道
+	device, _ := dao.Device.QueryDevice(d.DeviceID)
+	var dropChannelType string
+	if device.DropChannelType != "" {
+		dropChannelType = strings.TrimSpace(device.DropChannelType)
+	} else {
+		dropChannelType = strings.TrimSpace(common.Config.GlobalDropChannelType)
+	}
+
+	if dropChannelType != "" {
+		var dropChannelTypes []int
+		for _, code := range strings.Split(dropChannelType, ",") {
+			if code != "" {
+				typeCode, _ := strconv.Atoi(code)
+				dropChannelTypes = append(dropChannelTypes, typeCode)
+			}
+		}
+
+		for _, channel := range channels {
+			for _, dropType := range dropChannelTypes {
+				if dropType == channel.TypeCode {
+					channel.DropMark = 1
+				}
+			}
+		}
+	}
+
 	err := dao.Channel.SaveChannels(channels)
 	if err != nil {
 		log.Sugar.Errorf("save channels failed, device: %s, err: %s", d.DeviceID, err.Error())
