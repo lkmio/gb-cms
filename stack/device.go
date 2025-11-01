@@ -211,10 +211,19 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 			}
 		}
 
+		device, _ := dao.Device.QueryDevice(d.DeviceID)
 		// 批量保存通道
-		result, err = d.SaveChannels(list)
+		result, err = d.SaveChannels(list, device)
+
 		// 更新查询目录的时间
-		_ = dao.Device.UpdateRefreshCatalogTime(d.DeviceID, time.Now())
+		now := time.Now()
+		var interval = dao.DefaultCatalogInterval
+		if device.CatalogInterval != 0 {
+			interval = device.CatalogInterval
+		}
+
+		nextRefreshTime := now.Add(time.Duration(interval) * time.Second)
+		_ = dao.Device.UpdateRefreshCatalogTime(d.DeviceID, nextRefreshTime)
 	}
 
 	if !UniqueTaskManager.Commit(GenerateCatalogTaskID(d.DeviceID), query, catalogProgress) {
@@ -239,7 +248,7 @@ func IsDir(typeCode int) bool {
 	return typeCode < 131 || typeCode > 199
 }
 
-func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, error) {
+func (d *Device) SaveChannels(list []*CatalogResponse, device *dao.DeviceModel) ([]*dao.ChannelModel, error) {
 	var channels []*dao.ChannelModel
 	// 目录
 	dirs := make(map[string]*dao.ChannelModel)
@@ -309,7 +318,6 @@ func (d *Device) SaveChannels(list []*CatalogResponse) ([]*dao.ChannelModel, err
 	}
 
 	// 过滤通道
-	device, _ := dao.Device.QueryDevice(d.DeviceID)
 	var dropChannelType string
 	if device.DropChannelType != "" {
 		dropChannelType = strings.TrimSpace(device.DropChannelType)

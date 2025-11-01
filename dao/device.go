@@ -34,8 +34,8 @@ type DeviceModel struct {
 	ChannelsOnline int `json:"online_channels"` // 通道在线数量
 	Setup          common.SetupType
 
-	CatalogInterval    int       // 录像目录刷新间隔，单位秒, 默认3600每小时刷新
-	LastRefreshCatalog time.Time `gorm:"type:datetime"` // 最后刷新目录时间
+	CatalogInterval        int       // 录像目录刷新间隔，单位秒, 默认3600每小时刷新
+	NextRefreshCatalogTime time.Time `gorm:"type:datetime"` // 下次刷新目录时间
 	//ScheduleRecord         [7]uint64 // 录像计划，0-6表示周一至周日，一天的时间刻度用一个uint64表示，从高位开始代表0点，每bit半小时，共占用48位, 1表示录像，0表示不录像
 	CatalogSubscribe  bool `json:"catalog_subscribe"`  // 是否开启目录订阅
 	AlarmSubscribe    bool `json:"alarm_subscribe"`    // 是否开启报警订阅
@@ -277,7 +277,7 @@ func (d *daoDevice) Count() (int, error) {
 
 func (d *daoDevice) UpdateRefreshCatalogTime(deviceId string, now time.Time) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("last_refresh_catalog", now.Format("2006-01-02 15:04:05")).Error
+		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Update("next_refresh_catalog_time", now.Format("2006-01-02 15:04:05")).Error
 	})
 }
 
@@ -285,8 +285,7 @@ func (d *daoDevice) UpdateRefreshCatalogTime(deviceId string, now time.Time) err
 func (d *daoDevice) QueryRefreshCatalogExpiredDevices(now time.Time) ([]*DeviceModel, error) {
 	var devices []*DeviceModel
 	tx := db.Where(
-		"(datetime(last_refresh_catalog, '+'||IFNULL(catalog_interval, ?)||' seconds') < ? OR last_refresh_catalog IS NULL) AND status = ?",
-		DefaultCatalogInterval,
+		"(next_refresh_catalog_time < ? OR next_refresh_catalog_time IS NULL) AND status = ?",
 		now,
 		common.ON,
 	).Find(&devices)
@@ -301,9 +300,8 @@ func (d *daoDevice) QueryRefreshCatalogExpiredDevices(now time.Time) ([]*DeviceM
 func (d *daoDevice) QueryNeedRefreshCatalog(deviceId string, now time.Time) bool {
 	var devices int64
 	_ = db.Model(&DeviceModel{}).Where(
-		"device_id = ? AND (datetime(last_refresh_catalog, '+'||IFNULL(catalog_interval, ?)||' seconds') < ? OR last_refresh_catalog IS NULL)",
+		"device_id = ? AND (next_refresh_catalog_time < ? OR next_refresh_catalog_time IS NULL)",
 		deviceId,
-		DefaultCatalogInterval,
 		now,
 	).Count(&devices)
 
@@ -317,6 +315,18 @@ func (d *daoDevice) UpdateCatalogInterval(id string, interval int) error {
 }
 
 func (d *daoDevice) UpdateDevice(deviceId string, conditions map[string]interface{}) error {
+	// 更新下次刷新订阅的时间
+	var oldDevice DeviceModel
+	var newCatalogInterval int
+	if interval, ok := conditions["catalog_interval"]; ok {
+		newCatalogInterval = interval.(int)
+		_ = db.Model(&oldDevice).Where("device_id =? AND status = ?", deviceId, common.ON).Select("catalog_interval", "next_refresh_catalog_time", "id").Take(&oldDevice).Error
+		if oldDevice.ID != 0 && oldDevice.CatalogInterval != 0 {
+			oldDevice.NextRefreshCatalogTime = oldDevice.NextRefreshCatalogTime.Add(time.Duration(newCatalogInterval-oldDevice.CatalogInterval) * time.Second)
+			conditions["next_refresh_catalog_time"] = oldDevice.NextRefreshCatalogTime.Format("2006-01-02 15:04:05")
+		}
+	}
+
 	return DBTransaction(func(tx *gorm.DB) error {
 		return tx.Model(&DeviceModel{}).Where("device_id =?", deviceId).Updates(conditions).Error
 	})

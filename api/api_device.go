@@ -373,7 +373,7 @@ func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter,
 	conditions := make(map[string]interface{}, 0)
 
 	// 刷新目录间隔
-	if params.CatalogInterval != model.CatalogInterval && params.CatalogInterval != dao.DefaultCatalogInterval && params.CatalogInterval >= 60 {
+	if params.CatalogInterval != model.CatalogInterval && params.CatalogInterval >= 60 {
 		conditions["catalog_interval"] = params.CatalogInterval
 	}
 
@@ -415,7 +415,9 @@ func (api *ApiServer) OnDeviceInfoSet(params *DeviceInfo, w http.ResponseWriter,
 		if err = dao.Device.UpdateDevice(params.DeviceID, conditions); err != nil {
 			return nil, err
 		}
-	} else if params.DropChannelType != model.DropChannelType {
+	}
+
+	if params.DropChannelType != model.DropChannelType {
 		var dropChannelTypes []string
 		if params.DropChannelType != "" {
 			dropChannelTypes = strings.Split(params.DropChannelType, ",")
