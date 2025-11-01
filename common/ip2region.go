@@ -26,6 +26,9 @@ func LoadIP2RegionDB(path string) error {
 }
 
 func IP2Region(ip string) (string, error) {
+	if strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "192.") || strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "172.") || strings.HasPrefix(ip, "::1") {
+		return "内网IP", nil
+	}
 	// 3、查询
 	region, err := searcher.SearchByStr(ip)
 	if err != nil {

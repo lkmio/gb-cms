@@ -115,8 +115,8 @@ func registerLiveGBSApi() {
 		},
 	}
 
-	apiServer.router.HandleFunc("/api/v1/login", common.WithFormDataParams(apiServer.OnLogin, LoginReq{}))
-	apiServer.router.HandleFunc("/api/v1/modifypassword", withVerify(common.WithFormDataParams(apiServer.OnModifyPassword, ModifyPasswordReq{})))
+	apiServer.registerStatisticsHandler("登录", "/api/v1/login", common.WithFormDataParams(apiServer.OnLogin, LoginReq{}))
+	apiServer.registerStatisticsHandler("修改密码", "/api/v1/modifypassword", withVerify(common.WithFormDataParams(apiServer.OnModifyPassword, ModifyPasswordReq{})))
 
 	apiServer.router.HandleFunc("/api/v1/dashboard/auth", withVerify(func(writer http.ResponseWriter, request *http.Request) {
 		response := struct {

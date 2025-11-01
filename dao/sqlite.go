@@ -28,6 +28,7 @@ var (
 	Dialog    = &daoDialog{}
 	Position  = &daoPosition{}
 	Alarm     = &daoAlarm{}
+	Log       = &daoLog{}
 )
 
 func init() {
@@ -86,6 +87,8 @@ func init() {
 	} else if err = db.AutoMigrate(&PositionModel{}); err != nil {
 		panic(err)
 	} else if err = db.AutoMigrate(&AlarmModel{}); err != nil {
+		panic(err)
+	} else if err = db.AutoMigrate(&LogModel{}); err != nil {
 		panic(err)
 	}
 

@@ -238,9 +238,16 @@ func Start() {
 				now := time.Now()
 				alarmExpireTime := now.AddDate(0, 0, -common.Config.AlarmReserveDays)
 				positionExpireTime := now.AddDate(0, 0, -common.Config.PositionReserveDays)
+				logExpireTime := now.AddDate(0, 0, -common.Config.LogReserveDays)
+
+				// 删除过期的操作记录
+				err := dao.Log.DeleteExpired(logExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的操作记录失败 err: %s", err.Error())
+				}
 
 				// 删除过期的报警记录
-				err := dao.Alarm.DeleteExpired(alarmExpireTime)
+				err = dao.Alarm.DeleteExpired(alarmExpireTime)
 				if err != nil {
 					log.Sugar.Errorf("删除过期的报警记录失败 err: %s", err.Error())
 				}

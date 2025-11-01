@@ -25,6 +25,7 @@ type Config_ struct {
 	SubscribeExpires       int `json:"subscribe_expires"`
 	PositionReserveDays    int `json:"position_reserve_days"`
 	AlarmReserveDays       int `json:"alarm_reserve_days"`
+	LogReserveDays         int `json:"log_reserve_days"`
 
 	MediaServer     string `json:"media_server"`
 	PreferStreamFmt string `json:"prefer_stream_fmt"`
@@ -78,6 +79,7 @@ func ParseConfig(path string) (*Config_, error) {
 		SubscribeExpires:            load.Section("sip").Key("subscribe_expires").MustInt(),
 		PositionReserveDays:         load.Section("sip").Key("position_reserve_days").MustInt(),
 		AlarmReserveDays:            load.Section("sip").Key("alarm_reserve_days").MustInt(),
+		LogReserveDays:              load.Section("sip").Key("log_reserve_days").MustInt(),
 		MediaServer:                 load.Section("sip").Key("media_server").String(),
 		PreferStreamFmt:             load.Section("sip").Key("prefer_stream_fmt").String(),
 		InviteTimeout:               load.Section("sip").Key("invite_timeout").MustInt(),

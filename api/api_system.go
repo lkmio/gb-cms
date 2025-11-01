@@ -236,3 +236,38 @@ func (api *ApiServer) OnSetBaseConfig(baseConfig *BaseConfig, _ http.ResponseWri
 	common.Config = newConfig
 	return "OK", nil
 }
+
+func (api *ApiServer) OnLogList(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
+	v := struct {
+		LogCount       int
+		LogList        interface{}
+		LogRegion      bool
+		LogReserveDays int
+	}{
+		LogRegion:      common.Config.IP2RegionEnable,
+		LogReserveDays: common.Config.LogReserveDays,
+	}
+
+	query, i, err := dao.Log.Query(q.Limit, (q.Start/q.Limit)+1, q.Keyword, q.Sort, q.Order, q.Method, q.StartTime, q.EndTime)
+	if err != nil {
+		log.Sugar.Errorf("查询操作日志失败: %s", err.Error())
+		return nil, err
+	}
+
+	v.LogCount = i
+	v.LogList = query
+	return &v, err
+}
+
+func (api *ApiServer) OnLogClear(_ *Empty, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	if err := dao.Log.Clear(); err != nil {
+		log.Sugar.Errorf("清除操作日志失败: %s", err.Error())
+		return nil, err
+	}
+
+	return "OK", nil
+}

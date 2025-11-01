@@ -30,7 +30,7 @@ func (api *ApiServer) OnAlarmList(q *QueryDeviceChannel, _ http.ResponseWriter, 
 		conditions["alarm_priority"] = q.Priority
 	}
 
-	if q.Method > 0 {
+	if q.Method != "" {
 		conditions["alarm_method"] = q.Method
 	}
 
