@@ -444,3 +444,26 @@ func (api *ApiServer) OnPTZControl(v *QueryRecordParams, _ http.ResponseWriter, 
 
 	return "OK", nil
 }
+
+func (api *ApiServer) OnStatusLogList(q *QueryDeviceChannel, _ http.ResponseWriter, _ *http.Request) (interface{}, error) {
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
+	v := struct {
+		LogCount       int
+		LogList        interface{}
+		LogReserveDays int
+	}{
+		LogReserveDays: common.Config.LogReserveDays,
+	}
+
+	logList, count, err := dao.StatusLog.QueryBySerial(q.DeviceID, q.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	v.LogCount = count
+	v.LogList = logList
+	return &v, nil
+}

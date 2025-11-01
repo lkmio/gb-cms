@@ -164,7 +164,6 @@ func (l *daoLog) Clear() error {
 
 func (l *daoLog) DeleteExpired(expireTime time.Time) error {
 	return DBTransaction(func(tx *gorm.DB) error {
-		tx.Delete(&LogModel{}, "created_at < ?", expireTime.Format("2006-01-02 15:04:05"))
-		return nil
+		return tx.Where("created_at < ?", expireTime).Delete(&LogModel{}).Unscoped().Error
 	})
 }

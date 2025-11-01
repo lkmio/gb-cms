@@ -144,7 +144,7 @@ func updateDevicesStatus() {
 		}
 
 		for _, device := range offlineDevices {
-			CloseDevice(device)
+			CloseDevice(device, "服务重启时离线 OFF")
 		}
 	}
 }
@@ -244,6 +244,12 @@ func Start() {
 				err := dao.Log.DeleteExpired(logExpireTime)
 				if err != nil {
 					log.Sugar.Errorf("删除过期的操作记录失败 err: %s", err.Error())
+				}
+
+				// 删除过期的设备上下线记录
+				err = dao.StatusLog.DeleteExpired(logExpireTime)
+				if err != nil {
+					log.Sugar.Errorf("删除过期的设备上下线记录失败 err: %s", err.Error())
 				}
 
 				// 删除过期的报警记录

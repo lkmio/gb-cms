@@ -35,7 +35,7 @@ type EventHandler struct {
 }
 
 func (e *EventHandler) OnUnregister(id string) {
-	CloseDevice(id)
+	CloseDevice(id, "设备注销 OFF")
 }
 
 // OnRegister 处理设备注册请求
@@ -72,8 +72,24 @@ func (e *EventHandler) OnRegister(id, transport, addr, userAgent string) (int, G
 
 	// 级联通知通道上线
 	device := &Device{model}
-	if count > 0 && !alreadyOnline {
-		go device.PushCatalog()
+
+	// 新注册
+	if !alreadyOnline {
+		err := dao.StatusLog.Save(&dao.StatusLogModel{
+			Serial:      id,
+			Code:        "*",
+			Status:      common.ON.String(),
+			Description: "设备注册上线 ON",
+		})
+
+		if err != nil {
+			log.Sugar.Errorf("保存设备状态日志失败 device: %s err: %s", id, err.Error())
+		}
+
+		// 通道不为空, 通知上级
+		if count > 0 {
+			go device.PushCatalog()
+		}
 	}
 
 	return 3600, device, count < 1 || dao.Device.QueryNeedRefreshCatalog(id, now)

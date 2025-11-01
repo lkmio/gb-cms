@@ -302,6 +302,8 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/log/list", withVerify(common.WithQueryStringParams(apiServer.OnLogList, QueryDeviceChannel{})))                    // 操作日志
 	apiServer.router.HandleFunc("/api/v1/log/clear", withVerify(common.WithQueryStringParams(apiServer.OnLogClear, Empty{})))                               // 操作日志
 
+	apiServer.router.HandleFunc("/api/v1/device/statuslog", withVerify(common.WithQueryStringParams(apiServer.OnStatusLogList, QueryDeviceChannel{}))) // 设备上下线统计
+
 	// 暂未开发
 	apiServer.router.HandleFunc("/api/v1/sms/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))                  // 流媒体服务器列表
 	apiServer.router.HandleFunc("/api/v1/cloudrecord/querychannels", withVerify(func(w http.ResponseWriter, req *http.Request) {})) // 云端录像
@@ -310,6 +312,9 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/setbaseconfig", withVerify(common.WithFormDataParams(apiServer.OnSetBaseConfig, Empty{})))
 	apiServer.router.HandleFunc("/api/v1/gm/cert/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 	apiServer.router.HandleFunc("/api/v1/getrequestkey", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
+	apiServer.router.HandleFunc("/api/v1/getrequestkey", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
+	apiServer.router.HandleFunc("/api/v1/device/positionlog", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
+	apiServer.router.HandleFunc("/api/v1/device/streamlog", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 
 	apiServer.registerStatisticsHandler("开始录制", "/api/v1/record/start", withVerify(apiServer.OnRecordStart)) // 开启录制
 	apiServer.registerStatisticsHandler("结束录制", "/api/v1/record/stop", withVerify(apiServer.OnRecordStop))   // 关闭录制

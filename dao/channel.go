@@ -11,7 +11,7 @@ import (
 // GBModel 解决`Model`变量名与gorm.Model冲突
 type GBModel struct {
 	ID        uint      `gorm:"primarykey" xml:"-"`
-	CreatedAt time.Time `json:"created_at" xml:"-"`
+	CreatedAt time.Time `json:"-" xml:"-"`
 	UpdatedAt time.Time `json:"-" xml:"-"`
 }
 

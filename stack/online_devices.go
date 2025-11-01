@@ -1,6 +1,7 @@
 package stack
 
 import (
+	"gb-cms/common"
 	"gb-cms/dao"
 	"gb-cms/log"
 	"sync"
@@ -91,14 +92,26 @@ func NewOnlineDeviceManager() *onlineDeviceManager {
 // OnExpires Redis设备ID到期回调
 func OnExpires(db int, id string) {
 	log.Sugar.Infof("设备心跳过期 device: %s", id)
-	CloseDevice(id)
+	CloseDevice(id, "设备超时离线 OFF")
 }
 
-func CloseDevice(id string) {
+func CloseDevice(id string, reason string) {
 	device, _ := dao.Device.QueryDevice(id)
 	if device == nil {
 		log.Sugar.Errorf("设备不存在 device: %s", id)
 		return
+	}
+
+	// 保存设备状态日志
+	err := dao.StatusLog.Save(&dao.StatusLogModel{
+		Serial:      id,
+		Code:        "*",
+		Status:      common.OFF.String(),
+		Description: reason,
+	})
+
+	if err != nil {
+		log.Sugar.Errorf("保存设备状态日志失败 device: %s err: %s", id, err.Error())
 	}
 
 	(&Device{DeviceModel: device}).Close()
