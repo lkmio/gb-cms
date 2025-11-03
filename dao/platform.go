@@ -294,7 +294,7 @@ func (d *daoPlatform) SetShareAllChannel(id int, shareAll bool) error {
 // QueryPlatformByChannelID 查询某个通道级联到的所有上级
 func (d *daoPlatform) QueryPlatformByChannelID(deviceID, channelID string) ([]*PlatformChannelModel, error) {
 	var platformChannels []*PlatformChannelModel
-	tx := db.Where("device_id =? and channel_id =? group by server_addr", deviceID, channelID).Find(&platformChannels)
+	tx := db.Where("device_id =? and channel_id =? group by p_id", deviceID, channelID).Find(&platformChannels)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
