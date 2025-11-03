@@ -15,6 +15,36 @@ type GBModel struct {
 	UpdatedAt time.Time `json:"-" xml:"-"`
 }
 
+type ChannelInfo struct {
+	PTZType                  string     `json:"ptz_type" xml:"PTZType,omitempty"`                                    // <!--  摄像机结构类型，标识摄像机类型：1-球机；2-半球；3-固定枪机；4-遥控枪机；5-遥控半球；6-多目设备的全景/拼接通道；7-多目设备的分割通道。当为摄像机时可选。-->
+	PhotoelectricImagingType string     `json:"photoelectric_imaging_type" xml:"PhotoelectricImagingType,omitempty"` // <!--  摄像机光电成像类型。1-可见光成像；2-热成像；3-雷达成像；4-X光成像；5-深度光场成像；9-其他。可多值，用英文半角“/”分割。当为摄像机时可选。-->
+	CapturePositionType      string     `json:"capture_position_type" xml:"CapturePositionType,omitempty"`           // <!--  摄像机采集部位类型。采用附录O中的规定。当为摄像机时可选。-->
+	RoomType                 int        `json:"room_type" xml:"RoomType,omitempty" gorm:"default:1"`                 // <!--  摄像机安装位置室外、室内属性。1-室外、2-室内。当为摄像机时可选，缺省为1。-->
+	SupplyLightType          int        `json:"supply_light_type" xml:"SupplyLightType,omitempty" gorm:"default:1"`  // <!--  摄像机补光属性。1-无补光；2-红外补光；3-白光补光；4-激光补光；9-其他。当为摄像机时可选，缺省为1。-->
+	DirectionType            *int       `json:"direction_type" xml:"DirectionType,omitempty"`                        // <!--  摄像机监视方位（光轴方向）属性。1-东（西向东）、2-西（东向西）、3-南（北向南）、4-北（南向北）、5-东南（西北到东南）、6-东北（西南到东北）、7-西南（东北到西南）、8-西北（东南到西北）。当为摄像机时且为固定摄像机或设置看守位摄像机时可选。-->
+	Resolution               string     `json:"resolution" xml:"Resolution,omitempty"`                               // <!--  摄像机支持的分辨率，可多值，用英文半角“/”。分辨率取值参见附录G中SDP f字段规定。当为摄像机时可选。-->
+	StreamNumberList         string     `json:"stream_number_list" xml:"StreamNumberList,omitempty"`                 // <!--  摄像机支持的码流编号列表，用于实时点播时指定码流编号（可选），多个取值间用英文半角“/”分割。如“0/1/2”,表示支持主码流，子码流1，子码流2，以此类推。-->
+	DownloadSpeed            string     `json:"download_speed" xml:"DownloadSpeed,omitempty"`                        // <!-- 下载倍速（可选），可多值，用英文半角“/”分割，如设备支持1,2,4倍速下载则应写为“1/2/4”-->
+	SVCSpaceSupportMode      *int       `json:"svc_space_support_mode" xml:"SVCSpaceSupportMode,omitempty"`          // <!--  空域编码能力，取值0-不支持；1-1级增强（1个增强层）；2-2级增强（2个增强层）；3-3级增强（3个增强层）（可选）-->
+	SVCTimeSupportMode       *int       `json:"svc_time_support_mode" xml:"SVCTimeSupportMode,omitempty"`            // <!--  时域编码能力，取值0-不支持；1-1级增强；2-2级增强；3-3级增强（可选）-->
+	SSVCRatioSupportList     string     `json:"ssvc_ratio_support_list" xml:"SSVCRatioSupportList,omitempty"`        // <!--  SSVC增强层与基本层比例能力，多个取值间用英文半角“/”分割。如“4:3/2:1/4:1/6:1/8:1”等具体比例值一种或多种（可选）-->
+	MobileDeviceType         *int       `json:"mobile_device_type" xml:"MobileDeviceType,omitempty"`                 // <!--  移动采集设备类型（仅移动采集设备适用，必选）；1-移动机器人载摄像机；2-执法记录仪；3-移动单兵设备；4-车载视频记录设备；5-无人机载摄像机；9-其他 -->
+	HorizontalFieldAngle     float64    `json:"horizontal_field_angle" xml:"HorizontalFieldAngle,omitempty"`         // <!--  摄像机水平视场角（可选），取值范围大于0度小于等于360度 -->
+	VerticalFieldAngle       float64    `json:"vertical_field_angle" xml:"VerticalFieldAngle,omitempty"`             // <!--  摄像机竖直视场角（可选），取值范围大于0度小于等于360度 -->
+	MaxViewDistance          float64    `json:"max_view_distance" xml:"MaxViewDistance,omitempty"`                   // <!--  摄像机可视距离（可选），单位：米 -->
+	GrassrootsCode           string     `json:"grassroots_code" xml:"GrassrootsCode,omitempty"`                      // <!--  基层组织编码（必选，非基层建设时为“000000”），编码规则采用附录E.3中规定的格式。 -->
+	PointType                *int       `json:"point_type" xml:"PointType,omitempty"`                                // <!--  监控点位类型（当为摄像机时必选），1-一类视频监控点；2-二类视频监控点；3-三类视频监控点；9-其他点位。-->
+	PointCommonName          string     `json:"point_common_name" xml:"PointCommonName,omitempty"`                   // <!--  点位俗称（可选），监控点位附近如有标志性建筑、场所或监控点位处于公众约定俗成的地点，可以填写标志性建设名称和地点俗称 -->
+	MAC                      string     `json:"mac" xml:"MAC,omitempty"`                                             // <!-- 设备MAC地址（可选），用“XX-XX-XX-XX-XX-XX”格式表达，其中“XX”表示2位十六进制数，用英文半角“-”隔开  -->
+	FunctionType             string     `json:"function_type" xml:"FunctionType,omitempty"`                          // <!--  摄像机卡口功能类型，01-人脸卡口；02-人员卡口；03-机动车卡口；04-非机动车卡口；05-物品卡口；99-其他。可多值，用英文半角“/”分割。当为摄像机时可选-->
+	EncodeType               string     `json:"encode_type" xml:"EncodeType,omitempty"`                              // <!-- 摄像机视频编码格式（可选），取值参见附录G中SDP f字段规定。-->
+	InstallTime              *time.Time `json:"install_time" xml:"InstallTime,omitempty"`                            // <!--  摄像机安装使用时间。一类视频监控点必选；二类、三类可选 -->
+	ManagementUnit           string     `json:"management_unit" xml:"ManagementUnit,omitempty"`                      // <!--  摄像机所属管理单位名称（可选）-->
+	ContactInfo              string     `json:"contact_info" xml:"ContactInfo,omitempty"`                            // <!--  摄像机所属管理单位联系人的联系方式（电话号码，可多值，用英文半角“/”分割）。一类视频监控点必填；二类、三类选填 -->
+	RecordSaveDays           *int       `json:"record_save_days" xml:"RecordSaveDays,omitempty"`                     // <!--  录像保存天数（可选），一类视频监控点必填；二类、三类选填-->
+	IndustrialClassification string     `json:"industrial_classification" xml:"IndustrialClassification,omitempty"`  // <!--  国民经济行业分类代码（可选），代码见GB/T 4754第5章 -->
+}
+
 type ChannelModel struct {
 	GBModel
 
@@ -50,6 +80,7 @@ type ChannelModel struct {
 	Status          common.OnlineStatus `json:"status" xml:"Status,omitempty"`
 	Longitude       string              `json:"longitude" xml:"Longitude,omitempty"`
 	Latitude        string              `json:"latitude" xml:"Latitude,omitempty"`
+	Info            *ChannelInfo        `json:"-" xml:"Info" gorm:"embedded"`
 	Setup           common.SetupType    `json:"setup,omitempty" xml:"-"`
 	ChannelNumber   int                 `json:"channel_number" xml:"-"`           // 对应1078的通道号
 	SubCount        int                 `json:"-" xml:"-"`                        // 子节点数量

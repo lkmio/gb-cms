@@ -242,6 +242,16 @@ func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, devi
 			customID = *channel.CustomID
 		}
 
+		var ptzType int
+		if channel.Info != nil {
+			ptzType, _ = strconv.Atoi(channel.Info.PTZType)
+		}
+
+		var direction int
+		if channel.Info != nil && channel.Info.DirectionType != nil {
+			direction = *channel.Info.DirectionType
+		}
+
 		ChannelList = append(ChannelList, &LiveGBSChannel{
 			Address:            channel.Address,
 			Altitude:           0,
@@ -274,7 +284,7 @@ func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, devi
 			DeviceName:         deviceName,
 			DeviceOnline:       online,
 			DeviceType:         "GB",
-			Direction:          0,
+			Direction:          direction,
 			DownloadSpeed:      "",
 			Firmware:           "",
 			ID:                 channel.DeviceID,
@@ -287,7 +297,7 @@ func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, devi
 			NumOutputs:         0,
 			Ondemand:           true,
 			Owner:              channel.Owner,
-			PTZType:            0,
+			PTZType:            ptzType,
 			ParentID:           channel.ParentID,
 			Parental:           parental,
 			Port:               port,
