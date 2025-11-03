@@ -108,7 +108,7 @@ func (d *Device) StartBroadcast(streamId common.StreamID, deviceId, channelId st
 func (d *Device) OnInvite(request sip.Request, user string) sip.Response {
 	// 查找会话, 先用source id查找, 找不到再根据设备id查找
 	streamWaiting := EarlyDialogs.Find(user)
-	if streamWaiting != nil {
+	if streamWaiting == nil {
 		if streamWaiting = EarlyDialogs.Find(d.DeviceID); streamWaiting == nil {
 			return CreateResponseWithStatusCode(request, http.StatusBadRequest)
 		}
