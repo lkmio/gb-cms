@@ -1,6 +1,9 @@
 package dao
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+	"strings"
+)
 
 type BlacklistModel struct {
 	GBModel
@@ -102,12 +105,20 @@ func (d daoBlacklist) Replace(iplist []string, ualist []string) error {
 
 		BlacklistManager.Clear()
 		for _, ip := range iplist {
+			if strings.TrimSpace(ip) == "" {
+				continue
+			}
+
 			if err = d.saveIP(tx, ip); err != nil {
 				return err
 			}
 		}
 
 		for _, ua := range ualist {
+			if strings.TrimSpace(ua) == "" {
+				continue
+			}
+
 			if err = d.saveUA(tx, ua); err != nil {
 				return err
 			}
