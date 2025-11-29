@@ -203,7 +203,13 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 		}
 
 		// 删除旧的通道列表
+		oldChannels := make(map[string]*dao.ChannelModel)
 		if oldChannelCount > 0 {
+			channels, err := dao.Channel.QueryChannelsByRootID(d.DeviceID)
+			for _, channel := range channels {
+				oldChannels[channel.RootID+"/"+channel.DeviceID] = channel
+			}
+
 			err = dao.Channel.DeleteChannels(d.DeviceID)
 			if err != nil {
 				log.Sugar.Errorf("delete channels failed, device: %s, err: %s", d.DeviceID, err.Error())
@@ -213,7 +219,7 @@ func (d *Device) QueryCatalog(timeoutSeconds int) ([]*dao.ChannelModel, error) {
 
 		device, _ := dao.Device.QueryDevice(d.DeviceID)
 		// 批量保存通道
-		result, err = d.SaveChannels(list, device)
+		result, err = d.SaveChannels(list, device, oldChannels)
 
 		// 更新查询目录的时间
 		now := time.Now()
@@ -248,7 +254,7 @@ func IsDir(typeCode int) bool {
 	return typeCode < 131 || typeCode > 199
 }
 
-func (d *Device) SaveChannels(list []*CatalogResponse, device *dao.DeviceModel) ([]*dao.ChannelModel, error) {
+func (d *Device) SaveChannels(list []*CatalogResponse, device *dao.DeviceModel, oldChannels map[string]*dao.ChannelModel) ([]*dao.ChannelModel, error) {
 	var channels []*dao.ChannelModel
 	// 目录
 	dirs := make(map[string]*dao.ChannelModel)
@@ -340,6 +346,14 @@ func (d *Device) SaveChannels(list []*CatalogResponse, device *dao.DeviceModel) 
 					channel.DropMark = 1
 				}
 			}
+		}
+	}
+
+	// 保留旧的通道截图路径
+	for _, channel := range channels {
+		oldChannel, ok := oldChannels[channel.RootID+"/"+channel.DeviceID]
+		if ok && oldChannel.SnapshotPath != "" {
+			channel.SnapshotPath = oldChannel.SnapshotPath
 		}
 	}
 
