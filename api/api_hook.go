@@ -6,10 +6,15 @@ import (
 	"gb-cms/hook"
 	"gb-cms/log"
 	"gb-cms/stack"
+	"github.com/csnewman/ffmpeg-go"
 	"github.com/lkmio/avformat/utils"
 	"net/http"
+	"os"
+	"path"
 	"strings"
 )
+
+var VideoKeyFrame2JPG func(codecId ffmpeg.AVCodecID, h264Data []byte, dstPath string) error
 
 func (api *ApiServer) OnPlay(params *PlayDoneParams, w http.ResponseWriter, r *http.Request) {
 	log.Sugar.Infof("播放事件. protocol: %s stream: %s", params.Protocol, params.Stream)
@@ -154,6 +159,7 @@ func (api *ApiServer) OnPublish(params *StreamParams, w http.ResponseWriter, _ *
 
 	stream := stack.EarlyDialogs.Find(string(params.Stream))
 	if stream != nil {
+		stream.Data = params.Session
 		stream.Put(200)
 	} else {
 		log.Sugar.Infof("推流事件. 未找到stream. stream: %s", params.Stream)
@@ -226,4 +232,45 @@ func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
 	for _, sink := range sinks {
 		(&stack.Sink{SinkModel: sink}).Close(true, false)
 	}
+}
+
+func (api *ApiServer) OnSnapshot(v *SnapshotParams, writer http.ResponseWriter, request *http.Request) {
+	if VideoKeyFrame2JPG == nil {
+		return
+	}
+
+	var codecId ffmpeg.AVCodecID
+	switch strings.ToLower(v.Codec) {
+	case "h264":
+		codecId = ffmpeg.AVCodecIdH264
+	case "h265":
+		codecId = ffmpeg.AVCodecIdH265
+	default:
+		log.Sugar.Errorf("不支持的视频编码格式 codec: %s", v.Codec)
+		return
+	}
+
+	jpgPath := GetSnapshotPath(v.Stream, v.Session)
+	err := os.MkdirAll(path.Dir(jpgPath), 0755)
+	if err != nil {
+		log.Sugar.Errorf("创建目录失败 err: %s", err.Error())
+		return
+	}
+
+	// 关家帧转换并保存JPEG
+	err = VideoKeyFrame2JPG(codecId, v.KeyFrameData, jpgPath)
+	if err != nil {
+		log.Sugar.Errorf("转换为JPEG失败 err: %s", err.Error())
+	} else if err = dao.Channel.SetSnapshotPath(v.Stream.DeviceID(), v.Stream.ChannelID(), jpgPath); err != nil {
+		// 数据库更新通道的最新截图
+		log.Sugar.Errorf("更新通道最新截图失败 err: %s", err.Error())
+	}
+}
+
+func GetSnapshotPath(streamID common.StreamID, sessionID string) string {
+	if VideoKeyFrame2JPG == nil {
+		return ""
+	}
+
+	return path.Join("./snapshot/", string(streamID), sessionID+".jpg")
 }

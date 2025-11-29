@@ -95,7 +95,7 @@ func (api *ApiServer) DoStartStream(v *InviteParams, w http.ResponseWriter, r *h
 	}
 
 	response := LiveGBSStream{
-		AudioEnable:           false,
+		AudioEnable:           true,
 		CDN:                   "",
 		CascadeSize:           0,
 		ChannelID:             v.ChannelID,
@@ -116,7 +116,7 @@ func (api *ApiServer) DoStartStream(v *InviteParams, w http.ResponseWriter, r *h
 		RecordStartAt:         "",
 		RelaySize:             0,
 		SMSID:                 "",
-		SnapURL:               "",
+		SnapURL:               GetSnapshotPath(stream.StreamID, stream.SessionID),
 		SourceAudioCodecName:  "",
 		SourceAudioSampleRate: 0,
 		SourceVideoCodecName:  "",

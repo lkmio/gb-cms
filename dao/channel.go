@@ -88,6 +88,7 @@ type ChannelModel struct {
 	CustomID        *string             `gorm:"unique" xml:"-"`                   // 自定义通道ID
 	Event           string              `json:"-" xml:"Event,omitempty" gorm:"-"` // <!-- 状态改变事件ON:上线,OFF:离线,VLOST:视频丢失,DEFECT:故障,ADD:增加,DEL:删除,UPDATE:更新(必选)-->
 	DropMark        int                 `json:"-" xml:"-"`                        // 是否被过滤 0-不被过滤/非0-被过滤
+	SnapshotPath    string              `json:"snapshot_path" xml:"-"`            // 快照路径
 }
 
 func (d *ChannelModel) TableName() string {
@@ -429,4 +430,8 @@ func (d *daoChannel) DropChannel(rootId string, typeCodes []string, tx *gorm.DB)
 	return DBTransaction(func(tx *gorm.DB) error {
 		return update(tx)
 	})
+}
+
+func (d *daoChannel) SetSnapshotPath(rootId string, channelId string, snapshotPath string) error {
+	return db.Model(&ChannelModel{}).Where("root_id =? and device_id =?", rootId, channelId).Update("snapshot_path", snapshotPath).Error
 }

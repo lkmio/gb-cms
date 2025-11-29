@@ -59,13 +59,17 @@ func (d *Device) StartStream(inviteType common.InviteType, streamId common.Strea
 		if !ok {
 			log.Sugar.Infof("收流超时 发送bye请求...")
 			CloseStream(streamId, true)
+		} else if waiting.Data != nil {
+			if session, ok := waiting.Data.(string); ok {
+				stream.SessionID = session
+			}
 		}
 		return ok
 	}
 
-	if sync {
+	if !sync {
 		go wait()
-	} else if !sync && !wait() {
+	} else if sync && !wait() {
 		return nil, fmt.Errorf("receiving stream timed out")
 	}
 

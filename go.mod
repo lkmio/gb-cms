@@ -53,6 +53,7 @@ require (
 )
 
 require (
+	github.com/csnewman/ffmpeg-go v0.6.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-co-op/gocron/v2 v2.16.6
 	github.com/gorilla/mux v1.8.1
@@ -66,3 +67,5 @@ require (
 )
 
 replace github.com/ghettovoice/gosip => github.com/lkmio/gosip v0.0.0-20251016021306-565c7a2fa4f5
+
+replace github.com/csnewman/ffmpeg-go => github.com/lkmio/ffmpeg-go v0.0.0-20251129021554-ca32d075a5b7

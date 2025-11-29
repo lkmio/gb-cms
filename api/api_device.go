@@ -326,7 +326,12 @@ func (api *ApiServer) OnDeviceTree(q *QueryDeviceChannel, _ http.ResponseWriter,
 				onlineCount, _ = dao.Channel.QueryOnlineSubChannelCount(channel.RootID, channel.DeviceID, false)
 			}
 
-			response = append(response, &LiveGBSDeviceTree{Code: channel.DeviceID, Custom: false, CustomID: "", CustomName: "", ID: id, Latitude: latitude, Longitude: longitude, Manufacturer: channel.Manufacturer, Name: channel.Name, OnlineSubCount: onlineCount, Parental: false, PtzType: 0, Serial: channel.RootID, Status: channel.Status.String(), SubCount: channel.SubCount, SubCountDevice: deviceCount})
+			var ptzType int
+			if channel.Info != nil {
+				ptzType, _ = strconv.Atoi(channel.Info.PTZType)
+			}
+
+			response = append(response, &LiveGBSDeviceTree{Code: channel.DeviceID, Custom: false, CustomID: "", CustomName: "", ID: id, Latitude: latitude, Longitude: longitude, Manufacturer: channel.Manufacturer, Name: channel.Name, OnlineSubCount: onlineCount, Parental: false, PtzType: ptzType, Serial: channel.RootID, Status: channel.Status.String(), SubCount: channel.SubCount, SubCountDevice: deviceCount})
 		}
 	}
 

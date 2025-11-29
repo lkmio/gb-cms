@@ -98,6 +98,10 @@ func main() {
 	log.Sugar.Infof("启动http server. addr: %s", httpAddr)
 	go api.StartApiServer(httpAddr)
 
+	if api.VideoKeyFrame2JPG != nil {
+		log.Sugar.Infof("snapshot enabled")
+	}
+
 	err = http.ListenAndServe(":19000", nil)
 	if err != nil {
 		println(err)

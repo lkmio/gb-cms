@@ -307,7 +307,7 @@ func ChannelModels2LiveGBSChannels(index int, channels []*dao.ChannelModel, devi
 			SerialNumber:       "",
 			Shared:             false,
 			SignalLevel:        0,
-			SnapURL:            "",
+			SnapURL:            channel.SnapshotPath,
 			Speed:              0,
 			Status:             channel.Status.String(),
 			StreamID:           string(streamID), // 实时流ID

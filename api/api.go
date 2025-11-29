@@ -33,6 +33,7 @@ type InviteParams struct {
 
 type StreamParams struct {
 	Stream     common.StreamID `json:"stream"`      // Source
+	Session    string          `json:"session"`     // 本次推拉流的会话ID
 	Protocol   int             `json:"protocol"`    // 推拉流协议
 	RemoteAddr string          `json:"remote_addr"` // peer地址
 }
@@ -72,6 +73,12 @@ type BroadcastParams struct {
 type RecordParams struct {
 	StreamParams
 	Path string `json:"path"`
+}
+
+type SnapshotParams struct {
+	StreamParams
+	Codec        string `json:"codec"`
+	KeyFrameData []byte `json:"key_frame_data"`
 }
 
 type StreamIDParams struct {
@@ -261,6 +268,7 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", common.WithJsonParams(apiServer.OnReceiveTimeout, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_record", common.WithJsonParams(apiServer.OnRecord, &RecordParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
+	apiServer.router.HandleFunc("/api/v1/hook/on_snapshot", common.WithJsonParams(apiServer.OnSnapshot, &SnapshotParams{}))
 
 	apiServer.registerStatisticsHandler("开始预览", "/api/v1/stream/start", withVerify(common.WithFormDataParams(apiServer.OnStreamStart, InviteParams{})))           // 实时预览
 	apiServer.registerStatisticsHandler("停止预览", "/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseLiveStream, InviteParams{})))        // 关闭实时预览
@@ -315,6 +323,7 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/getrequestkey", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 	apiServer.router.HandleFunc("/api/v1/device/positionlog", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 	apiServer.router.HandleFunc("/api/v1/device/streamlog", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
+	apiServer.router.HandleFunc("/api/v1/record/list", withVerify(func(w http.ResponseWriter, req *http.Request) {}))
 
 	apiServer.registerStatisticsHandler("开始录制", "/api/v1/record/start", withVerify(apiServer.OnRecordStart)) // 开启录制
 	apiServer.registerStatisticsHandler("结束录制", "/api/v1/record/stop", withVerify(apiServer.OnRecordStop))   // 关闭录制
@@ -400,6 +409,9 @@ func StartApiServer(addr string) {
 			}
 		})
 	})
+
+	// 映射snapshot目录
+	apiServer.router.PathPrefix("/snapshot/").Handler(http.StripPrefix("/snapshot/", http.FileServer(http.Dir("./snapshot"))))
 
 	// 前端路由
 	htmlRoot := "./html/"

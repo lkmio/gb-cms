@@ -12,6 +12,7 @@ type StreamModel struct {
 	DeviceID   string                 `gorm:"index"`                         // 下级设备ID, 统计某个设备的所有流/1078设备为sim number
 	ChannelID  string                 `gorm:"index"`                         // 下级通道ID, 统计某个设备下的某个通道的所有流/1078设备为 channel number
 	StreamID   common.StreamID        `json:"stream_id" gorm:"index,unique"` // 流ID
+	SessionID  string                 `gorm:"index"`                         // 某次推流的会话ID
 	Protocol   int                    `json:"protocol,omitempty"`            // 推流协议, @See stack.SourceTypeRtmp
 	StreamType string                 // play/playback/download
 	Dialog     *common.RequestWrapper `json:"dialog,omitempty"` // 国标流的SipCall会话

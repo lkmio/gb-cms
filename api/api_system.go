@@ -148,7 +148,7 @@ func (api *ApiServer) OnSetBaseConfig(baseConfig *BaseConfig, _ http.ResponseWri
 	}
 
 	// 更新优先流格式
-	if baseConfig.PreferStreamFmt != "" && baseConfig.PreferStreamFmt != common.Config.PreferStreamFmt {
+	if baseConfig.PreferStreamFmt != common.Config.PreferStreamFmt {
 		iniConfig.Section("sip").Key("prefer_stream_fmt").SetValue(baseConfig.PreferStreamFmt)
 		changed = true
 	}
