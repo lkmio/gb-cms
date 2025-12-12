@@ -259,6 +259,22 @@ func (api *ApiServer) registerStatisticsHandler(actionName, path string, handler
 	api.actionNames[path] = actionName
 }
 
+type SnapshotFilter struct {
+}
+
+func (f *SnapshotFilter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if "" != r.URL.Query().Get("preview_snapshot") {
+		t := r.URL.Query().Get("t")
+		ok := DefaultSnapshotManager.Get(t, 2*time.Second)
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+	}
+
+	http.FileServer(http.Dir("./snapshot")).ServeHTTP(w, r)
+}
+
 func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_play", common.WithJsonParams(apiServer.OnPlay, &PlayDoneParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_play_done", common.WithJsonParams(apiServer.OnPlayDone, &PlayDoneParams{}))
@@ -268,7 +284,7 @@ func StartApiServer(addr string) {
 	apiServer.router.HandleFunc("/api/v1/hook/on_receive_timeout", common.WithJsonParams(apiServer.OnReceiveTimeout, &StreamParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_record", common.WithJsonParams(apiServer.OnRecord, &RecordParams{}))
 	apiServer.router.HandleFunc("/api/v1/hook/on_started", apiServer.OnStarted)
-	apiServer.router.HandleFunc("/api/v1/hook/on_snapshot", common.WithJsonParams(apiServer.OnSnapshot, &SnapshotParams{}))
+	apiServer.router.HandleFunc("/api/v1/hook/on_snapshot", apiServer.OnSnapshot)
 
 	apiServer.registerStatisticsHandler("开始预览", "/api/v1/stream/start", withVerify(common.WithFormDataParams(apiServer.OnStreamStart, InviteParams{})))           // 实时预览
 	apiServer.registerStatisticsHandler("停止预览", "/api/v1/stream/stop", withVerify(common.WithFormDataParams(apiServer.OnCloseLiveStream, InviteParams{})))        // 关闭实时预览
@@ -411,7 +427,8 @@ func StartApiServer(addr string) {
 	})
 
 	// 映射snapshot目录
-	apiServer.router.PathPrefix("/snapshot/").Handler(http.StripPrefix("/snapshot/", http.FileServer(http.Dir("./snapshot"))))
+	filter := SnapshotFilter{}
+	apiServer.router.PathPrefix("/snapshot/").Handler(http.StripPrefix("/snapshot/", &filter))
 
 	// 前端路由
 	htmlRoot := "./html/"

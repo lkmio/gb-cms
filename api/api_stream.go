@@ -116,7 +116,7 @@ func (api *ApiServer) DoStartStream(v *InviteParams, w http.ResponseWriter, r *h
 		RecordStartAt:         "",
 		RelaySize:             0,
 		SMSID:                 "",
-		SnapURL:               GetSnapshotPath(stream.StreamID, stream.SessionID),
+		SnapURL:               GetSnapshotPath(stream.StreamID) + "?preview_snapshot=1&t=" + stream.SessionID,
 		SourceAudioCodecName:  "",
 		SourceAudioSampleRate: 0,
 		SourceVideoCodecName:  "",

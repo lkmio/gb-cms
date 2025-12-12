@@ -3,8 +3,10 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/csnewman/ffmpeg-go"
+	"github.com/disintegration/imaging"
 	"os"
 	"unsafe"
 )
@@ -111,9 +113,41 @@ func saveFrameAsJPEG(frame *ffmpeg.AVFrame, filename string) error {
 		return fmt.Errorf("接收包失败 %v", err)
 	}
 
-	// 写入文件
-	if _, err := file.Write(unsafe.Slice((*byte)(pkt.Data()), pkt.Size())); err != nil {
-		return fmt.Errorf("写入文件失败 %v", err)
+	// 获取编码后的 JPEG 原始字节数据
+	jpegBytes := unsafe.Slice((*byte)(pkt.Data()), pkt.Size())
+
+	// 判断是否需要缩放
+	targetW, targetH := 960, 540
+	if (frame.Width() > frame.Height()) && frame.Width() > targetW || frame.Height() > targetH {
+		// [路径 A: 需要缩放]
+
+		// 1. 将 JPEG 字节流解码为 Go Image 对象
+		img, err := imaging.Decode(bytes.NewReader(jpegBytes))
+		if err != nil {
+			return fmt.Errorf("Go解码图片失败: %v", err)
+		}
+
+		// 2. 使用 imaging 库进行缩放 (Fit 会保持比例，适应 960x540 的框)
+		// 使用 Lanczos 算法保证缩放后的清晰度
+		dstImg := imaging.Fit(img, targetW, targetH, imaging.Lanczos)
+
+		// 3. 保存缩放后的图片到文件
+		if err := imaging.Save(dstImg, filename, imaging.JPEGQuality(80)); err != nil {
+			return fmt.Errorf("保存缩放图片失败: %v", err)
+		}
+
+	} else {
+		// [路径 B: 不需要缩放]
+		// 直接将 FFmpeg 编码好的字节写入文件，效率最高
+		file, err := os.Create(filename)
+		if err != nil {
+			return fmt.Errorf("创建文件失败 %v", err)
+		}
+		defer file.Close()
+
+		if _, err := file.Write(jpegBytes); err != nil {
+			return fmt.Errorf("写入文件失败 %v", err)
+		}
 	}
 
 	return nil

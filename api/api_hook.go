@@ -8,6 +8,7 @@ import (
 	"gb-cms/stack"
 	"github.com/csnewman/ffmpeg-go"
 	"github.com/lkmio/avformat/utils"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -234,10 +235,27 @@ func (api *ApiServer) OnStarted(_ http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func (api *ApiServer) OnSnapshot(v *SnapshotParams, writer http.ResponseWriter, request *http.Request) {
+func (api *ApiServer) OnSnapshot(w http.ResponseWriter, r *http.Request) {
 	if VideoKeyFrame2JPG == nil {
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024*2)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		if err.Error() == "http: request body too large" {
+			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "read body failed", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	v := &SnapshotParams{}
+	v.Stream = common.StreamID(r.Header.Get("stream"))
+	v.Session = r.Header.Get("session")
+	v.Codec = r.Header.Get("codec")
+	v.KeyFrameData = data
 
 	var codecId ffmpeg.AVCodecID
 	switch strings.ToLower(v.Codec) {
@@ -250,8 +268,8 @@ func (api *ApiServer) OnSnapshot(v *SnapshotParams, writer http.ResponseWriter, 
 		return
 	}
 
-	jpgPath := GetSnapshotPath(v.Stream, v.Session)
-	err := os.MkdirAll(path.Dir(jpgPath), 0755)
+	jpgPath := GetSnapshotPath(v.Stream)
+	err = os.MkdirAll(path.Dir(jpgPath), 0755)
 	if err != nil {
 		log.Sugar.Errorf("创建目录失败 err: %s", err.Error())
 		return
@@ -261,16 +279,18 @@ func (api *ApiServer) OnSnapshot(v *SnapshotParams, writer http.ResponseWriter, 
 	err = VideoKeyFrame2JPG(codecId, v.KeyFrameData, jpgPath)
 	if err != nil {
 		log.Sugar.Errorf("转换为JPEG失败 err: %s", err.Error())
-	} else if err = dao.Channel.SetSnapshotPath(v.Stream.DeviceID(), v.Stream.ChannelID(), jpgPath); err != nil {
+	} else if err = dao.Channel.SetSnapshotPath(v.Stream.DeviceID(), v.Stream.ChannelID(), jpgPath+"?t="+v.Session); err != nil {
 		// 数据库更新通道的最新截图
 		log.Sugar.Errorf("更新通道最新截图失败 err: %s", err.Error())
+	} else {
+		DefaultSnapshotManager.Put(v.Session, true)
 	}
 }
 
-func GetSnapshotPath(streamID common.StreamID, sessionID string) string {
+func GetSnapshotPath(streamID common.StreamID) string {
 	if VideoKeyFrame2JPG == nil {
 		return ""
 	}
 
-	return path.Join("./snapshot/", string(streamID), sessionID+".jpg")
+	return path.Join("./snapshot/", string(streamID)+".jpg")
 }
